@@ -23,7 +23,7 @@ async function load(ctx, button) {
   clear(host);
   setBusy(button, true, 'Checking…');
   try {
-    const data = await ctx.api.get(`/api/plugins/${ctx.module.id}/permissions`);
+    const data = await ctx.api.get(`/api/plugins/${ctx.plugin.id}/permissions`);
     if (!data.configured) {
       host.append(h('div', { class: 'alert danger' }, 'The Entra application is not configured. Save it under Manage → Tenants.'));
       return;

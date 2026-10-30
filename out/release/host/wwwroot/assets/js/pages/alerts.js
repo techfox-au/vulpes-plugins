@@ -32,7 +32,7 @@ async function renderRules(ctx, isAdmin) {
   root.append(table({
     columns: [
       { title: 'Rule', render: (r) => h('div', null, h('div', null, h('strong', null, r.name), ' ', r.enabled ? null : badge('disabled', 'warning')), h('div', { class: 'small muted' }, r.description || '')) },
-      { title: 'Scope', render: (r) => h('div', null, h('div', null, `${moduleName(r.moduleId)} · ${r.sources.join(', ')}`), h('div', { class: 'small muted' }, describeConditions(r))) },
+      { title: 'Scope', render: (r) => h('div', null, h('div', null, `${pluginName(r.pluginId)} · ${r.sources.join(', ')}`), h('div', { class: 'small muted' }, describeConditions(r))) },
       { title: 'Severity', render: (r) => badge(r.severity, severityKind(r.severity)) },
       { title: 'Threshold', render: (r) => r.threshold ? `≥ ${r.threshold.count} in ${r.threshold.windowMinutes} min${r.threshold.groupBy ? ` per ${r.threshold.groupBy}` : ''}` : h('span', { class: 'cell-muted' }, 'every match') },
       { title: 'Notify', render: (r) => h('span', { class: 'small' }, (r.actions?.email?.recipients || []).join(', ') || h('span', { class: 'cell-muted' }, 'default recipients')) },
@@ -59,7 +59,7 @@ async function renderHistory(ctx, state) {
     columns: [
       { title: 'When', render: (a) => h('span', { class: 'nowrap' }, fmt.dateTime(a.createdAt)) },
       { title: 'Severity', render: (a) => badge(a.severity, severityKind(a.severity)) },
-      { title: 'Rule', render: (a) => h('div', null, h('div', null, a.ruleName), h('div', { class: 'small muted' }, `${moduleName(a.moduleId)} · ${a.source}${a.tenantId ? ' · ' + a.tenantId : ''}`)) },
+      { title: 'Rule', render: (a) => h('div', null, h('div', null, a.ruleName), h('div', { class: 'small muted' }, `${pluginName(a.pluginId)} · ${a.source}${a.tenantId ? ' · ' + a.tenantId : ''}`)) },
       { title: 'Summary', render: (a) => h('div', null, a.summary, a.count > 1 ? h('span', { class: 'muted small' }, ` (×${a.count}, last ${fmt.relative(a.lastEventAt)})`) : null) },
       { title: 'Status', render: (a) => a.status === 'new' ? badge('new', 'primary', true) : badge(`acknowledged by ${a.acknowledgedBy}`, '') },
       { title: '', class: 'right', render: (a) => a.status === 'new' ? h('button', { class: 'btn sm', onClick: async (e) => { e.stopPropagation(); await ctx.api.post(`/api/alerts/instances/${a.id}/acknowledge`); render(ctx, state); } }, 'Acknowledge') : null },
@@ -74,7 +74,7 @@ async function renderHistory(ctx, state) {
     h('button', { class: 'btn sm', disabled: data.page >= pages, onClick: () => render(ctx, { ...state, page: data.page + 1 }) }, 'Next'))));
 }
 
-function moduleName(id) { return catalog?.modules.find((m) => m.id === id)?.name || id; }
+function pluginName(id) { return catalog?.plugins.find((m) => m.id === id)?.name || id; }
 
 function describeConditions(rule) {
   if (!rule.conditions?.length) return 'any event';
@@ -82,17 +82,17 @@ function describeConditions(rule) {
 }
 
 async function editRule(ctx, rule) {
-  const modules = catalog.modules;
-  if (modules.length === 0) { pageNote(root, 'No plugin has registered event sources yet.'); return; }
+  const plugins = catalog.plugins;
+  if (plugins.length === 0) { pageNote(root, 'No plugin has registered event sources yet.'); return; }
   const firstSource = (mod) => mod.sources.find((s) => !s.unavailable)?.source;
-  const r = rule ? structuredClone(rule) : { name: '', description: '', enabled: true, moduleId: modules[0].id, sources: [firstSource(modules[0])].filter(Boolean), severity: 'medium', conditions: [], threshold: null, actions: { email: { recipients: [], subject: '', body: '' } }, throttle: null };
+  const r = rule ? structuredClone(rule) : { name: '', description: '', enabled: true, pluginId: plugins[0].id, sources: [firstSource(plugins[0])].filter(Boolean), severity: 'medium', conditions: [], threshold: null, actions: { email: { recipients: [], subject: '', body: '' } }, throttle: null };
 
-  const moduleSel = dropdown(modules.map((m) => ({ value: m.id, label: m.name })), { value: r.moduleId, ariaLabel: 'Plugin' });
+  const pluginSel = dropdown(plugins.map((m) => ({ value: m.id, label: m.name })), { value: r.pluginId, ariaLabel: 'Plugin' });
   const sourcesBox = h('div', { class: 'flex wrap' });
   const conditionsBox = h('div', { class: 'col' });
-  const currentModule = () => modules.find((m) => m.id === moduleSel.value);
+  const currentPlugin = () => plugins.find((m) => m.id === pluginSel.value);
   const fieldsForSources = () => {
-    const mod = currentModule();
+    const mod = currentPlugin();
     const selected = [...sourcesBox.querySelectorAll('input:checked')].map((i) => i.value);
     const map = new Map();
     for (const s of mod.sources) if (selected.length === 0 || selected.includes(s.source)) for (const f of s.fields) if (!map.has(f.path)) map.set(f.path, f);
@@ -100,7 +100,7 @@ async function editRule(ctx, rule) {
   };
   const renderSources = () => {
     clear(sourcesBox);
-    for (const s of currentModule().sources) {
+    for (const s of currentPlugin().sources) {
       const blocked = s.unavailable === true;
       const kept = blocked && r.sources.includes(s.source);
       sourcesBox.append(h('label', { class: 'checkbox', title: blocked ? 'Disabled in Microsoft 365 Business Premium mode' : undefined },
@@ -117,7 +117,7 @@ async function editRule(ctx, rule) {
     return row;
   };
   const renderConditions = () => { const existing = [...conditionsBox.children].map((row) => row.read?.()).filter(Boolean); clear(conditionsBox); for (const c of (existing.length ? existing : r.conditions)) conditionsBox.append(conditionRow(c)); };
-  moduleSel.addEventListener('change', () => { r.sources = [firstSource(currentModule())].filter(Boolean); renderSources(); r.conditions = []; renderConditions(); });
+  pluginSel.addEventListener('change', () => { r.sources = [firstSource(currentPlugin())].filter(Boolean); renderSources(); r.conditions = []; renderConditions(); });
   renderSources();
   renderConditions();
 
@@ -138,7 +138,7 @@ async function editRule(ctx, rule) {
 
   const form = h('div', { class: 'col' },
     h('div', { class: 'form-row' }, nameF, descF),
-    h('div', { class: 'form-row' }, h('div', { class: 'field' }, h('label', null, 'Plugin'), moduleSel), h('div', { class: 'field' }, h('label', null, 'Severity'), sevSel), h('label', { class: 'checkbox mt' }, enabledCb, h('span', null, 'Enabled'))),
+    h('div', { class: 'form-row' }, h('div', { class: 'field' }, h('label', null, 'Plugin'), pluginSel), h('div', { class: 'field' }, h('label', null, 'Severity'), sevSel), h('label', { class: 'checkbox mt' }, enabledCb, h('span', null, 'Enabled'))),
     h('div', { class: 'field' }, h('label', null, 'Sources'), sourcesBox),
     h('div', { class: 'field' }, h('label', null, 'Conditions (all must match)'), conditionsBox, h('div', null, h('button', { class: 'btn sm', type: 'button', onClick: () => conditionsBox.append(conditionRow({ field: fieldsForSources()[0]?.path, operator: 'equals', values: [] })) }, 'Add condition'))),
     h('div', { class: 'form-row' }, thCountF, thWinF, thGroupF),
@@ -148,7 +148,7 @@ async function editRule(ctx, rule) {
 
   const saved = await modal.show({ title: rule ? 'Edit rule' : 'New rule', content: form, wide: true, actions: [{ label: 'Cancel', value: false }, { label: 'Save', kind: 'primary', onClick: async () => {
     const payload = {
-      name: nameI.value.trim(), description: descI.value.trim() || null, enabled: enabledCb.checked, moduleId: moduleSel.value,
+      name: nameI.value.trim(), description: descI.value.trim() || null, enabled: enabledCb.checked, pluginId: pluginSel.value,
       sources: [...sourcesBox.querySelectorAll('input:checked')].map((i) => i.value), severity: sevSel.value,
       conditions: [...conditionsBox.children].map((row) => row.read()),
       threshold: thCountI.value ? { count: Number(thCountI.value), windowMinutes: Number(thWinI.value || 10), groupBy: thGroupI.value.trim() || null } : null,

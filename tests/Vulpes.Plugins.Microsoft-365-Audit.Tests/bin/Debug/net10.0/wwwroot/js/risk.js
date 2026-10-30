@@ -1,4 +1,4 @@
-// Entra ID Protection risk detections and the risk state of users and service principals (docs/audit-module.md).
+// Entra ID Protection risk detections and the risk state of users and service principals (docs/audit-plugin.md).
 import { createExplorer, severityBadge, get } from './common.js?v=shell84';
 
 let explorer;
@@ -8,7 +8,7 @@ export async function mount(el, ctx) {
   const tabs = el.querySelector('[data-role="tabs"]');
   const host = el.querySelector('[data-role="explorer"]');
   try {
-    const sources = await ctx.api.get(`${ctx.module.apiBase}/sources`);
+    const sources = await ctx.api.get(`${ctx.plugin.apiBase}/sources`);
     if (sources.find((s) => s.source === 'risk')?.unavailable) {
       el.querySelector('.page-header')?.after(h('div', { class: 'alert info' }, 'Identity Protection risk collection is off. Microsoft 365 Business Premium does not include Entra ID P2.'));
     }

@@ -11,14 +11,13 @@ using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Endpoints;
 
-/// <summary>Module API under <c>/api/plugins/microsoft-365-audit</c>. The group already requires authentication; roles are added per endpoint.</summary>
+/// <summary>Plugin API under <c>/api/plugins/microsoft-365-audit</c>. The group already requires authentication; roles are added per endpoint.</summary>
 public static class AuditEndpoints
 {
     public sealed record FilterDto(string Field, string Operator, IReadOnlyList<string>? Values);
     public sealed record SearchRequest(string? Source, DateTimeOffset? From, DateTimeOffset? To, IReadOnlyList<FilterDto>? Filters, string? Text, int? Size, IReadOnlyList<JsonElement>? SearchAfter, string? Sort);
     public sealed record AggregationDto(string Name, string Kind, string? Field, int? Size, string? Interval);
     public sealed record AggregateRequest(string? Source, DateTimeOffset? From, DateTimeOffset? To, IReadOnlyList<FilterDto>? Filters, string? Text, IReadOnlyList<AggregationDto>? Aggregations);
-    public sealed record RunRequest(string? Source);
     public sealed record CollectionRequest(int? LookbackDays, TenantSettings? Settings);
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
@@ -35,17 +34,10 @@ public static class AuditEndpoints
         group.MapGet("/overview", OverviewAsync).RequireAuthorization(Policies.Viewer);
         group.MapGet("/tenants/names", TenantNamesAsync).RequireAuthorization(Policies.Viewer);
 
-        // Operations: analysts can see status and trigger runs; only admins manage credentials.
+        // Ingestion status is for analysts. Collection settings are edited from Manage → Tenants.
         group.MapGet("/status", StatusAsync).RequireAuthorization(Policies.Analyst);
-        group.MapGet("/tenants", ListTenantsAsync).RequireAuthorization(Policies.Analyst);
         group.MapGet("/tenants/{id:guid}", GetTenantAsync).RequireAuthorization(Policies.Analyst);
-        group.MapPost("/tenants/{id:guid}/run", RunNowAsync).RequireAuthorization(Policies.Analyst);
-        group.MapPost("/tenants", CreateTenantAsync).RequireAuthorization(Policies.Admin);
-        group.MapPut("/tenants/{id:guid}", UpdateTenantAsync).RequireAuthorization(Policies.Admin);
         group.MapPut("/tenants/{id:guid}/collection", UpdateCollectionAsync).RequireAuthorization(Policies.Admin);
-        group.MapDelete("/tenants/{id:guid}", DeleteTenantAsync).RequireAuthorization(Policies.Admin);
-        group.MapPost("/tenants/{id:guid}/test", TestTenantAsync).RequireAuthorization(Policies.Admin);
-        group.MapPost("/tenants/{id:guid}/reset", ResetCheckpointsAsync).RequireAuthorization(Policies.Admin);
         group.MapGet("/settings", GetSettings).RequireAuthorization(Policies.Admin);
         group.MapPut("/settings", PutSettings).RequireAuthorization(Policies.Admin);
     }
@@ -62,12 +54,12 @@ public static class AuditEndpoints
     private static IResult Error(int status, string code, string message) => Results.Json(new { error = code, message }, Json, statusCode: status);
 
     private static IResult GetSources(IAlertFieldCatalog catalog, CollectionScheduler scheduler, AuditOptions options) =>
-        Results.Json(catalog.GetSources(Normalizers.ModuleId).Select(s => new
+        Results.Json(catalog.GetSources(Normalizers.PluginId).Select(s => new
         {
             s.Source,
             s.Title,
             mode = s.Mode.ToString(),
-            fields = catalog.GetFields(Normalizers.ModuleId, s.Source).Where(f => f.Filterable).Select(f => new { f.Path, f.Label, type = f.Type.ToString() }).ToList(),
+            fields = catalog.GetFields(Normalizers.PluginId, s.Source).Where(f => f.Filterable).Select(f => new { f.Path, f.Label, type = f.Type.ToString() }).ToList(),
             unavailable = !options.Collects(s.Source),
             collector = scheduler.Collectors.TryGetValue(s.Source, out var c) ? new { c.Title, permissions = c.RequiredPermissions, defaultIntervalMinutes = (int)options.IntervalFor(s.Source).TotalMinutes } : null,
         }).ToList(), Json);
@@ -84,7 +76,7 @@ public static class AuditEndpoints
         {
             var result = await search.SearchAsync(new EventQuery
             {
-                ModuleId = Normalizers.ModuleId,
+                PluginId = Normalizers.PluginId,
                 Source = request.Source,
                 From = request.From,
                 To = request.To,
@@ -118,7 +110,7 @@ public static class AuditEndpoints
         {
             var result = await search.AggregateAsync(new EventAggregationQuery
             {
-                ModuleId = Normalizers.ModuleId,
+                PluginId = Normalizers.PluginId,
                 Source = request.Source,
                 From = request.From,
                 To = request.To,
@@ -142,7 +134,7 @@ public static class AuditEndpoints
     {
         try
         {
-            var doc = await search.GetAsync(Normalizers.ModuleId, source, id, ct);
+            var doc = await search.GetAsync(Normalizers.PluginId, source, id, ct);
             return doc is null ? Error(404, "not_found", "Event not found.") : Results.Json(doc, Json);
         }
         catch (ArgumentException ex)
@@ -164,7 +156,7 @@ public static class AuditEndpoints
         {
             try
             {
-                return await search.AggregateAsync(new EventAggregationQuery { ModuleId = Normalizers.ModuleId, Source = source, From = from, To = to, Filters = tenantFilter.Concat(extra).ToList(), Aggregations = specs }, ct);
+                return await search.AggregateAsync(new EventAggregationQuery { PluginId = Normalizers.PluginId, Source = source, From = from, To = to, Filters = tenantFilter.Concat(extra).ToList(), Aggregations = specs }, ct);
             }
             catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
             {
@@ -220,13 +212,6 @@ public static class AuditEndpoints
         }, Json);
     }
 
-    private static async Task<IResult> ListTenantsAsync(TenantService tenants, AuditDbContext db, CancellationToken ct)
-    {
-        var list = await tenants.ListAsync(ct);
-        var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
-        return Results.Json(list.Select(t => TenantService.ToDto(t, checkpoints.Where(c => c.TenantId == t.Id).ToList())).ToList(), Json);
-    }
-
     private static async Task<IResult> GetTenantAsync(Guid id, TenantService tenants, AuditDbContext db, ITenantDirectory directory, IEntraApplication application, CancellationToken ct)
     {
         var remote = await directory.ListAsync(ct);
@@ -246,43 +231,6 @@ public static class AuditEndpoints
         return Results.Json(TenantService.ToDto(tenant, checkpoints), Json);
     }
 
-    private static async Task<IResult> CreateTenantAsync(TenantInput input, HttpContext http, TenantService tenants, IHostAuditLog audit, CollectionScheduler scheduler)
-    {
-        var (tenant, error) = await tenants.CreateAsync(input, http.User.Identity?.Name, http.RequestAborted);
-        if (tenant is null)
-        {
-            return Error(400, "validation", error ?? "Invalid tenant.");
-        }
-
-        await audit.RecordAsync("audit.tenant.created", tenant.DisplayName, $"tenant={tenant.TenantId} client={tenant.ClientId} cloud={tenant.Cloud} credential={tenant.CredentialType}", cancellationToken: http.RequestAborted);
-        scheduler.Wake();
-        return Results.Json(TenantService.ToDto(tenant), Json);
-    }
-
-    private static async Task<IResult> UpdateTenantAsync(Guid id, TenantInput input, HttpContext http, TenantService tenants, IHostAuditLog audit)
-    {
-        var (tenant, error) = await tenants.UpdateAsync(id, input, http.RequestAborted);
-        if (tenant is null)
-        {
-            return error == "Tenant not found." ? Error(404, "not_found", error) : Error(400, "validation", error ?? "Invalid tenant.");
-        }
-
-        await audit.RecordAsync("audit.tenant.updated", tenant.DisplayName, $"enabled={tenant.Enabled} credentialChanged={!string.IsNullOrEmpty(input?.ClientSecret) || !string.IsNullOrEmpty(input?.CertificatePfxBase64)}", cancellationToken: http.RequestAborted);
-        return Results.Json(TenantService.ToDto(tenant), Json);
-    }
-
-    private static async Task<IResult> DeleteTenantAsync(Guid id, HttpContext http, TenantService tenants, IHostAuditLog audit)
-    {
-        var tenant = await tenants.FindAsync(id, http.RequestAborted);
-        if (tenant is null || !await tenants.DeleteAsync(id, http.RequestAborted))
-        {
-            return Error(404, "not_found", "Tenant not found.");
-        }
-
-        await audit.RecordAsync("audit.tenant.deleted", tenant.DisplayName, $"tenant={tenant.TenantId}", cancellationToken: http.RequestAborted);
-        return Results.NoContent();
-    }
-
     private static async Task<IResult> UpdateCollectionAsync(Guid id, CollectionRequest request, TenantService tenants, ITenantDirectory directory, IEntraApplication application, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -295,77 +243,6 @@ public static class AuditEndpoints
 
         var error = await tenants.UpdateCollectionAsync(id, request.LookbackDays, request.Settings, ct);
         return error is null ? Results.NoContent() : Error(400, "validation", error);
-    }
-
-    private static async Task<IResult> TestTenantAsync(Guid id, HttpContext http, TenantService tenants, IHostAuditLog audit)
-    {
-        var tenant = await tenants.FindAsync(id, http.RequestAborted);
-        if (tenant is null)
-        {
-            return Error(404, "not_found", "Tenant not found.");
-        }
-
-        var result = await tenants.TestConnectionAsync(tenant, http.RequestAborted);
-        await audit.RecordAsync("audit.tenant.tested", tenant.DisplayName, result.TokenAcquired ? $"ok; {result.Probes.Count(p => p.Status == "ok")}/{result.Probes.Count} probes ok" : "token failed: " + result.Error, cancellationToken: http.RequestAborted);
-        return Results.Json(result, Json);
-    }
-
-    private static async Task<IResult> RunNowAsync(Guid id, RunRequest? request, HttpContext http, TenantService tenants, AuditDbContext db, CollectionScheduler scheduler, AuditOptions options, IHostAuditLog audit)
-    {
-        var tenant = await tenants.FindAsync(id, http.RequestAborted);
-        if (tenant is null)
-        {
-            return Error(404, "not_found", "Tenant not found.");
-        }
-
-        var sources = string.IsNullOrEmpty(request?.Source) ? scheduler.Collectors.Keys.ToList() : [request.Source];
-        if (sources.Any(s => !scheduler.Collectors.ContainsKey(s)))
-        {
-            return Error(400, "validation", "Unknown source.");
-        }
-
-        if (sources.RemoveAll(s => !options.Collects(s)) > 0 && sources.Count == 0)
-        {
-            return Error(409, "unavailable", "Identity Protection risk is off in Microsoft 365 Business Premium mode.");
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        foreach (var source in sources)
-        {
-            var checkpoint = await db.Checkpoints.FirstOrDefaultAsync(c => c.TenantId == id && c.Source == source, http.RequestAborted);
-            if (checkpoint is null)
-            {
-                db.Checkpoints.Add(new Checkpoint { TenantId = id, Source = source, NextRunAt = now });
-            }
-            else
-            {
-                checkpoint.NextRunAt = now;
-            }
-        }
-
-        await db.SaveChangesAsync(http.RequestAborted);
-        scheduler.Wake();
-        await audit.RecordAsync("audit.tenant.run", tenant.DisplayName, string.Join(",", sources), cancellationToken: http.RequestAborted);
-        return Results.Json(new { scheduled = sources }, Json);
-    }
-
-    private static async Task<IResult> ResetCheckpointsAsync(Guid id, RunRequest? request, HttpContext http, TenantService tenants, AuditDbContext db, IHostAuditLog audit)
-    {
-        var tenant = await tenants.FindAsync(id, http.RequestAborted);
-        if (tenant is null)
-        {
-            return Error(404, "not_found", "Tenant not found.");
-        }
-
-        var query = db.Checkpoints.Where(c => c.TenantId == id);
-        if (!string.IsNullOrEmpty(request?.Source))
-        {
-            query = query.Where(c => c.Source == request.Source);
-        }
-
-        var removed = await query.ExecuteDeleteAsync(http.RequestAborted);
-        await audit.RecordAsync("audit.tenant.checkpoints.reset", tenant.DisplayName, $"source={request?.Source ?? "all"} removed={removed}", cancellationToken: http.RequestAborted);
-        return Results.Json(new { removed }, Json);
     }
 
     private static List<FieldFilter> MapFilters(IReadOnlyList<FilterDto>? filters)

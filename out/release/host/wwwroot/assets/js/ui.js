@@ -86,9 +86,9 @@ export const fmt = {
 };
 
 /** Renders a table. columns: [{ key, title, render?(row), class?, width? }] */
-export function table({ columns, rows, onRowClick, emptyText = 'Nothing to show', rowKey }) {
+export function table({ columns, rows, onRowClick, emptyText = 'Nothing to show', rowKey, className = '' }) {
   const wrap = h('div', { class: 'table-wrap' });
-  const tbl = h('table', { class: 'table' });
+  const tbl = h('table', { class: className ? `table ${className}` : 'table' });
   const thead = h('thead', null, h('tr', null, columns.map((c) => h('th', { class: c.class || '' }, c.title))));
   const tbody = h('tbody');
   if (!rows || rows.length === 0) {

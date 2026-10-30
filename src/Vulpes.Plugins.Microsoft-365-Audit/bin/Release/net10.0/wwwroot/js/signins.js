@@ -1,4 +1,4 @@
-// Interactive and non-interactive Entra ID sign-ins (docs/audit-module.md).
+// Interactive and non-interactive Entra ID sign-ins (docs/audit-plugin.md).
 import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell84';
 
 let explorer;

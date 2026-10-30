@@ -18,15 +18,15 @@ namespace Vulpes.Plugins.Microsoft365Audit;
 /// <summary>Identity Protection risk is the source Business Premium mode turns off.</summary>
 public sealed class AuditSourceAvailability(AuditOptions options) : ISourceAvailability
 {
-    public string ModuleId => Normalizers.ModuleId;
+    public string PluginId => Normalizers.PluginId;
 
     public bool IsAvailable(string source) => options.Collects(source);
 }
 
-/// <summary>Microsoft 365 / Entra audit log ingestion module.</summary>
+/// <summary>Microsoft 365 / Entra audit log ingestion plugin.</summary>
 public sealed class AuditGraphPermissions : IGraphPermissionSource
 {
-    public string ModuleId => Normalizers.ModuleId;
+    public string PluginId => Normalizers.PluginId;
 
     public IReadOnlyList<GraphAccess> Permissions { get; } =
     [
@@ -44,7 +44,7 @@ public sealed class AuditGraphPermissions : IGraphPermissionSource
 
 public sealed class AuditConnectionTester(TenantService tenants, ITenantDirectory directory, IEntraApplication application) : ITenantConnectionTester
 {
-    public string ModuleId => Normalizers.ModuleId;
+    public string PluginId => Normalizers.PluginId;
 
     public async Task<TenantConnectionReport> TestAsync(Guid tenantId, CancellationToken cancellationToken)
     {
@@ -52,7 +52,7 @@ public sealed class AuditConnectionTester(TenantService tenants, ITenantDirector
         var tenant = await tenants.FindAsync(tenantId, cancellationToken);
         if (tenant is null)
         {
-            return new TenantConnectionReport(ModuleId, false, null, "Tenant not found.", []);
+            return new TenantConnectionReport(PluginId, false, null, "Tenant not found.", []);
         }
 
         var result = await tenants.TestConnectionAsync(tenant, cancellationToken);
@@ -62,7 +62,7 @@ public sealed class AuditConnectionTester(TenantService tenants, ITenantDirector
         }
 
         return new TenantConnectionReport(
-            ModuleId,
+            PluginId,
             result.TokenAcquired,
             result.OrganizationName,
             result.Error,
@@ -72,7 +72,7 @@ public sealed class AuditConnectionTester(TenantService tenants, ITenantDirector
 
 public sealed class AuditPlugin : IPlugin
 {
-    public string Id => Normalizers.ModuleId;
+    public string Id => Normalizers.PluginId;
 
     public void ConfigureServices(IServiceCollection services, IPluginContext context)
     {
@@ -126,38 +126,6 @@ public sealed class AuditPlugin : IPlugin
         await db.Database.MigrateAsync(cancellationToken);
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken);
         services.GetRequiredService<AuditSettingsStore>().Load();
-        await ImportHostTenantsAsync(scope.ServiceProvider, cancellationToken);
         scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<AuditPlugin>().LogInformation("Audit plugin database ready at {Path}", context.DatabasePath);
-    }
-
-    /// <summary>Moves plugin-local tenant credentials onto the shared host application the first time the host list is empty.</summary>
-    private static async Task ImportHostTenantsAsync(IServiceProvider services, CancellationToken cancellationToken)
-    {
-        var directory = services.GetService<ITenantDirectory>();
-        var application = services.GetService<IEntraApplication>();
-        if (directory is null || application is null || (await directory.ListAsync(cancellationToken)).Count > 0)
-        {
-            return;
-        }
-
-        var db = services.GetRequiredService<AuditDbContext>();
-        var protector = services.GetRequiredService<ISecretProtector>();
-        var existing = await db.Tenants.AsNoTracking().OrderBy(t => t.CreatedAt).ToListAsync(cancellationToken);
-        var credentialSource = existing.FirstOrDefault(t => t.ProtectedSecret is not null || t.ProtectedCertificate is not null);
-        if (credentialSource is not null)
-        {
-            await application.SaveIfEmptyAsync(new EntraApplicationCredential(
-                credentialSource.ClientId,
-                credentialSource.CredentialType,
-                credentialSource.Cloud,
-                credentialSource.ProtectedSecret is null ? null : protector.Unprotect(credentialSource.ProtectedSecret),
-                credentialSource.ProtectedCertificate is null ? null : protector.Unprotect(credentialSource.ProtectedCertificate),
-                credentialSource.ProtectedCertificatePassword is null ? null : protector.Unprotect(credentialSource.ProtectedCertificatePassword)), cancellationToken);
-        }
-
-        foreach (var tenant in existing)
-        {
-            await directory.AddIfMissingAsync(new ManagedTenant(tenant.Id, tenant.DisplayName, tenant.TenantId, tenant.Enabled, tenant.DiscoveredName), cancellationToken);
-        }
     }
 }

@@ -1,4 +1,4 @@
-import { h, fmt, table, clear, errorMessage } from '../ui.js?v=shell83';
+import { h, fmt, table, clear, errorMessage } from '../ui.js?v=shell104';
 
 let root;
 export async function mount(el, ctx) { root = el; ctx.setTitle(['Audit trail']); await render(ctx, { page: 1 }); }
@@ -18,6 +18,7 @@ async function render(ctx, state) {
   try {
     const data = await ctx.api.get('/api/admin/audit' + ctx.api.qs({ page: state.page, pageSize: 25, action: state.action, actor: state.actor }));
     root.append(table({
+      className: 'cols-audit',
       columns: [
         { title: 'When', render: (a) => h('span', { class: 'nowrap' }, fmt.dateTime(a.timestamp)) },
         { title: 'Actor', render: (a) => h('div', null, h('div', null, a.actor), h('div', { class: 'small muted' }, a.actorIp || '')) },

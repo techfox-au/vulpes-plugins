@@ -1,4 +1,3 @@
-using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
@@ -8,66 +7,16 @@ using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Tenants;
 
-public sealed record TenantInput(
-    string? DisplayName,
-    string? TenantId,
-    string? ClientId,
-    string? CredentialType,
-    string? ClientSecret,
-    string? CertificatePfxBase64,
-    string? CertificatePassword,
-    string? Cloud,
-    bool? Enabled,
-    int? LookbackDays,
-    TenantSettings? Settings);
-
 public sealed record ProbeResult(string Source, string Title, string Status, string? Detail);
 
 public sealed record ConnectionTestResult(bool TokenAcquired, string? OrganizationName, string? Error, IReadOnlyList<ProbeResult> Probes, DateTimeOffset TestedAt);
 
-/// <summary>Tenant CRUD with encrypted credentials and connection/permission probing.</summary>
+/// <summary>Plugin-side collection state for clients stored on the host. Credentials are copied from the shared application.</summary>
 public sealed class TenantService(AuditDbContext db, ISecretProtector protector, GraphClientFactory graphFactory, IEnumerable<ICollector> collectors, TimeProvider timeProvider, AuditOptions options, ILogger<TenantService> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public Task<List<Tenant>> ListAsync(CancellationToken ct) => db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
-
     public Task<Tenant?> FindAsync(Guid id, CancellationToken ct) => db.Tenants.FirstOrDefaultAsync(t => t.Id == id, ct);
-
-    public async Task<(Tenant? Tenant, string? Error)> CreateAsync(TenantInput input, string? createdBy, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(input);
-        var tenant = new Tenant { Id = Guid.NewGuid(), DisplayName = string.Empty, TenantId = string.Empty, ClientId = string.Empty, CreatedBy = createdBy, CreatedAt = timeProvider.GetUtcNow(), LookbackDays = Math.Clamp(options.DefaultLookbackDays, 1, 180) };
-        var error = Apply(tenant, input, isNew: true);
-        if (error is not null)
-        {
-            return (null, error);
-        }
-
-        db.Tenants.Add(tenant);
-        await db.SaveChangesAsync(ct);
-        return (tenant, null);
-    }
-
-    public async Task<(Tenant? Tenant, string? Error)> UpdateAsync(Guid id, TenantInput input, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(input);
-        var tenant = await FindAsync(id, ct);
-        if (tenant is null)
-        {
-            return (null, "Tenant not found.");
-        }
-
-        var error = Apply(tenant, input, isNew: false);
-        if (error is not null)
-        {
-            return (null, error);
-        }
-
-        tenant.UpdatedAt = timeProvider.GetUtcNow();
-        await db.SaveChangesAsync(ct);
-        return (tenant, null);
-    }
 
     /// <summary>Mirrors the host tenant directory onto local rows so collectors and checkpoints keep their ids. Credentials come from the shared application.</summary>
     public async Task SyncFromDirectoryAsync(IReadOnlyList<ManagedTenant> tenants, EntraApplicationCredential? application, CancellationToken ct)
@@ -162,19 +111,6 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
         return null;
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
-    {
-        var tenant = await FindAsync(id, ct);
-        if (tenant is null)
-        {
-            return false;
-        }
-
-        db.Tenants.Remove(tenant);
-        await db.SaveChangesAsync(ct);
-        return true;
-    }
-
     private string? ValidateSettings(TenantSettings settings)
     {
         foreach (var (source, s) in settings.Sources)
@@ -193,125 +129,6 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
             {
                 return "Record types must be alphanumeric names (max 100).";
             }
-        }
-
-        return null;
-    }
-
-    /// <summary>Validates and copies the input onto the entity, encrypting secrets. Blank secrets keep the stored value.</summary>
-    private string? Apply(Tenant tenant, TenantInput input, bool isNew)
-    {
-        if (string.IsNullOrWhiteSpace(input.DisplayName) || input.DisplayName.Trim().Length > 120)
-        {
-            return "Display name is required (max 120 characters).";
-        }
-
-        if (!Guid.TryParse(input.TenantId, out var tenantGuid))
-        {
-            return "Tenant id must be the directory (tenant) GUID.";
-        }
-
-        if (!Guid.TryParse(input.ClientId, out var clientGuid))
-        {
-            return "Client id must be the application (client) GUID.";
-        }
-
-        var cloud = input.Cloud ?? Clouds.Global;
-        if (!Clouds.All.Contains(cloud, StringComparer.Ordinal))
-        {
-            return "Cloud must be Global or USGov.";
-        }
-
-        var credentialType = input.CredentialType ?? tenant.CredentialType;
-        if (credentialType is not (CredentialTypes.Secret or CredentialTypes.Certificate))
-        {
-            return "Credential type must be 'secret' or 'certificate'.";
-        }
-
-        if (credentialType == CredentialTypes.Secret)
-        {
-            if (!string.IsNullOrEmpty(input.ClientSecret))
-            {
-                if (input.ClientSecret.Length > 1024)
-                {
-                    return "Client secret is too long.";
-                }
-
-                tenant.ProtectedSecret = protector.Protect(input.ClientSecret);
-            }
-            else if (isNew || tenant.ProtectedSecret is null)
-            {
-                return "A client secret is required.";
-            }
-        }
-        else
-        {
-            if (!string.IsNullOrEmpty(input.CertificatePfxBase64))
-            {
-                byte[] pfx;
-                try
-                {
-                    pfx = Convert.FromBase64String(input.CertificatePfxBase64);
-                    if (pfx.Length > 64 * 1024)
-                    {
-                        return "Certificate file is too large.";
-                    }
-
-                    using var certificate = X509CertificateLoader.LoadPkcs12(pfx, input.CertificatePassword, X509KeyStorageFlags.DefaultKeySet);
-                    if (!certificate.HasPrivateKey)
-                    {
-                        return "The PFX does not contain a private key.";
-                    }
-                }
-                catch (FormatException)
-                {
-                    return "Certificate must be a base64-encoded PFX.";
-                }
-                catch (System.Security.Cryptography.CryptographicException ex)
-                {
-                    return "Certificate could not be loaded: " + ex.Message;
-                }
-
-                tenant.ProtectedCertificate = protector.Protect(Convert.ToBase64String(pfx));
-                tenant.ProtectedCertificatePassword = string.IsNullOrEmpty(input.CertificatePassword) ? null : protector.Protect(input.CertificatePassword);
-            }
-            else if (isNew || tenant.ProtectedCertificate is null)
-            {
-                return "A certificate (PFX) is required.";
-            }
-        }
-
-        if (input.LookbackDays is { } lookback && lookback is < 1 or > 180)
-        {
-            return "Lookback must be between 1 and 180 days.";
-        }
-
-        if (input.Settings is { } settings)
-        {
-            var settingsError = ValidateSettings(settings);
-            if (settingsError is not null)
-            {
-                return settingsError;
-            }
-
-            tenant.SettingsJson = settings.Serialize();
-        }
-
-        tenant.DisplayName = input.DisplayName.Trim();
-        tenant.TenantId = tenantGuid.ToString("D");
-        tenant.ClientId = clientGuid.ToString("D");
-        tenant.CredentialType = credentialType;
-        tenant.Cloud = cloud;
-        tenant.Enabled = input.Enabled ?? tenant.Enabled;
-        tenant.LookbackDays = input.LookbackDays ?? tenant.LookbackDays;
-        if (credentialType == CredentialTypes.Secret)
-        {
-            tenant.ProtectedCertificate = null;
-            tenant.ProtectedCertificatePassword = null;
-        }
-        else
-        {
-            tenant.ProtectedSecret = null;
         }
 
         return null;

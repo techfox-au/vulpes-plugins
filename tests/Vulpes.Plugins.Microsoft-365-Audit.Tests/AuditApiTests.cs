@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Tests;
 
-/// <summary>Boots the real host with the packed audit module installed (no Elasticsearch, no Graph network access).</summary>
+/// <summary>Boots the real host with the packed audit plugin installed (no Elasticsearch, no Graph network access).</summary>
 public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.AppDbContext>
 {
     public const string SetupToken = "audit-api-test-token-0123456789";
@@ -17,7 +17,7 @@ public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.Ap
     public AuditHostFactory()
     {
         var data = Path.Combine(_root, "data");
-        var incoming = Path.Combine(data, "modules", "incoming");
+        var incoming = Path.Combine(data, "plugins", "incoming");
         Directory.CreateDirectory(incoming);
         var testBin = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var tfm = Path.GetFileName(testBin);
@@ -25,7 +25,7 @@ public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.Ap
         var repoRoot = Path.GetFullPath(Path.Combine(testBin, "..", "..", "..", "..", ".."));
         var result = PluginPackager.Pack(new PackOptions
         {
-            ModuleDirectory = Path.Combine(repoRoot, "src", "Vulpes.Plugins.Microsoft-365-Audit", "bin", configuration, tfm),
+            PluginDirectory = Path.Combine(repoRoot, "src", "Vulpes.Plugins.Microsoft-365-Audit", "bin", configuration, tfm),
             HostDirectory = Path.Combine(repoRoot, "..", "vulpes", "src", "Vulpes.Host", "bin", configuration, tfm),
             OutputPath = Path.Combine(_root, "audit.7z"),
         });
@@ -42,8 +42,8 @@ public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.Ap
         builder.UseSetting("Host:PublicOrigin", "http://localhost");
         builder.UseSetting("Host:SetupToken", SetupToken);
         builder.UseSetting("Host:MasterKey", Convert.ToBase64String(new byte[32]));
-        builder.UseSetting("Modules:InstallBundled", "false");
-        builder.UseSetting("Modules:Settings:microsoft-365-audit:SchedulerIntervalSeconds", "600");
+        builder.UseSetting("Plugins:InstallBundled", "false");
+        builder.UseSetting("Plugins:Settings:microsoft-365-audit:SchedulerIntervalSeconds", "600");
         builder.UseSetting("LocalAuth:PasswordHashIterations", "100000");
         builder.UseSetting("LocalAuth:AuthRateLimitPerMinute", "1000");
         builder.UseSetting("Logging:LogLevel:Default", "Warning");
@@ -137,21 +137,8 @@ public sealed class AuditApiTests : IDisposable
         return client;
     }
 
-    private static object TenantBody(string name = "Contoso", bool enabled = false) => new
-    {
-        displayName = name,
-        tenantId = Guid.NewGuid().ToString(),
-        clientId = Guid.NewGuid().ToString(),
-        credentialType = "secret",
-        clientSecret = "client-secret-value",
-        cloud = "Global",
-        enabled,
-        lookbackDays = 3,
-        settings = new { sources = new Dictionary<string, object> { ["signins"] = new { enabled = true, includeNonInteractive = false } } },
-    };
-
     [Fact]
-    public async Task Module_is_loaded_and_exposes_sources_and_navigation()
+    public async Task Plugin_is_loaded_and_exposes_sources_and_navigation()
     {
         var admin = await AdminAsync();
         var nav = await admin.JsonAsync(HttpMethod.Get, "/api/nav");
@@ -167,8 +154,9 @@ public sealed class AuditApiTests : IDisposable
         Assert.Contains("AuditLog.Read.All", signins.GetProperty("collector").GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
         Assert.Contains(signins.GetProperty("fields").EnumerateArray(), f => f.GetProperty("path").GetString() == "labels.riskLevel");
 
-        Assert.Equal(HttpStatusCode.OK, (await admin.Http.GetAsync("/modules/microsoft-365-audit/pages/overview.html")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await admin.Http.GetAsync("/modules/microsoft-365-audit/js/common.js")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.Http.GetAsync("/plugins/microsoft-365-audit/pages/overview.html")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.Http.GetAsync("/plugins/microsoft-365-audit/js/common.js")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.Http.GetAsync("/plugins/microsoft-365-audit/pages/tenants.html")).StatusCode);
     }
 
     [Fact]
@@ -178,45 +166,29 @@ public sealed class AuditApiTests : IDisposable
         var analyst = await UserWithRoleAsync(admin, "Analyst", "analyst");
         var viewer = await UserWithRoleAsync(admin, "Viewer", "viewer");
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await analyst.SendAsync(HttpMethod.Post, "/api/plugins/microsoft-365-audit/tenants", TenantBody())).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.SendAsync(HttpMethod.Get, "/api/plugins/microsoft-365-audit/tenants")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await admin.SendAsync(HttpMethod.Post, "/api/plugins/microsoft-365-audit/tenants", new { displayName = "x", tenantId = "nope", clientId = Guid.NewGuid().ToString(), credentialType = "secret", clientSecret = "s" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.SendAsync(HttpMethod.Post, "/api/plugins/microsoft-365-audit/tenants", new { displayName = "Contoso" })).StatusCode);
 
-        var created = await admin.JsonAsync(HttpMethod.Post, "/api/plugins/microsoft-365-audit/tenants", TenantBody());
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendAsync(HttpMethod.Put, "/api/admin/tenants/application", new { clientId = Guid.NewGuid().ToString(), credentialType = "secret", secret = "client-secret-value", cloud = "Global" })).StatusCode);
+        var created = await admin.JsonAsync(HttpMethod.Post, "/api/admin/tenants", new { displayName = "Contoso", directoryId = Guid.NewGuid().ToString(), enabled = true });
         var id = created.GetProperty("id").GetString();
-        Assert.True(created.GetProperty("hasSecret").GetBoolean());
-        Assert.False(created.TryGetProperty("protectedSecret", out _));
-        Assert.DoesNotContain("client-secret-value", created.GetRawText(), StringComparison.Ordinal);
-        Assert.False(created.GetProperty("settings").GetProperty("sources").GetProperty("signins").GetProperty("includeNonInteractive").GetBoolean());
 
-        var list = await analyst.JsonAsync(HttpMethod.Get, "/api/plugins/microsoft-365-audit/tenants");
-        Assert.Single(list.EnumerateArray());
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.SendAsync(HttpMethod.Get, $"/api/plugins/microsoft-365-audit/tenants/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await analyst.SendAsync(HttpMethod.Put, $"/api/plugins/microsoft-365-audit/tenants/{id}/collection", new { lookbackDays = 10 })).StatusCode);
+
+        var detail = await analyst.JsonAsync(HttpMethod.Get, $"/api/plugins/microsoft-365-audit/tenants/{id}");
+        Assert.Equal("Contoso", detail.GetProperty("displayName").GetString());
+        Assert.DoesNotContain("client-secret-value", detail.GetRawText(), StringComparison.Ordinal);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendAsync(HttpMethod.Put, $"/api/plugins/microsoft-365-audit/tenants/{id}/collection", new { lookbackDays = 10, settings = new { sources = new Dictionary<string, object> { ["signins"] = new { enabled = true, includeNonInteractive = false } } } })).StatusCode);
+        detail = await analyst.JsonAsync(HttpMethod.Get, $"/api/plugins/microsoft-365-audit/tenants/{id}");
+        Assert.Equal(10, detail.GetProperty("lookbackDays").GetInt32());
+        Assert.False(detail.GetProperty("settings").GetProperty("sources").GetProperty("signins").GetProperty("includeNonInteractive").GetBoolean());
+
         var names = await viewer.JsonAsync(HttpMethod.Get, "/api/plugins/microsoft-365-audit/tenants/names");
         Assert.Equal("Contoso", names.EnumerateArray().Single().GetProperty("displayName").GetString());
-
-        var updated = await admin.JsonAsync(HttpMethod.Put, $"/api/plugins/microsoft-365-audit/tenants/{id}", new { displayName = "Contoso Renamed", tenantId = created.GetProperty("tenantId").GetString(), clientId = created.GetProperty("clientId").GetString(), credentialType = "secret", clientSecret = (string?)null, cloud = "Global", enabled = false, lookbackDays = 10 });
-        Assert.Equal("Contoso Renamed", updated.GetProperty("displayName").GetString());
-        Assert.True(updated.GetProperty("hasSecret").GetBoolean());
-        Assert.Equal(10, updated.GetProperty("lookbackDays").GetInt32());
-
-        // Run-now schedules every source (tenant disabled, so nothing actually runs) and reset clears the checkpoints.
-        var run = await analyst.JsonAsync(HttpMethod.Post, $"/api/plugins/microsoft-365-audit/tenants/{id}/run", new { });
-        Assert.Equal(8, run.GetProperty("scheduled").GetArrayLength());
-        Assert.Equal(HttpStatusCode.BadRequest, (await analyst.SendAsync(HttpMethod.Post, $"/api/plugins/microsoft-365-audit/tenants/{id}/run", new { source = "nope" })).StatusCode);
-        var detail = await analyst.JsonAsync(HttpMethod.Get, $"/api/plugins/microsoft-365-audit/tenants/{id}");
-        Assert.Equal(8, detail.GetProperty("checkpoints").GetArrayLength());
         var status = await analyst.JsonAsync(HttpMethod.Get, "/api/plugins/microsoft-365-audit/status");
         Assert.Single(status.GetProperty("tenants").EnumerateArray());
-        Assert.Equal(HttpStatusCode.Forbidden, (await analyst.SendAsync(HttpMethod.Post, $"/api/plugins/microsoft-365-audit/tenants/{id}/reset", new { })).StatusCode);
-        var reset = await admin.JsonAsync(HttpMethod.Post, $"/api/plugins/microsoft-365-audit/tenants/{id}/reset", new { source = "signins" });
-        Assert.Equal(1, reset.GetProperty("removed").GetInt32());
-
-        var audit = await admin.JsonAsync(HttpMethod.Get, "/api/admin/audit?action=audit.tenant");
-        Assert.Contains(audit.GetProperty("items").EnumerateArray(), i => i.GetProperty("action").GetString() == "audit.tenant.created");
-
-        Assert.Equal(HttpStatusCode.Forbidden, (await analyst.SendAsync(HttpMethod.Delete, $"/api/plugins/microsoft-365-audit/tenants/{id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendAsync(HttpMethod.Delete, $"/api/plugins/microsoft-365-audit/tenants/{id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await admin.SendAsync(HttpMethod.Get, $"/api/plugins/microsoft-365-audit/tenants/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await analyst.SendAsync(HttpMethod.Get, $"/api/plugins/microsoft-365-audit/tenants/{Guid.NewGuid()}")).StatusCode);
     }
 
     [Fact]

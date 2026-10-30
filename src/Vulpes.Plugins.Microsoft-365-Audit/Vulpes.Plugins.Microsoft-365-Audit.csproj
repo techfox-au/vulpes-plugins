@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Vulpes audit module: Microsoft 365 / Entra security log ingestion.</Description>
+    <Description>Vulpes audit plugin: Microsoft 365 / Entra security log ingestion.</Description>
     <!-- Produce a self-contained plugin folder (deps.json + copied dependencies) suitable for AssemblyDependencyResolver. -->
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <RootNamespace>Vulpes.Plugins.Microsoft365Audit</RootNamespace>
@@ -19,10 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Shared with the host; stripped from the .7z by the ModulePacker so the host's copy is used at runtime. -->
+    <!-- Shared with the host; stripped from the .7z by the PluginPacker so the host's copy is used at runtime. -->
     <ProjectReference Include="$(VulpesRoot)src/Vulpes.Sdk/Vulpes.Sdk.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
-    <!-- Private to this module. -->
+    <!-- Private to this plugin. -->
     <PackageReference Include="Azure.Identity" />
   </ItemGroup>
 

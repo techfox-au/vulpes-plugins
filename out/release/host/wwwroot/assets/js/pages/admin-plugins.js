@@ -6,7 +6,7 @@ export function unmount() { root = null; }
 
 async function render(ctx) {
   clear(root);
-  const data = await ctx.api.get('/api/admin/modules');
+  const data = await ctx.api.get('/api/admin/plugins');
   // Releases of techfox-au/vulpes-plugins, verified by files.sha256, applied after restart (docs/plugins.md).
   root.append(h('div', { class: 'page-header' },
     h('h1', null, 'Plugins'),
@@ -19,7 +19,7 @@ async function render(ctx) {
   }
 
   const grid = h('div', { class: 'grid cols-2' });
-  for (const m of data.modules) {
+  for (const m of data.plugins) {
     grid.append(h('div', { class: 'card' },
       h('div', { class: 'card-header' }, h('h2', null, m.name), badge('v' + m.version)),
       // Description and requirements stay in plugin.json; they are not shown here.
@@ -35,27 +35,31 @@ async function render(ctx) {
         h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0]?.page || ''}` }, 'Open'),
         h('button', { class: 'btn sm danger', onClick: () => uninstall(ctx, m.id) }, 'Uninstall'))));
   }
-  if (data.modules.length === 0) grid.append(h('div', { class: 'card muted' }, 'No plugins loaded.'));
+  if (data.plugins.length === 0) grid.append(h('div', { class: 'card muted' }, 'No plugins loaded.'));
   root.append(grid);
 
   root.append(h('h2', { class: 'mt' }, 'Available releases'));
   if (data.catalogError) root.append(h('div', { class: 'alert warning' }, data.catalogError));
   const offers = h('div', { class: 'grid cols-2' });
   for (const offer of data.available || []) {
-    const already = data.modules.some((m) => m.installed && (m.installed.version === offer.version || offer.name.startsWith(m.id + '-')));
+    const already = data.plugins.some((m) => m.installed && (m.installed.version === offer.version || offer.name.startsWith(m.id + '-')));
     offers.append(h('div', { class: 'card' },
-      h('div', { class: 'card-header' }, h('h2', null, offer.name), badge(offer.version)),
+      h('div', { class: 'card-header' }, h('h2', null, offer.name), badge(versionLabel(offer.version))),
+      offer.description ? h('p', null, offer.description) : null,
       h('p', { class: 'muted small' }, `${fmt.bytes(offer.size)}${offer.publishedAt ? ' · ' + fmt.dateTime(offer.publishedAt) : ''}`),
       already ? h('p', { class: 'small' }, 'Installed') : h('button', { class: 'btn sm primary', onClick: () => install(ctx, offer) }, 'Install')));
   }
   if (!data.catalogError && (data.available || []).length === 0) offers.append(h('div', { class: 'card muted' }, 'No plugin releases found.'));
   root.append(offers);
-  root.append(h('p', { class: 'small faint' }, `Host SDK ${data.sdkVersion} · max package size ${fmt.bytes(data.maxPackageBytes)}`));
+}
+
+function versionLabel(version) {
+  return /^\d+\.\d+\.\d+/.test(version) ? 'v' + version : version;
 }
 
 async function install(ctx, offer) {
   try {
-    const res = await ctx.api.post('/api/admin/modules/install', { asset: offer.asset });
+    const res = await ctx.api.post('/api/admin/plugins/install', { asset: offer.asset });
     await render(ctx);
     pageNote(root, `Installed ${res.installed.id} ${res.installed.version}. Restart to load it.`, 'success');
   } catch (err) { pageNote(root, errorMessage(err)); }
@@ -65,7 +69,7 @@ async function uninstall(ctx, id) {
   const purge = h('input', { type: 'checkbox' });
   const confirmed = await modal.show({ title: `Uninstall ${id}`, content: h('div', { class: 'col' }, h('p', null, 'The plugin package is moved to the trash folder and no longer loaded after a restart.'), h('label', { class: 'checkbox' }, purge, h('span', null, 'Also delete the plugin\'s data (database, checkpoints, credentials)'))), actions: [{ label: 'Cancel', value: false }, { label: 'Uninstall', kind: 'danger', value: true }] });
   if (!confirmed) return;
-  try { await ctx.api.delete(`/api/admin/modules/${encodeURIComponent(id)}?purge=${purge.checked}`); await render(ctx); pageNote(root, 'Uninstalled. Restart to apply.', 'success'); }
+  try { await ctx.api.delete(`/api/admin/plugins/${encodeURIComponent(id)}?purge=${purge.checked}`); await render(ctx); pageNote(root, 'Uninstalled. Restart to apply.', 'success'); }
   catch (err) { pageNote(root, errorMessage(err)); }
 }
 

@@ -8,7 +8,6 @@
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/security-alerts.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/settings.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/signins.js
-/Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/tenants.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/activity.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/directory.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/ingestion.html
@@ -17,7 +16,6 @@
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/security-alerts.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/settings.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/signins.html
-/Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/pages/tenants.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.dll
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.deps.json
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.runtimeconfig.json

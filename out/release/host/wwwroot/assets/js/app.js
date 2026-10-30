@@ -1,4 +1,4 @@
-// Application shell: session bootstrap, navigation, hash router, module page host.
+// Application shell: session bootstrap, navigation, hash router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
 import { h, clear, icon, errorMessage, ui } from './ui.js?v=shell84';
 
@@ -8,14 +8,14 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell83'),
+  '/': () => import('./pages/home.js?v=shell101'),
   '/account': () => import('./pages/account.js?v=shell83'),
-  '/alerts': () => import('./pages/alerts.js?v=shell94'),
+  '/alerts': () => import('./pages/alerts.js?v=shell101'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell84'),
-  '/admin/modules': () => import('./pages/admin-modules.js?v=shell99'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell103'),
   '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell98'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell85'),
-  '/admin/audit': () => import('./pages/admin-audit.js?v=shell83'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell100'),
+  '/admin/audit': () => import('./pages/admin-audit.js?v=shell104'),
 };
 
 function parseHash() {
@@ -45,7 +45,7 @@ function hasRole(...roles) { return roles.some((r) => state.user?.roles?.include
 const NAV_OPEN_PLUGIN = 'vc.nav.openPlugin';
 
 function pluginId(section) {
-  for (const item of section.items || []) if (item.moduleId) return item.moduleId;
+  for (const item of section.items || []) if (item.pluginId) return item.pluginId;
   return '';
 }
 
@@ -143,16 +143,16 @@ async function applyBusinessPremiumNav() {
   } catch { /* the plugin is not loaded */ }
   for (const section of state.nav?.sections || []) {
     for (const item of section.items) {
-      if (item.moduleId === 'microsoft-365-audit' && item.page === 'risk') item.disabled = riskOff;
+      if (item.pluginId === 'microsoft-365-audit' && item.page === 'risk') item.disabled = riskOff;
     }
   }
 }
 
-function pageContext(params, query, moduleId) {
+function pageContext(params, query, pluginId) {
   return {
     api, ui, user: state.user, app: state.app, navigate, params, query,
     refreshNav: async () => { await applyBusinessPremiumNav(); renderNav(); },
-    module: moduleId ? { id: moduleId, apiBase: `/api/plugins/${moduleId}`, assetBase: `/modules/${moduleId}` } : null,
+    plugin: pluginId ? { id: pluginId, apiBase: `/api/plugins/${pluginId}`, assetBase: `/plugins/${pluginId}` } : null,
     hasRole,
     setTitle: (parts) => setCrumbs(Array.isArray(parts) ? parts : [parts]),
   };
@@ -173,32 +173,32 @@ async function mountCore(path, query, stale) {
   return true;
 }
 
-async function mountModulePage(moduleId, page, query) {
-  if (!/^[a-z][a-z0-9-]{1,31}$/.test(moduleId) || !/^[a-z][a-z0-9-]{0,63}$/.test(page)) throw new Error('Invalid page');
-  const navItem = state.nav.sections.flatMap((s) => s.items).find((i) => i.moduleId === moduleId && i.page === page);
+async function mountPluginPage(pluginId, page, query) {
+  if (!/^[a-z][a-z0-9-]{1,31}$/.test(pluginId) || !/^[a-z][a-z0-9-]{0,63}$/.test(page)) throw new Error('Invalid page');
+  const navItem = state.nav.sections.flatMap((s) => s.items).find((i) => i.pluginId === pluginId && i.page === page);
   if (!navItem) throw Object.assign(new Error('You do not have access to that page.'), { status: 403 });
   setCrumbs([navItem.title]);
   const el = h('div', { class: 'stack' });
   clear(content).append(el);
 
   if (page === 'permissions') {
-    const mod = await import(`./pages/permissions.js?v=shell97`);
-    await mod.mount(el, pageContext({ module: moduleId, page }, query, moduleId));
-    current = { unmount: mod.unmount, key: `${moduleId}/${page}` };
+    const mod = await import(`./pages/permissions.js?v=shell100`);
+    await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
+    current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
     return;
   }
 
-  const res = await fetch(`/modules/${moduleId}/pages/${page}.html?v=shell48`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell48`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Page not found (${res.status})`);
   const html = await res.text();
-  // Fragments are trusted module content served from our own origin under CSP (no inline script can run).
+  // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
   const template = document.createElement('template');
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/modules/${moduleId}/js/${page}.js?v=shell95`);
-  await mod.mount(el, pageContext({ module: moduleId, page }, query, moduleId));
-  current = { unmount: mod.unmount, key: `${moduleId}/${page}` };
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell100`);
+  await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
+  current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }
 
 async function route() {
@@ -230,8 +230,8 @@ async function route() {
     current = null;
     if (stale()) return;
     setActiveNav(path);
-    const moduleMatch = path.match(/^\/p\/([^/]+)\/([^/]+)\/?$/);
-    if (moduleMatch) { await mountModulePage(moduleMatch[1], moduleMatch[2], query); return; }
+    const pluginMatch = path.match(/^\/p\/([^/]+)\/([^/]+)\/?$/);
+    if (pluginMatch) { await mountPluginPage(pluginMatch[1], pluginMatch[2], query); return; }
     if (await mountCore(path, query, stale)) return;
     if (stale()) return;
     clear(content).append(h('div', { class: 'card' }, h('h2', null, 'Page not found'), h('p', { class: 'muted' }, 'The page you requested does not exist.'), h('a', { class: 'btn', href: '/' }, 'Go home')));

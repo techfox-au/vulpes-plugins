@@ -266,6 +266,16 @@ body:has(.shell) { overflow: hidden; }
 [data-role="explorer"] .table-wrap,
 [data-role="list"] > .table-wrap { max-height: none; flex: 1 1 auto; min-height: 0; }
 table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: calc(13px + 2pt); }
+table.table.cols-audit { table-layout: fixed; }
+table.table.cols-audit th:nth-child(1),
+table.table.cols-audit td:nth-child(1) { width: 16%; }
+table.table.cols-audit th:nth-child(2),
+table.table.cols-audit td:nth-child(2) { width: 16%; }
+table.table.cols-audit th:nth-child(3),
+table.table.cols-audit td:nth-child(3) { width: 18%; }
+table.table.cols-audit th:nth-child(4),
+table.table.cols-audit td:nth-child(4) { width: 18%; }
+table.table.cols-audit td { overflow-wrap: anywhere; }
 .table th, .table td { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .table th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--text-muted); font-weight: 600; font-size: calc(12px + 2pt); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 .table tbody tr:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }

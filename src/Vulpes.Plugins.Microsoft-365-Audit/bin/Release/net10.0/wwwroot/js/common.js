@@ -1,4 +1,4 @@
-// Shared building blocks for the audit module pages. Uses only ctx.ui / ctx.api from the shell.
+// Shared building blocks for the audit plugin pages. Uses only ctx.ui / ctx.api from the shell.
 
 export const RANGES = [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days']];
 
@@ -33,7 +33,7 @@ export function statusBadge(ui, status) {
 export async function tenantSelect(ctx, onChange, selected) {
   const sel = ctx.ui.dropdown([{ value: '', label: 'All tenants' }], { value: selected || '', ariaLabel: 'Tenant' });
   try {
-    const tenants = await ctx.api.get(`${ctx.module.apiBase}/tenants/names`);
+    const tenants = await ctx.api.get(`${ctx.plugin.apiBase}/tenants/names`);
     sel.setOptions([
       { value: '', label: 'All tenants' },
       ...tenants.map((t) => ({ value: t.tenantId, label: `${t.displayName}${t.discoveredName && t.discoveredName !== t.displayName ? ` (${t.discoveredName})` : ''}` })),
@@ -75,7 +75,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   toolbar.append(rangeSel, textInput, searchBtn, addFilterBtn, refreshBtn);
   tenantSelect(ctx, (v) => { state.tenant = v; reload(); }).then((sel) => toolbar.insertBefore(sel, textInput));
 
-  ctx.api.get(`${ctx.module.apiBase}/sources`).then((sources) => { state.fields = sources.find((s) => s.source === source)?.fields || []; }).catch(() => {});
+  ctx.api.get(`${ctx.plugin.apiBase}/sources`).then((sources) => { state.fields = sources.find((s) => s.source === source)?.fields || []; }).catch(() => {});
 
   function renderChips() {
     clear(chips);
@@ -148,7 +148,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     state.loading = true;
     if (!more) { state.hits = []; state.total = 0; state.searchAfter = null; renderTable(); }
     try {
-      const res = await ctx.api.post(`${ctx.module.apiBase}/search`, buildBody(more));
+      const res = await ctx.api.post(`${ctx.plugin.apiBase}/search`, buildBody(more));
       state.hits = more ? state.hits.concat(res.hits) : res.hits;
       state.total = res.total;
       state.searchAfter = res.hits.length ? res.hits[res.hits.length - 1].sort : null;

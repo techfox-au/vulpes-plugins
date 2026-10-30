@@ -13,7 +13,7 @@ export async function mount(el, ctx) {
   const { h, errorMessage, setBusy, panelNote } = ctx.ui;
   const form = el.querySelector('[data-role="form"]');
   let current;
-  try { current = await ctx.api.get(`${ctx.module.apiBase}/settings`); }
+  try { current = await ctx.api.get(`${ctx.plugin.apiBase}/settings`); }
   catch (err) { form.append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
 
   const number = (name, label, value) => h('div', { class: 'field' }, h('label', null, label), h('input', { class: 'input', name, type: 'number', value, required: true }));
@@ -56,7 +56,7 @@ export async function mount(el, ctx) {
     const button = form.querySelector('button[type="submit"]');
     setBusy(button, true, 'Saving…');
     try {
-      await ctx.api.put(`${ctx.module.apiBase}/settings`, {
+      await ctx.api.put(`${ctx.plugin.apiBase}/settings`, {
         schedulerIntervalSeconds: read('schedulerIntervalSeconds'),
         maxConcurrentJobs: read('maxConcurrentJobs'),
         runTimeBudgetMinutes: read('runTimeBudgetMinutes'),

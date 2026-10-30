@@ -21,7 +21,7 @@ public static class Sources
 /// <summary>Pure functions from Graph records to <see cref="SecurityEvent"/>. Kept free of I/O so they can be golden-tested.</summary>
 public static class Normalizers
 {
-    public const string ModuleId = "microsoft-365-audit";
+    public const string PluginId = "microsoft-365-audit";
 
     public static SecurityEvent? SignIn(JsonElement r, string tenantId, string? tenantName, string signInType)
     {
@@ -45,7 +45,7 @@ public static class Normalizers
 
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.SignIns,
             RecordId = id,
             Timestamp = created.Value,
@@ -102,7 +102,7 @@ public static class Normalizers
 
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Directory,
             RecordId = id,
             Timestamp = at.Value,
@@ -145,7 +145,7 @@ public static class Normalizers
         var sp = r.Obj("servicePrincipal");
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Provisioning,
             RecordId = id,
             Timestamp = at.Value,
@@ -190,7 +190,7 @@ public static class Normalizers
 
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Activity,
             RecordId = id,
             Timestamp = created.Value,
@@ -247,7 +247,7 @@ public static class Normalizers
 
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.SecurityAlerts,
             RecordId = id,
             Timestamp = created.Value,
@@ -287,7 +287,7 @@ public static class Normalizers
 
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Incidents,
             RecordId = id,
             Timestamp = created.Value,
@@ -325,7 +325,7 @@ public static class Normalizers
         var upn = r.Str("userPrincipalName");
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Risk,
             RecordId = string.Create(CultureInfo.InvariantCulture, $"detection:{id}:{updated!.Value.UtcTicks}"),
             Timestamp = at.Value,
@@ -358,7 +358,7 @@ public static class Normalizers
         var upn = r.Str("userPrincipalName");
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Risk,
             RecordId = string.Create(CultureInfo.InvariantCulture, $"user:{id}:{updated.Value.UtcTicks}"),
             Timestamp = updated.Value,
@@ -389,7 +389,7 @@ public static class Normalizers
 
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.Risk,
             RecordId = string.Create(CultureInfo.InvariantCulture, $"sp:{id}:{updated.Value.UtcTicks}"),
             Timestamp = updated.Value,
@@ -421,7 +421,7 @@ public static class Normalizers
         var max = r.Num("maxScore");
         return new SecurityEvent
         {
-            ModuleId = ModuleId,
+            PluginId = PluginId,
             Source = Sources.SecureScore,
             RecordId = id,
             Timestamp = created.Value,
@@ -444,7 +444,7 @@ public static class Normalizers
 
     public static SecurityEvent CollectorFailure(string tenantId, string? tenantName, string source, string error, DateTimeOffset at) => new()
     {
-        ModuleId = ModuleId,
+        PluginId = PluginId,
         Source = Sources.System,
         RecordId = string.Create(CultureInfo.InvariantCulture, $"{source}:{at.UtcTicks}"),
         Timestamp = at,

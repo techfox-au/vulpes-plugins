@@ -1,0 +1,1 @@
+Collects Microsoft 365 and Entra security logs from each client into the dashboard. Sign-ins, directory changes, the unified audit log, Defender alerts and incidents, Identity Protection risk, and Secure Score are each collected on their own schedule. Clients and the shared Entra application are added under Manage → Tenants.

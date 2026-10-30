@@ -1,4 +1,4 @@
-// Fetch wrapper used by the shell and by module pages (through ctx.api).
+// Fetch wrapper used by the shell and by plugin pages (through ctx.api).
 // - same-origin, credentials: cookies
 // - CSRF token from /api/session sent as X-CSRF-TOKEN on unsafe methods; refreshed once on a csrf failure
 // - 401 on an authenticated page -> redirect to /login with a safe returnUrl

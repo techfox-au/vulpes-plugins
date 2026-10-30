@@ -8,7 +8,6 @@
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/js/security-alerts.js
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/js/settings.js
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/js/signins.js
-/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/js/tenants.js
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/activity.html
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/directory.html
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/ingestion.html
@@ -17,7 +16,6 @@
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/security-alerts.html
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/settings.html
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/signins.html
-/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/tenants.html
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/appsettings.Development.json
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/appsettings.json
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/xunit.runner.visualstudio.testadapter.dll

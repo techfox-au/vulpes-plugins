@@ -1,6 +1,6 @@
 namespace Vulpes.Plugins.Microsoft365Audit;
 
-/// <summary>Module settings (host configuration section <c>Modules:Settings:audit</c>).</summary>
+/// <summary>Plugin settings (host configuration section <c>Plugins:Settings:audit</c>).</summary>
 public sealed class AuditOptions
 {
     /// <summary>How often the scheduler looks for due jobs.</summary>

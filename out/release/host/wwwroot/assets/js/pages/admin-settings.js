@@ -98,7 +98,7 @@ async function render(ctx) {
       ['Version', status.version], ['Public origin', status.publicOrigin],
       ['Search backend', status.elasticsearch?.enabled ? h('span', null, badge(status.elasticsearch.healthy ? 'healthy' : 'unreachable', status.elasticsearch.healthy ? 'success' : 'danger'), ' ', status.elasticsearch.url || '', status.elasticsearch.version ? ` (v${status.elasticsearch.version})` : '') : badge('not configured', 'warning')],
       ['Retention', status.elasticsearch?.retentionDays ? `${status.elasticsearch.retentionDays} days` : null],
-      ['Plugins', `${status.modules?.loaded ?? 0} loaded, ${status.modules?.failed ?? 0} failed`],
+      ['Plugins', `${status.plugins?.loaded ?? 0} loaded, ${status.plugins?.failed ?? 0} failed`],
       ['Notification outbox', `${status.notifications?.pending ?? 0} pending, ${status.notifications?.failed ?? 0} failed`],
     ]));
     // Elasticsearch and the master key come from environment variables or appsettings (README). Not editable here.

@@ -129,41 +129,6 @@ public sealed class CredentialFactoryTests
         Assert.Throws<InvalidOperationException>(() => factory.Create(new Tenant { Id = Guid.NewGuid(), DisplayName = "t", TenantId = "x", ClientId = "y", CredentialType = CredentialTypes.Certificate }));
     }
 
-    [Fact]
-    public async Task Tenant_service_accepts_certificates_and_rejects_broken_ones()
-    {
-        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
-        connection.Open();
-        using var db = new AuditDbContext(new DbContextOptionsBuilder<AuditDbContext>().UseSqlite(connection).Options);
-        db.Database.EnsureCreated();
-        var protector = new FakeProtector();
-        var service = new TenantService(db, protector, new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(protector), Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, TimeProvider.System), [], TimeProvider.System, new AuditOptions(), Microsoft.Extensions.Logging.Abstractions.NullLogger<TenantService>.Instance);
-
-        using var rsa = RSA.Create(2048);
-        using var certificate = new CertificateRequest("CN=audit-test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1).CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
-        var pfx = Convert.ToBase64String(certificate.Export(X509ContentType.Pfx, "pw"));
-
-        var (tenant, error) = await service.CreateAsync(new TenantInput("Cert tenant", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "certificate", null, pfx, "pw", "Global", true, 7, null), null, CancellationToken.None);
-        Assert.Null(error);
-        Assert.NotNull(tenant!.ProtectedCertificate);
-        Assert.Null(tenant.ProtectedSecret);
-        Assert.DoesNotContain(pfx, tenant.ProtectedCertificate, StringComparison.Ordinal);
-
-        var (_, wrongPassword) = await service.CreateAsync(new TenantInput("Cert tenant", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "certificate", null, pfx, "wrong", "Global", true, 7, null), null, CancellationToken.None);
-        Assert.Contains("could not be loaded", wrongPassword, StringComparison.Ordinal);
-        var (_, notBase64) = await service.CreateAsync(new TenantInput("Cert tenant", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "certificate", null, "%%%", null, "Global", true, 7, null), null, CancellationToken.None);
-        Assert.Contains("base64", notBase64, StringComparison.Ordinal);
-        var (_, missing) = await service.CreateAsync(new TenantInput("Cert tenant", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "certificate", null, null, null, "Global", true, 7, null), null, CancellationToken.None);
-        Assert.Contains("certificate", missing, StringComparison.OrdinalIgnoreCase);
-        var (_, badCloud) = await service.CreateAsync(new TenantInput("x", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "secret", "s", null, null, "Mars", true, 7, null), null, CancellationToken.None);
-        Assert.Contains("Cloud", badCloud, StringComparison.Ordinal);
-        var (_, badLookback) = await service.CreateAsync(new TenantInput("x", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "secret", "s", null, null, "Global", true, 999, null), null, CancellationToken.None);
-        Assert.Contains("Lookback", badLookback, StringComparison.Ordinal);
-
-        Assert.True(await service.DeleteAsync(tenant.Id, CancellationToken.None));
-        Assert.False(await service.DeleteAsync(tenant.Id, CancellationToken.None));
-    }
-
     private sealed class NoHttp : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new RoutedGraphHandler());

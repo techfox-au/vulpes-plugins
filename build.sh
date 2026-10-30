@@ -37,7 +37,7 @@ dotnet publish "${vulpes_root}src/Vulpes.Host/Vulpes.Host.csproj" -c Release -o 
 for project in "${plugins[@]}"; do
   dir="$(dirname "$project")"
   name="$(basename "$dir")"
-  if [[ ! -f "$dir/plugin.json" && ! -f "$dir/module.json" ]]; then
+  if [[ ! -f "$dir/plugin.json" ]]; then
     echo "Skipping $name (no plugin.json)."
     continue
   fi
@@ -47,8 +47,6 @@ for project in "${plugins[@]}"; do
 import json, pathlib, sys
 folder = pathlib.Path(sys.argv[1])
 manifest = folder / "plugin.json"
-if not manifest.exists():
-    manifest = folder / "module.json"
 entry = json.loads(manifest.read_text())["entryAssembly"]
 print(pathlib.Path(entry).with_suffix(".7z").name)
 PY
@@ -74,13 +72,21 @@ mv "${built[@]}" "$latest/"
 body="$(mktemp)"
 {
   echo "hmac_key:${hmac_key}"
-  python3 - "$hmac_key" "$latest" <<'PY'
-import hashlib, hmac, pathlib, sys
+  python3 - "$hmac_key" "$latest" "$work/publish" <<'PY'
+import hashlib, hmac, json, pathlib, sys
 key = bytes.fromhex(sys.argv[1])
 folder = pathlib.Path(sys.argv[2])
+publish = pathlib.Path(sys.argv[3])
+versions = {}
+for manifest_path in publish.glob("*/plugin.json"):
+    manifest = json.loads(manifest_path.read_text())
+    versions[pathlib.Path(manifest["entryAssembly"]).with_suffix(".7z").name] = manifest["version"]
 for package in sorted(folder.glob("*.7z")):
+    version = versions.get(package.name)
+    if not version:
+        raise SystemExit(f"No version for {package.name}. plugin.json was not found in the publish output.")
     digest = hmac.new(key, package.read_bytes(), hashlib.sha512).hexdigest()
-    print(f"{package.name}:{digest}")
+    print(f"{package.name}:{digest}:{version}")
 PY
 } > "$body"
 

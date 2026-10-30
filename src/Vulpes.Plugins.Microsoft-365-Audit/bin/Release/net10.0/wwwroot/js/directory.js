@@ -1,4 +1,4 @@
-// Entra directory changes and provisioning (docs/audit-module.md).
+// Entra directory changes and provisioning (docs/audit-plugin.md).
 import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell84';
 
 let explorer;

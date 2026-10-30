@@ -1,4 +1,4 @@
-// Microsoft Defender XDR alerts and incidents, updated as they change (docs/audit-module.md).
+// Microsoft Defender XDR alerts and incidents, updated as they change (docs/audit-plugin.md).
 import { createExplorer, severityBadge, get } from './common.js?v=shell84';
 
 let explorer;

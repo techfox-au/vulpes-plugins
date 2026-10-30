@@ -5,15 +5,15 @@ export async function mount(el, ctx) {
   const greeting = h('div', { class: 'page-header' },
     h('h1', null, 'Home'));
   const statusGrid = h('div', { class: 'grid cols-4' });
-  const modulesCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), h('div', { class: 'muted' }, 'Loading…'));
+  const pluginsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), h('div', { class: 'muted' }, 'Loading…'));
   const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '#/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
-  el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, modulesCard, alertsCard));
+  el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard));
 
   try {
     const status = await ctx.api.get('/api/status');
     statusGrid.append(
       kpi('Search backend', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'Healthy' : 'Unreachable') : 'Not configured', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'success' : 'danger') : 'warning', esDetail(status.elasticsearch)),
-      kpi('Plugins loaded', String(status.modules?.loaded ?? 0), status.modules?.failed ? 'warning' : '', status.modules?.failed ? `${status.modules.failed} failed to load` : 'all healthy'),
+      kpi('Plugins loaded', String(status.plugins?.loaded ?? 0), status.plugins?.failed ? 'warning' : '', status.plugins?.failed ? `${status.plugins.failed} failed to load` : 'all healthy'),
       kpi('Alert rules', String(status.alerts?.enabledRules ?? 0), '', `${fmt.number(status.alerts?.alertsLast24h ?? 0)} alerts in 24h`),
       kpi('Notifications', status.notifications?.smtpConfigured ? 'Email ready' : 'Email not set', status.notifications?.smtpConfigured ? 'success' : 'warning', status.notifications?.pending ? `${status.notifications.pending} pending` : ''),
     );
@@ -22,14 +22,14 @@ export async function mount(el, ctx) {
   }
 
   try {
-    const modules = await ctx.api.get('/api/modules');
-    const body = modulesCard.lastChild;
-    body.replaceWith(modules.length === 0 ? empty('No plugins installed.', 'plug')
-      : h('div', { class: 'col' }, modules.map((m) => h('div', { class: 'flex between' },
+    const plugins = await ctx.api.get('/api/plugins');
+    const body = pluginsCard.lastChild;
+    body.replaceWith(plugins.length === 0 ? empty('No plugins installed.', 'plug')
+      : h('div', { class: 'col' }, plugins.map((m) => h('div', { class: 'flex between' },
         h('div', null, h('div', null, h('strong', null, m.name), ' ', badge('v' + m.version))),
         h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0] || ''}` }, 'Open')))));
   } catch (err) {
-    modulesCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
+    pluginsCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
   }
 
   if (ctx.hasRole('Admin', 'Analyst')) {

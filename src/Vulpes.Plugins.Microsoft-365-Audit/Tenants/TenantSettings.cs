@@ -8,13 +8,13 @@ public sealed class SourceSettings
 {
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Overrides the module default interval.</summary>
+    /// <summary>Overrides the plugin default interval.</summary>
     public int? IntervalMinutes { get; set; }
 
     /// <summary>Sign-ins only: also pull non-interactive, service-principal and managed-identity sign-ins (beta endpoint).</summary>
     public bool IncludeNonInteractive { get; set; } = true;
 
-    /// <summary>Purview only: record types to query; null uses the module default.</summary>
+    /// <summary>Purview only: record types to query; null uses the plugin default.</summary>
     public List<string>? RecordTypes { get; set; }
 }
 

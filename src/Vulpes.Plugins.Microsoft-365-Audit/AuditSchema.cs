@@ -6,7 +6,7 @@ namespace Vulpes.Plugins.Microsoft365Audit;
 /// <summary>Event sources and their extra searchable fields (labels are indexed as flattened keywords).</summary>
 public sealed class AuditSchema : IIndexSchemaContributor
 {
-    public string ModuleId => Normalizers.ModuleId;
+    public string PluginId => Normalizers.PluginId;
 
     public IReadOnlyList<EventSourceDefinition> Sources { get; } =
     [

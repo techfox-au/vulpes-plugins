@@ -1,7 +1,7 @@
 import { statusBadge } from './common.js?v=shell84';
 
 let timer;
-// Collector health per tenant and source. Refreshes every 15 seconds (docs/audit-module.md).
+// Collector health per tenant and source. Refreshes every 15 seconds (docs/audit-plugin.md).
 export async function mount(el, ctx) {
   const { h } = ctx.ui;
   el.querySelector('[data-role="actions"]').append(h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: () => render(el, ctx) }, ctx.ui.icon('refresh')));
@@ -16,7 +16,7 @@ async function render(el, ctx) {
   const matrix = el.querySelector('[data-role="matrix"]');
   const runs = el.querySelector('[data-role="runs"]');
   let status;
-  try { status = await ctx.api.get(`${ctx.module.apiBase}/status`); }
+  try { status = await ctx.api.get(`${ctx.plugin.apiBase}/status`); }
   catch (err) { clear(matrix).append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
 
   clear(matrix);

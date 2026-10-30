@@ -33,7 +33,7 @@ public sealed class NormalizerGoldenTests
         };
 
         Assert.NotNull(actual);
-        Assert.Equal("microsoft-365-audit", actual.ModuleId);
+        Assert.Equal("microsoft-365-audit", actual.PluginId);
         Assert.Equal(TenantId, actual.TenantId);
         Assert.NotNull(actual.Data);
 

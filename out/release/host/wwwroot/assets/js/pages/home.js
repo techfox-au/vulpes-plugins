@@ -1,6 +1,9 @@
 import { h, badge, fmt, empty, errorMessage, icon } from '../ui.js?v=shell83';
 
+let status = null;
+
 export async function mount(el, ctx) {
+  status = null;
   ctx.setTitle(['Home']);
   const greeting = h('div', { class: 'page-header' },
     h('h1', null, 'Home'));
@@ -10,10 +13,10 @@ export async function mount(el, ctx) {
   el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard));
 
   try {
-    const status = await ctx.api.get('/api/status');
+    status = await ctx.api.get('/api/status');
     statusGrid.append(
       kpi('Search backend', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'Healthy' : 'Unreachable') : 'Not configured', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'success' : 'danger') : 'warning', esDetail(status.elasticsearch)),
-      kpi('Plugins loaded', String(status.plugins?.loaded ?? 0), status.plugins?.failed ? 'warning' : '', status.plugins?.failed ? `${status.plugins.failed} failed to load` : 'all healthy'),
+      kpi('Plugins loaded', String(status.plugins?.loaded ?? 0), status.plugins?.failed ? 'warning' : '', status.plugins?.failed ? `${status.plugins.failed} failed to load` : ''),
       kpi('Alert rules', String(status.alerts?.enabledRules ?? 0), '', `${fmt.number(status.alerts?.alertsLast24h ?? 0)} alerts in 24h`),
       kpi('Notifications', status.notifications?.smtpConfigured ? 'Email ready' : 'Email not set', status.notifications?.smtpConfigured ? 'success' : 'warning', status.notifications?.pending ? `${status.notifications.pending} pending` : ''),
     );
@@ -22,12 +25,28 @@ export async function mount(el, ctx) {
   }
 
   try {
-    const plugins = await ctx.api.get('/api/plugins');
+    const pluginsPromise = ctx.api.get('/api/plugins');
+    const updatesPromise = ctx.hasRole('Admin') ? ctx.api.get('/api/admin/plugins').catch(() => null) : Promise.resolve(null);
+    const [plugins, adminPlugins] = await Promise.all([pluginsPromise, updatesPromise]);
+    const updateIds = new Set();
+    for (const offer of adminPlugins?.available || []) {
+      if (offer.action !== 'upgrade') continue;
+      if (offer.pluginId) updateIds.add(offer.pluginId);
+      for (const plugin of plugins) {
+        if (offerMatches(plugin.id, offer.name)) updateIds.add(plugin.id);
+      }
+    }
+    const loadedIds = new Set(plugins.map((m) => m.id));
+    const failures = (status?.plugins?.failures || []).filter((f) => f.id && !loadedIds.has(f.id));
+    const rows = [
+      ...plugins.map((m) => h('div', { class: 'flex between' },
+        h('div', null, h('div', null, h('strong', null, m.name), ' ', badge('v' + m.version), ' ', pluginHealth(m.id, updateIds))),
+        h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0] || ''}` }, 'Open'))),
+      ...failures.map((f) => h('div', { class: 'flex between' },
+        h('div', null, h('div', null, h('strong', null, f.id), ' ', badge('unhealthy', 'danger', true))))),
+    ];
     const body = pluginsCard.lastChild;
-    body.replaceWith(plugins.length === 0 ? empty('No plugins installed.', 'plug')
-      : h('div', { class: 'col' }, plugins.map((m) => h('div', { class: 'flex between' },
-        h('div', null, h('div', null, h('strong', null, m.name), ' ', badge('v' + m.version))),
-        h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0] || ''}` }, 'Open')))));
+    body.replaceWith(rows.length === 0 ? empty('No plugins installed.', 'plug') : h('div', { class: 'col' }, rows));
   } catch (err) {
     pluginsCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
   }
@@ -48,6 +67,17 @@ export async function mount(el, ctx) {
 }
 
 export function unmount() {}
+
+function offerMatches(pluginId, offerName) {
+  const stem = String(offerName || '').replace(/\.7z$/i, '').toLowerCase().replace(/[._]/g, '-');
+  const id = String(pluginId || '').toLowerCase();
+  return stem === id || stem.endsWith('-' + id);
+}
+
+function pluginHealth(id, updateIds) {
+  if (updateIds.has(id)) return badge('update', 'warning', true);
+  return badge('healthy', 'success', true);
+}
 
 function esDetail(es) {
   if (!es?.enabled) return '';

@@ -50,7 +50,7 @@ async function render(ctx) {
       h('div', { class: 'form-row' }, input('username', 'Username', smtp.username), input('password', 'Password', '', 'password')),
       h('div', { class: 'form-row' }, input('fromAddress', 'From address', smtp.fromAddress, 'email'), input('fromName', 'From name', smtp.fromName)),
       input('defaultRecipients', 'Default recipients', (smtp.defaultRecipients || []).join(', ')),
-      h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'enabled', checked: smtp.enabled !== false }), h('span', null, 'SMTP enabled')),
+      h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'enabled', checked: smtp.enabled === true }), h('span', null, 'SMTP enabled')),
       h('h3', { class: 'mt' }, 'Mailgun'),
       h('div', { class: 'form-row' }, input('mailgunDomain', 'Sending domain', smtp.mailgunDomain), input('mailgunFrom', 'From address', smtp.mailgunFrom, 'email')),
       h('div', { class: 'form-row' },

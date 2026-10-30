@@ -32,15 +32,15 @@ export function append(el, children) {
 
 export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
 
-const FILLED = new Set(['plug']);
-const ICONS = new Set(['home', 'bell', 'user', 'users', 'puzzle', 'plug', 'settings', 'list', 'chart', 'login', 'directory', 'activity', 'shield', 'warning', 'building', 'pulse', 'lock', 'key', 'sparkles', 'sun', 'moon', 'logout', 'x', 'check', 'search', 'refresh', 'plus', 'trash', 'edit', 'copy', 'download', 'upload', 'external', 'info', 'dot', 'mail', 'play', 'eye']);
+const FILLED = new Set(['plug', 'exclamation-octagon', 'funnel']);
+const ICONS = new Set(['home', 'bell', 'user', 'users', 'puzzle', 'plug', 'settings', 'list', 'chart', 'login', 'directory', 'activity', 'shield', 'exclamation-octagon', 'warning', 'building', 'pulse', 'funnel', 'lock', 'key', 'sparkles', 'sun', 'moon', 'logout', 'x', 'check', 'search', 'refresh', 'plus', 'trash', 'edit', 'copy', 'download', 'upload', 'external', 'info', 'dot', 'mail', 'play', 'eye']);
 
 export function icon(name, cls = 'icon') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('class', cls + (FILLED.has(name) ? ' solid' : ''));
   svg.setAttribute('aria-hidden', 'true');
   const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-  use.setAttribute('href', '/assets/img/icons.svg?v=plug2#' + (ICONS.has(name) ? name : 'dot'));
+  use.setAttribute('href', '/assets/img/icons.svg?v=funnel1#' + (ICONS.has(name) ? name : 'dot'));
   svg.append(use);
   return svg;
 }

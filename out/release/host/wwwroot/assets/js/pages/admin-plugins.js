@@ -7,7 +7,7 @@ export function unmount() { root = null; }
 async function render(ctx) {
   clear(root);
   const data = await ctx.api.get('/api/admin/plugins');
-  // Releases of techfox-au/vulpes-plugins, verified by files.sha256, applied after restart (docs/plugins.md).
+  // Releases of techfox-au/vulpes-plugins. Each offer's action is install, upgrade, or current.
   root.append(h('div', { class: 'page-header' },
     h('h1', null, 'Plugins'),
     h('div', { class: 'btn-group' },
@@ -26,14 +26,13 @@ async function render(ctx) {
       kv([
         ['Id', m.id], ['Entry assembly', m.entryAssembly], ['SDK', m.sdkVersion],
         ['Installed', m.installed ? `${fmt.dateTime(m.installed.installedAt)} from ${m.installed.source}${m.installed.installedBy ? ' by ' + m.installed.installedBy : ''}` : 'unknown'],
-        ['Package SHA-256', m.installed ? h('code', { class: 'small' }, m.installed.packageSha256) : null],
-        ['Signed', m.installed ? (m.installed.isSigned ? 'Yes' : 'No') : null],
+        ['HMAC-SHA512', m.installed && m.installed.packageHmac ? h('code', { class: 'small' }, m.installed.packageHmac) : null],
         ['Pages', m.pages.map((p) => p.title).join(', ')],
       ]),
 
       h('div', { class: 'btn-group mt' },
         h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0]?.page || ''}` }, 'Open'),
-        h('button', { class: 'btn sm danger', onClick: () => uninstall(ctx, m.id) }, 'Uninstall'))));
+        h('button', { class: 'btn sm danger', dataset: { pluginAction: 'uninstall', pluginId: m.id }, onClick: () => uninstall(ctx, m.id) }, 'Uninstall'))));
   }
   if (data.plugins.length === 0) grid.append(h('div', { class: 'card muted' }, 'No plugins loaded.'));
   root.append(grid);
@@ -42,12 +41,19 @@ async function render(ctx) {
   if (data.catalogError) root.append(h('div', { class: 'alert warning' }, data.catalogError));
   const offers = h('div', { class: 'grid cols-2' });
   for (const offer of data.available || []) {
-    const already = data.plugins.some((m) => m.installed && (m.installed.version === offer.version || offer.name.startsWith(m.id + '-')));
+    const action = offer.action === 'upgrade' || offer.action === 'current' ? offer.action : 'install';
+    const button = action === 'current'
+      ? h('p', { class: 'small' }, 'Installed')
+      : h('button', {
+        class: 'btn sm primary',
+        dataset: { pluginAction: action, asset: offer.asset },
+        onClick: () => install(ctx, offer),
+      }, action === 'upgrade' ? 'Upgrade' : 'Install');
     offers.append(h('div', { class: 'card' },
-      h('div', { class: 'card-header' }, h('h2', null, offer.name), badge(versionLabel(offer.version))),
+      h('div', { class: 'card-header' }, h('h2', null, offer.name), offer.version ? badge(versionLabel(offer.version)) : null),
       offer.description ? h('p', null, offer.description) : null,
       h('p', { class: 'muted small' }, `${fmt.bytes(offer.size)}${offer.publishedAt ? ' · ' + fmt.dateTime(offer.publishedAt) : ''}`),
-      already ? h('p', { class: 'small' }, 'Installed') : h('button', { class: 'btn sm primary', onClick: () => install(ctx, offer) }, 'Install')));
+      button));
   }
   if (!data.catalogError && (data.available || []).length === 0) offers.append(h('div', { class: 'card muted' }, 'No plugin releases found.'));
   root.append(offers);
@@ -61,7 +67,8 @@ async function install(ctx, offer) {
   try {
     const res = await ctx.api.post('/api/admin/plugins/install', { asset: offer.asset });
     await render(ctx);
-    pageNote(root, `Installed ${res.installed.id} ${res.installed.version}. Restart to load it.`, 'success');
+    const verb = offer.action === 'upgrade' ? 'Upgraded' : 'Installed';
+    pageNote(root, `${verb} ${res.installed.id} ${res.installed.version}. Restart to load it.`, 'success');
   } catch (err) { pageNote(root, errorMessage(err)); }
 }
 

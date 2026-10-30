@@ -1,0 +1,56 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Warnings are errors; analyzers on, with the security category fully enabled. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <AnalysisModeSecurity>All</AnalysisModeSecurity>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+
+    <!-- Supply-chain hygiene: restore fails on known-vulnerable packages. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <Authors>Vulpes contributors</Authors>
+    <Product>Vulpes</Product>
+    <!-- Sibling checkout of the host repo. Override with /p:VulpesRoot=... in CI. -->
+    <VulpesRoot Condition="'$(VulpesRoot)' == ''">$(MSBuildThisFileDirectory)../vulpes/</VulpesRoot>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!--
+    Deliberately relaxed analyzer rules (reasoning in docs/security.md "Analyzer policy"):
+      CA1031  catch general exceptions - background collectors must never crash the host; every catch logs.
+      CA1848  LoggerMessage delegates - not worth the noise for an app of this size.
+      CA2007  ConfigureAwait - ASP.NET Core has no synchronization context.
+      CA1812  internal class never instantiated - DI-activated types.
+      CA1515  make types internal - test discovery and WebApplicationFactory need public types.
+      CA1819  properties returning arrays - DTOs.
+      CA2227  collection setters - DTOs bound from JSON/configuration.
+      CA1054/CA1056/CA1055 Uri vs string - configuration values are strings.
+      CA1716  identifiers matching keywords - "Module"/"Shared" naming.
+      CA1707  underscores in identifiers - test method names.
+      CA1861  constant arrays - test data readability.
+      CA1308  ToLowerInvariant - used for normalization, not comparison.
+      CA1873  log argument evaluation - micro-optimization, hurts readability.
+  -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1031;CA1848;CA2007;CA1812;CA1515;CA1819;CA2227;CA1054;CA1056;CA1055;CA1716;CA1707;CA1861;CA1308;CA1873</NoWarn>
+  </PropertyGroup>
+
+</Project>

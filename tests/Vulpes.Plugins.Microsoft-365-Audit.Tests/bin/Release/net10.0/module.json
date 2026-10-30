@@ -1,0 +1,28 @@
+{
+  "id": "microsoft-365-audit",
+  "name": "Microsoft 365 Audit",
+  "version": "0.1.3",
+  "description": "Collects Entra ID sign-in and directory audit logs, Purview unified audit activity, Defender alerts and incidents, Identity Protection risk data and Secure Score from any number of Microsoft 365 tenants into Elasticsearch.",
+  "entryAssembly": "Vulpes.Plugins.Microsoft-365-Audit.dll",
+  "sdkVersion": "1.0.0",
+  "nav": [
+    { "page": "overview", "title": "Overview", "icon": "chart", "roles": ["Viewer", "Analyst", "Admin"], "order": 10, "section": "Microsoft 365 Audit" },
+    { "page": "signins", "title": "Sign-ins", "icon": "login", "roles": ["Viewer", "Analyst", "Admin"], "order": 20, "section": "Microsoft 365 Audit" },
+    { "page": "directory", "title": "Directory audit", "icon": "directory", "roles": ["Viewer", "Analyst", "Admin"], "order": 30, "section": "Microsoft 365 Audit" },
+    { "page": "activity", "title": "Activity", "icon": "activity", "roles": ["Viewer", "Analyst", "Admin"], "order": 40, "section": "Microsoft 365 Audit" },
+    { "page": "security-alerts", "title": "Security alerts", "icon": "shield", "roles": ["Viewer", "Analyst", "Admin"], "order": 50, "section": "Microsoft 365 Audit" },
+    { "page": "risk", "title": "Risk", "icon": "warning", "roles": ["Viewer", "Analyst", "Admin"], "order": 60, "section": "Microsoft 365 Audit" },
+    { "page": "tenants", "title": "Tenants", "icon": "building", "roles": ["Analyst", "Admin"], "order": 70, "section": "Microsoft 365 Audit" },
+    { "page": "ingestion", "title": "Ingestion status", "icon": "pulse", "roles": ["Analyst", "Admin"], "order": 80, "section": "Microsoft 365 Audit" }
+  ],
+  "requirements": [
+    "Microsoft Graph application permission AuditLog.Read.All (sign-ins, directory audits, provisioning)",
+    "Microsoft Graph application permission Directory.Read.All (tenant name, sign-in enrichment)",
+    "Microsoft Graph application permission AuditLogsQuery.Read.All or the per-workload AuditLogsQuery-*.Read.All permissions (Purview unified audit log)",
+    "Microsoft Graph application permission SecurityAlert.Read.All (Defender alerts)",
+    "Microsoft Graph application permission SecurityIncident.Read.All (Defender incidents)",
+    "Microsoft Graph application permissions IdentityRiskEvent.Read.All, IdentityRiskyUser.Read.All, IdentityRiskyServicePrincipal.Read.All (Identity Protection)",
+    "Microsoft Graph application permission SecurityEvents.Read.All (Secure Score)",
+    "Entra ID P1/P2 licensing for sign-in logs; Microsoft Purview Audit (Standard) for unified audit log"
+  ]
+}

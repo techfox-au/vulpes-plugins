@@ -1,0 +1,15 @@
+{
+  "source": "risk",
+  "recordId": "detection:c2b7b0a9a1b64f0e8d1f2e3a4b5c6d7e:{ticks:2026-10-29T08:01:00Z}",
+  "timestamp": "2026-10-29T08:00:05+00:00",
+  "category": "threat",
+  "action": "unfamiliarFeatures",
+  "dataset": "entra.identityprotection",
+  "severity": "medium",
+  "userId": "cbb1a7b1-ea3e-4a21-8e5a-2b4c5ac2a0f5",
+  "userName": "jane.doe@contoso.com",
+  "sourceIp": "203.0.113.5",
+  "geo": { "countryCode": null, "country": "NG", "region": "Lagos", "city": "Lagos", "latitude": 6.45, "longitude": 3.39 },
+  "message": "unfamiliarFeatures (medium, atRisk) for jane.doe@contoso.com",
+  "labels": { "riskType": "detection", "riskLevel": "medium", "riskState": "atRisk", "riskDetail": "none", "activity": "signin", "detectionTiming": "realtime", "source": "IdentityProtection" }
+}

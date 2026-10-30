@@ -1,0 +1,24 @@
+{
+  "id": "da637551227677560813_-961444813",
+  "providerAlertId": "da637551227677560813_-961444813",
+  "incidentId": "28282",
+  "status": "new",
+  "severity": "high",
+  "classification": null,
+  "determination": null,
+  "serviceSource": "microsoftDefenderForEndpoint",
+  "detectionSource": "antivirus",
+  "productName": "Microsoft Defender for Endpoint",
+  "detectorId": "e0da400f-affd-43ef-b1d5-afc2eb6f2756",
+  "tenantId": "9c5f0d9b-7c2d-4b1a-9a2f-0e0d1c2b3a44",
+  "title": "Suspicious execution of hidden file",
+  "description": "A hidden file has been launched.",
+  "category": "DefenseEvasion",
+  "createdDateTime": "2026-10-29T06:00:00Z",
+  "lastUpdateDateTime": "2026-10-29T07:30:00Z",
+  "mitreTechniques": ["T1564.001"],
+  "evidence": [
+    { "@odata.type": "#microsoft.graph.security.ipEvidence", "ipAddress": "203.0.113.99" },
+    { "@odata.type": "#microsoft.graph.security.userEvidence", "userAccount": { "accountName": "bob", "userPrincipalName": "bob@contoso.com" } }
+  ]
+}

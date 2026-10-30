@@ -1,0 +1,16 @@
+{
+  "source": "security-alerts",
+  "recordId": "da637551227677560813_-961444813",
+  "timestamp": "2026-10-29T06:00:00+00:00",
+  "kind": "alert",
+  "category": "threat",
+  "action": "DefenseEvasion",
+  "outcome": null,
+  "dataset": "defender.alerts",
+  "severity": "high",
+  "userName": "bob@contoso.com",
+  "userEmail": "bob@contoso.com",
+  "sourceIp": "203.0.113.99",
+  "message": "Suspicious execution of hidden file",
+  "labels": { "status": "new", "serviceSource": "microsoftDefenderForEndpoint", "detectionSource": "antivirus", "incidentId": "28282", "lastUpdate": "2026-10-29T07:30:00Z" }
+}

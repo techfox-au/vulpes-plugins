@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>First-time setup · Vulpes</title>
+  <link rel="stylesheet" href="/assets/css/app.css?v=shell57">
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="icon" href="/assets/img/favicon.png?v=1" type="image/png">
+  <script type="module" src="/assets/js/setup.js?v=shell82"></script>
+</head>
+<body class="auth-page">
+  <main class="auth-card" aria-labelledby="title">
+    <div class="brand">
+      <img class="logo" src="/assets/img/logo.png?v=7" alt="">
+      <div><div class="name">Vulpes</div><div class="sub">First-time setup</div></div>
+    </div>
+    <h1 id="title">Create the first administrator</h1>
+    <div id="error" class="alert danger hidden" role="alert"></div>
+
+    <form id="form" class="col" novalidate>
+      <div class="field">
+        <label for="token">Setup token</label>
+        <input class="input mono" id="token" name="token" autocomplete="off" spellcheck="false" required>
+      </div>
+      <div class="field">
+        <label for="username">Username</label>
+        <input class="input" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      </div>
+      <div class="field">
+        <label for="displayName">Display name</label>
+        <input class="input" id="displayName" name="displayName" autocomplete="name">
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" type="button" id="tab-password" role="tab">Password</button>
+        <button class="tab" type="button" id="tab-passkey" role="tab">Passkey only</button>
+      </div>
+      <div id="panel-password" class="col">
+        <div class="field">
+          <label for="password">Password</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="new-password">
+        </div>
+        <button class="btn primary lg block" id="submit-password" type="submit">Create administrator</button>
+      </div>
+      <div id="panel-passkey" class="col hidden">
+        <button class="btn primary lg block" id="submit-passkey" type="button">Create administrator with a passkey</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

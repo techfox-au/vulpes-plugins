@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Vulpes.Plugins.Microsoft365Audit.Tests</RootNamespace>
+    <AssemblyName>Vulpes.Plugins.Microsoft365Audit.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vulpes.Plugins.Microsoft-365-Audit\Vulpes.Plugins.Microsoft-365-Audit.csproj" />
+    <ProjectReference Include="$(VulpesRoot)src/Vulpes.Host/Vulpes.Host.csproj" />
+    <ProjectReference Include="$(VulpesRoot)tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Golden\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

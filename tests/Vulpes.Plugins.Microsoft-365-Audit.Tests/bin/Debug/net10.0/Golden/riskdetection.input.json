@@ -1,0 +1,20 @@
+{
+  "id": "c2b7b0a9a1b64f0e8d1f2e3a4b5c6d7e",
+  "requestId": "6a2f3e1d-0000-1111-2222-333344445555",
+  "correlationId": "7b3f4e2e-0000-1111-2222-333344445555",
+  "riskEventType": "unfamiliarFeatures",
+  "riskState": "atRisk",
+  "riskLevel": "medium",
+  "riskDetail": "none",
+  "source": "IdentityProtection",
+  "detectionTimingType": "realtime",
+  "activity": "signin",
+  "ipAddress": "203.0.113.5",
+  "activityDateTime": "2026-10-29T08:00:00Z",
+  "detectedDateTime": "2026-10-29T08:00:05Z",
+  "lastUpdatedDateTime": "2026-10-29T08:01:00Z",
+  "userId": "cbb1a7b1-ea3e-4a21-8e5a-2b4c5ac2a0f5",
+  "userDisplayName": "Jane Doe",
+  "userPrincipalName": "jane.doe@contoso.com",
+  "location": { "city": "Lagos", "state": "Lagos", "countryOrRegion": "NG", "geoCoordinates": { "latitude": 6.45, "longitude": 3.39 } }
+}

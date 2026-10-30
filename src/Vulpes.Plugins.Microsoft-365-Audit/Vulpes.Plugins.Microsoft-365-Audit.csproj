@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Vulpes audit module: Microsoft 365 / Entra security log ingestion.</Description>
+    <!-- Produce a self-contained plugin folder (deps.json + copied dependencies) suitable for AssemblyDependencyResolver. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>Vulpes.Plugins.Microsoft365Audit</RootNamespace>
+    <AssemblyName>Vulpes.Plugins.Microsoft-365-Audit</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared with the host; stripped from the .7z by the ModulePacker so the host's copy is used at runtime. -->
+    <ProjectReference Include="$(VulpesRoot)src/Vulpes.Sdk/Vulpes.Sdk.csproj" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Private to this module. -->
+    <PackageReference Include="Azure.Identity" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vulpes.Plugins.Microsoft365Audit.Tests" />
+  </ItemGroup>
+
+  <!-- Design-time only (dotnet ef); excluded from Release builds so it never ships. -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

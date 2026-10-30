@@ -1,0 +1,20 @@
+{
+  "source": "signins",
+  "recordId": "66ea54eb-6301-4ee5-be62-ff5a759b0100",
+  "timestamp": "2026-10-29T09:15:22+00:00",
+  "category": "authentication",
+  "action": "sign-in",
+  "outcome": "failure",
+  "dataset": "entra.signins",
+  "severity": "medium",
+  "userId": "cbb1a7b1-ea3e-4a21-8e5a-2b4c5ac2a0f5",
+  "userName": "jane.doe@contoso.com",
+  "userEmail": "jane.doe@contoso.com",
+  "sourceIp": "203.0.113.42",
+  "geo": { "countryCode": null, "country": "AU", "region": "New South Wales", "city": "Sydney", "latitude": -33.86, "longitude": 151.21 },
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/130.0",
+  "clientAppId": "00000003-0000-0ff1-ce00-000000000000",
+  "clientAppName": "Office 365 SharePoint Online",
+  "message": "jane.doe@contoso.com failed to sign in to Office 365 SharePoint Online from 203.0.113.42: Error validating credentials due to invalid username or password.",
+  "labels": { "signInType": "interactive", "errorCode": "50126", "conditionalAccessStatus": "success", "clientAppUsed": "Browser", "riskLevel": "medium", "riskState": "atRisk", "isInteractive": "true", "os": "Windows10", "browser": "Edge 130.0.0", "resource": "Office 365 SharePoint Online" }
+}

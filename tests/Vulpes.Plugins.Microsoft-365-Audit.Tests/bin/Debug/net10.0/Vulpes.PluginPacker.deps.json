@@ -1,0 +1,55 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "Vulpes.PluginPacker/0.1.0": {
+        "dependencies": {
+          "SharpCompress": "0.50.7",
+          "Vulpes.Sdk": "0.1.0"
+        },
+        "runtime": {
+          "Vulpes.PluginPacker.dll": {}
+        }
+      },
+      "SharpCompress/0.50.7": {
+        "runtime": {
+          "lib/net10.0/SharpCompress.dll": {
+            "assemblyVersion": "0.50.7.0",
+            "fileVersion": "0.50.7.0"
+          }
+        }
+      },
+      "Vulpes.Sdk/0.1.0": {
+        "runtime": {
+          "Vulpes.Sdk.dll": {
+            "assemblyVersion": "0.1.0.0",
+            "fileVersion": "0.1.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Vulpes.PluginPacker/0.1.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "SharpCompress/0.50.7": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-amxjOlPKUFb33ohAVahPCCBHLtToYOOb6JGyM40q8DnT6KYoBLW1TtW6uLEXbv40S7ej6ikf6VmAXGBaFL6Klg==",
+      "path": "sharpcompress/0.50.7",
+      "hashPath": "sharpcompress.0.50.7.nupkg.sha512"
+    },
+    "Vulpes.Sdk/0.1.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

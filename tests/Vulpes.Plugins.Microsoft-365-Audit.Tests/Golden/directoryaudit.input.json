@@ -1,0 +1,18 @@
+{
+  "id": "Directory_0f1d3e1a-2b3c-4d5e-8f90-1a2b3c4d5e6f_ABCD1_12345",
+  "category": "RoleManagement",
+  "correlationId": "0f1d3e1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+  "result": "success",
+  "resultReason": "",
+  "activityDisplayName": "Add member to role",
+  "activityDateTime": "2026-10-28T23:44:01.123Z",
+  "loggedByService": "Core Directory",
+  "operationType": "Assign",
+  "initiatedBy": {
+    "user": { "id": "1bd6a7d0-0a0b-4c0d-9e1f-2a3b4c5d6e7f", "displayName": null, "userPrincipalName": "admin@contoso.com", "ipAddress": "192.0.2.10" },
+    "app": null
+  },
+  "targetResources": [
+    { "id": "aaa1a7d0-0a0b-4c0d-9e1f-2a3b4c5d6e7f", "displayName": null, "type": "User", "userPrincipalName": "newadmin@contoso.com", "modifiedProperties": [ { "displayName": "Role.DisplayName", "oldValue": null, "newValue": "\"Global Administrator\"" } ] }
+  ]
+}

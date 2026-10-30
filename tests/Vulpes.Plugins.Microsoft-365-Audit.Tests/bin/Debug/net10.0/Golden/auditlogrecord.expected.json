@@ -1,0 +1,22 @@
+{
+  "source": "activity",
+  "recordId": "3ab2d0f0-0c40-4e5e-9f14-6c0a3a0e1b11",
+  "timestamp": "2026-10-29T10:03:11+00:00",
+  "category": "file",
+  "action": "FileDownloaded",
+  "outcome": "success",
+  "dataset": "purview.sharepoint",
+  "severity": "informational",
+  "userId": "i:0h.f|membership|1003200099aa11bb@live.com",
+  "userName": "bob@contoso.com",
+  "userEmail": "bob@contoso.com",
+  "sourceIp": "198.51.100.7",
+  "geo": null,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) Chrome/129.0",
+  "clientAppId": "08e18876-6177-487e-b8b5-cf950c1e598c",
+  "clientAppName": null,
+  "filePath": "https://contoso.sharepoint.com/sites/finance/Shared Documents/Board/Q3 results.xlsx",
+  "fileName": "Q3 results.xlsx",
+  "message": "bob@contoso.com FileDownloaded https://contoso.sharepoint.com/sites/finance/Shared Documents/Board/Q3 results.xlsx",
+  "labels": { "recordType": "sharePointFileOperation", "workload": "SharePoint", "userType": "regular", "resultStatus": "Succeeded", "siteUrl": "https://contoso.sharepoint.com/sites/finance/", "objectId": "https://contoso.sharepoint.com/sites/finance/Shared Documents/Board/Q3 results.xlsx", "sourceRelativeUrl": "Shared Documents/Board" }
+}

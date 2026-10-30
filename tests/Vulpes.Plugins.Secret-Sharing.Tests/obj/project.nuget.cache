@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "dgSpecHash": "1LvuCpgs6Ug=",
+  "success": true,
+  "projectFilePath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Secret-Sharing.Tests/Vulpes.Plugins.Secret-Sharing.Tests.csproj",
+  "expectedPackageFiles": [
+    "/Users/lappy/.nuget/packages/microsoft.codecoverage/18.11.0/microsoft.codecoverage.18.11.0.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/microsoft.data.sqlite/10.0.14/microsoft.data.sqlite.10.0.14.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/microsoft.data.sqlite.core/10.0.14/microsoft.data.sqlite.core.10.0.14.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/microsoft.net.test.sdk/18.11.0/microsoft.net.test.sdk.18.11.0.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/microsoft.testplatform.objectmodel/18.11.0/microsoft.testplatform.objectmodel.18.11.0.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/microsoft.testplatform.testhost/18.11.0/microsoft.testplatform.testhost.18.11.0.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/sqlitepclraw.bundle_e_sqlite3/2.1.13/sqlitepclraw.bundle_e_sqlite3.2.1.13.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/sqlitepclraw.core/2.1.13/sqlitepclraw.core.2.1.13.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/sqlitepclraw.lib.e_sqlite3/2.1.13/sqlitepclraw.lib.e_sqlite3.2.1.13.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/sqlitepclraw.provider.e_sqlite3/2.1.13/sqlitepclraw.provider.e_sqlite3.2.1.13.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit/2.9.3/xunit.2.9.3.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.abstractions/2.0.3/xunit.abstractions.2.0.3.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.analyzers/1.18.0/xunit.analyzers.1.18.0.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.assert/2.9.3/xunit.assert.2.9.3.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.core/2.9.3/xunit.core.2.9.3.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.extensibility.core/2.9.3/xunit.extensibility.core.2.9.3.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.extensibility.execution/2.9.3/xunit.extensibility.execution.2.9.3.nupkg.sha512",
+    "/Users/lappy/.nuget/packages/xunit.runner.visualstudio/4.0.1/xunit.runner.visualstudio.4.0.1.nupkg.sha512"
+  ],
+  "logs": []
+}

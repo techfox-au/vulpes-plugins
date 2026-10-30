@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload secret</title>
+  <link rel="stylesheet" href="/assets/css/app.css?v=shell151">
+</head>
+<body class="auth-page">
+  <main class="share-public">
+    <h1 id="page-title">Upload secret</h1>
+    <p id="meta" class="muted"></p>
+    <div id="alert" class="alert hidden" role="status"></div>
+    <div id="upload-panel" class="modal-card" hidden>
+      <div id="collect-head" class="modal-header" hidden>
+        <h2 id="collect-name" class="upload-name"></h2>
+      </div>
+      <form id="upload-form" class="modal-body col">
+        <fieldset class="content-type">
+          <legend>Content type</legend>
+          <label><input type="radio" name="content-kind" value="text" checked> Text</label>
+          <label><input type="radio" name="content-kind" value="file"> File</label>
+        </fieldset>
+        <div id="panel-text" class="field">
+          <label for="secret-text">Secret text *</label>
+          <textarea id="secret-text" class="input chalkboard" rows="6" maxlength="1000000" placeholder="Paste token, note, or other secret…" autocomplete="off" spellcheck="false"></textarea>
+        </div>
+        <div id="panel-file" class="field" hidden>
+          <label for="secret-file">File (max 40 MB) *</label>
+          <input id="secret-file" class="input" type="file">
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button class="btn primary" type="submit" form="upload-form">Encrypt &amp; upload</button>
+      </div>
+    </div>
+  </main>
+  <script src="/plugins/secret-sharing/public/nacl-fast.js"></script>
+  <script src="/plugins/secret-sharing/public/crypto.js?v=crypto2"></script>
+  <script src="/plugins/secret-sharing/public/transfer.js?v=crypto4"></script>
+  <script src="/plugins/secret-sharing/public/pow.js"></script>
+  <script src="/plugins/secret-sharing/public/upload.js?v=crypto6"></script>
+</body>
+</html>

@@ -43,8 +43,20 @@ function parseRequestOptions(json) {
   return o;
 }
 
+// SHA-256("vulpes-secret-sharing-udk-v1"). The authenticator mixes this with its secret to wrap the user data key.
+const UDK_PRF_SALT = '4OKfhbfLkCOtN_vhDvzv8U9PavbGbzGTpVkXgwavBg4';
+
+function withPrf(publicKey) {
+  publicKey.extensions = { ...(publicKey.extensions || {}), prf: { eval: { first: b64urlToBuf(UDK_PRF_SALT) } } };
+  return publicKey;
+}
+
 function credentialToJSON(credential) {
-  if (typeof credential.toJSON === 'function') return credential.toJSON();
+  if (typeof credential.toJSON === 'function') {
+    const json = credential.toJSON();
+    if (json.clientExtensionResults) delete json.clientExtensionResults.prf;
+    return json;
+  }
   const r = credential.response;
   const response = { clientDataJSON: bufToB64url(r.clientDataJSON) };
   if (r.attestationObject) {
@@ -61,35 +73,45 @@ function credentialToJSON(credential) {
     rawId: bufToB64url(credential.rawId),
     type: credential.type,
     authenticatorAttachment: credential.authenticatorAttachment ?? null,
-    clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {},
+    clientExtensionResults: extensionResults(credential),
     response,
   };
+}
+
+function extensionResults(credential) {
+  const results = credential.getClientExtensionResults ? { ...credential.getClientExtensionResults() } : {};
+  delete results.prf;
+  return results;
 }
 
 /**
  * Runs a registration ceremony.
  * optionsUrl: POST endpoint returning creation options JSON; finishUrl: POST endpoint receiving { credential, ...extra }.
  */
-export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra = {}, signal }) {
+export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra = {}, signal, onCredential }) {
   if (!isSupported()) throw new Error('This browser does not support passkeys.');
   const options = await api.post(optionsUrl, optionsBody, { signal });
-  const publicKey = parseCreationOptions(options);
+  const publicKey = withPrf(parseCreationOptions(options));
   const credential = await navigator.credentials.create({ publicKey, signal });
   if (!credential) throw new Error('No credential was created.');
-  return api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
+  const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
+  if (onCredential) await onCredential(credential);
+  return result;
 }
 
 /**
  * Runs an authentication ceremony. With mediation 'conditional' the promise stays pending until the user picks a
  * passkey from the browser's autofill UI; pass an AbortController signal to cancel it (e.g. when switching to password).
  */
-export async function authenticate({ optionsUrl, finishUrl, optionsBody = {}, extra = {}, mediation, signal }) {
+export async function authenticate({ optionsUrl, finishUrl, optionsBody = {}, extra = {}, mediation, signal, onCredential }) {
   if (!isSupported()) throw new Error('This browser does not support passkeys.');
   const options = await api.post(optionsUrl, optionsBody, { signal });
-  const publicKey = parseRequestOptions(options);
+  const publicKey = withPrf(parseRequestOptions(options));
   const credential = await navigator.credentials.get({ publicKey, mediation, signal });
   if (!credential) throw new Error('No credential was provided.');
-  return api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
+  const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
+  if (onCredential) await onCredential(credential);
+  return result;
 }
 
 export function describeError(err) {

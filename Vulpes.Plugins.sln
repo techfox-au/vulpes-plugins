@@ -7,9 +7,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vulpes.Plugins.Microsoft-365-Audit", "src\Vulpes.Plugins.Microsoft-365-Audit\Vulpes.Plugins.Microsoft-365-Audit.csproj", "{FA408056-D846-4F82-8D89-A1D180FB9109}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vulpes.Plugins.Secret-Sharing", "src\Vulpes.Plugins.Secret-Sharing\Vulpes.Plugins.Secret-Sharing.csproj", "{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vulpes.Plugins.Microsoft-365-Audit.Tests", "tests\Vulpes.Plugins.Microsoft-365-Audit.Tests\Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj", "{E2D997AF-A319-454A-9693-B5E53D8DC2E7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vulpes.Plugins.Secret-Sharing.Tests", "tests\Vulpes.Plugins.Secret-Sharing.Tests\Vulpes.Plugins.Secret-Sharing.Tests.csproj", "{5BC57B57-4B32-41F0-B145-D2FF55512FF3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -33,6 +37,18 @@ Global
 		{FA408056-D846-4F82-8D89-A1D180FB9109}.Release|x64.Build.0 = Release|Any CPU
 		{FA408056-D846-4F82-8D89-A1D180FB9109}.Release|x86.ActiveCfg = Release|Any CPU
 		{FA408056-D846-4F82-8D89-A1D180FB9109}.Release|x86.Build.0 = Release|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Debug|x64.Build.0 = Debug|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Debug|x86.Build.0 = Debug|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Release|x64.ActiveCfg = Release|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Release|x64.Build.0 = Release|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Release|x86.ActiveCfg = Release|Any CPU
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47}.Release|x86.Build.0 = Release|Any CPU
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -45,12 +61,26 @@ Global
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7}.Release|x64.Build.0 = Release|Any CPU
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7}.Release|x86.ActiveCfg = Release|Any CPU
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7}.Release|x86.Build.0 = Release|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Debug|x64.Build.0 = Debug|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Debug|x86.Build.0 = Debug|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Release|x64.ActiveCfg = Release|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Release|x64.Build.0 = Release|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Release|x86.ActiveCfg = Release|Any CPU
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{FA408056-D846-4F82-8D89-A1D180FB9109} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{B7E4A1C2-6D58-4E1A-9C33-5F0A8E2D1B47} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{E2D997AF-A319-454A-9693-B5E53D8DC2E7} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{5BC57B57-4B32-41F0-B145-D2FF55512FF3} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

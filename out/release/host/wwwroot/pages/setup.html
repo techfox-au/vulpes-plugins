@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>First-time setup · Vulpes</title>
-  <link rel="stylesheet" href="/assets/css/app.css?v=shell57">
+  <link rel="stylesheet" href="/assets/css/app.css?v=shell134">
   <link rel="stylesheet" href="/theme.css">
   <link rel="icon" href="/assets/img/favicon.png?v=1" type="image/png">
-  <script type="module" src="/assets/js/setup.js?v=shell82"></script>
+  <script type="module" src="/assets/js/setup.js?v=shell137"></script>
 </head>
 <body class="auth-page">
   <main class="auth-card" aria-labelledby="title">
@@ -31,6 +31,10 @@
       <div class="field">
         <label for="displayName">Display name</label>
         <input class="input" id="displayName" name="displayName" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input class="input" id="email" name="email" type="email" autocomplete="email" maxlength="256" spellcheck="false" required>
       </div>
       <div class="tabs" role="tablist">
         <button class="tab active" type="button" id="tab-password" role="tab">Password</button>

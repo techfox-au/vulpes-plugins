@@ -963,6 +963,7 @@
           "Microsoft.AspNetCore.Authentication.OpenIdConnect": "10.0.14",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "10.0.14",
           "Microsoft.AspNetCore.Mvc.Testing": "10.0.14",
+          "Microsoft.Data.Sqlite": "10.0.14",
           "Microsoft.EntityFrameworkCore.Design": "10.0.14",
           "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
           "Microsoft.Extensions.TimeProvider.Testing": "10.11.0",

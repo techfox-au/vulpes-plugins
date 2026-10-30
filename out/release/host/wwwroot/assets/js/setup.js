@@ -1,6 +1,7 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js';
-import * as webauthn from './webauthn.js?v=shell51';
+import * as webauthn from './webauthn.js?v=shell125';
+import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell133';
 
 setRedirectOnUnauthorized(false);
 const $ = (id) => document.getElementById(id);
@@ -22,12 +23,14 @@ $('tab-password').addEventListener('click', () => switchTab('password'));
 $('tab-passkey').addEventListener('click', () => switchTab('passkey'));
 
 function common() {
-  return { token: $('token').value.trim(), username: $('username').value.trim(), displayName: $('displayName').value.trim() || null };
+  return { token: $('token').value.trim(), username: $('username').value.trim(), displayName: $('displayName').value.trim() || null, email: $('email').value.trim() };
 }
 
 function validateCommon(values) {
   if (!values.token) return 'The setup token is required.';
   if (!values.username) return 'A username is required.';
+  if (!values.email) return 'Email is required.';
+  if (!$('email').checkValidity()) return 'Email is not a valid address.';
   return null;
 }
 
@@ -47,6 +50,7 @@ $('form').addEventListener('submit', async (e) => {
   setBusy(btn, true, 'Creating…');
   try {
     await api.post('/auth/setup', values);
+    await establishWithPassword(values.password);
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }
     location.assign('/#/account');
@@ -63,7 +67,7 @@ $('submit-passkey').addEventListener('click', async () => {
   const btn = $('submit-passkey');
   setBusy(btn, true, 'Waiting for your passkey…');
   try {
-    await webauthn.register({ optionsUrl: '/auth/setup/passkey/options', finishUrl: '/auth/setup/passkey', optionsBody: values, extra: { ...values, passkeyName: 'Primary key' } });
+    await webauthn.register({ optionsUrl: '/auth/setup/passkey/options', finishUrl: '/auth/setup/passkey', optionsBody: values, extra: { ...values, passkeyName: 'Primary key' }, onCredential: (credential) => establishWithPasskey(credential) });
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }
     location.assign('/#/account');

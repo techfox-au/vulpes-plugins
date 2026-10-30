@@ -1,5 +1,6 @@
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote } from '../ui.js?v=shell83';
-import * as webauthn from '../webauthn.js?v=shell51';
+import * as webauthn from '../webauthn.js?v=shell127';
+import { rewrapPassword, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell133';
 
 let root;
 let flash;
@@ -84,7 +85,11 @@ async function render(ctx) {
       if (v.newPassword !== v.repeat) { panelNote(passwordCard, 'The passwords do not match.'); return; }
       setBusy(submit, true, 'Saving…');
       try {
+        if (me.mustChangePassword) await replaceAfterTemporaryPassword(v.newPassword);
         await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
+        if (!me.mustChangePassword) {
+          try { await rewrapPassword(v.currentPassword || null, v.newPassword); } catch { /* sign in again if the wrap did not save */ }
+        }
         if (me.mustChangePassword) { location.assign('/'); return; }
         flash = { panel: 'password', message: 'Password updated.', kind: 'success' };
         await render(ctx);
@@ -119,7 +124,7 @@ async function reauth(ctx, me, { passkeyOnly = false } = {}) {
   const result = await new Promise((resolve) => {
     passkeyBtn.addEventListener('click', async () => {
       setBusy(passkeyBtn, true, 'Waiting for your key…');
-      try { await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey' }); done = true; document.querySelector('.modal-card')?.closeModal(true); }
+      try { await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) }); done = true; document.querySelector('.modal-card')?.closeModal(true); }
       catch (err) { showModalError(webauthn.describeError(err) || errorMessage(err)); }
       finally { setBusy(passkeyBtn, false); }
     });
@@ -163,7 +168,7 @@ async function addPasskey(ctx, btn) {
   if (!values) return;
   setBusy(btn, true, 'Waiting for your passkey…');
   try {
-    await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name: values.name } });
+    await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name: values.name }, onCredential: (credential) => unlockWithPasskey(credential) });
     flash = { panel: 'passkeys', message: 'Passkey added.', kind: 'success' };
     await render(ctx);
   } catch (err) {
@@ -190,6 +195,7 @@ async function remove(ctx, passkey) {
   if (!(await modal.confirm('Remove passkey', `Remove "${passkey.name}"? You will no longer be able to sign in with it.`, { danger: true, confirmLabel: 'Remove' }))) return;
   try {
     await ctx.api.delete(`/api/account/passkeys/${encodeURIComponent(passkey.id)}`);
+    await dropPasskey(passkey.id);
     flash = { panel: 'passkeys', message: 'Passkey removed.', kind: 'success' };
     await render(ctx);
   } catch (err) {

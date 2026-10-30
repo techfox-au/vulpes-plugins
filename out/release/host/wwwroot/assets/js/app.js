@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, hash router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui } from './ui.js?v=shell114';
+import { h, clear, icon, errorMessage, ui } from './ui.js?v=shell121';
 
 const content = document.getElementById('content');
 const navEl = document.getElementById('nav');
@@ -8,14 +8,14 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell116'),
-  '/account': () => import('./pages/account.js?v=shell83'),
+  '/': () => import('./pages/home.js?v=shell155'),
+  '/account': () => import('./pages/account.js?v=shell133'),
   '/alerts': () => import('./pages/alerts.js?v=shell101'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell84'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell110'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell98'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell127'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell118'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell122'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell111'),
-  '/admin/audit': () => import('./pages/admin-audit.js?v=shell104'),
+  '/admin/audit': () => import('./pages/admin-audit.js?v=shell144'),
 };
 
 function parseHash() {
@@ -196,7 +196,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell100`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell155`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

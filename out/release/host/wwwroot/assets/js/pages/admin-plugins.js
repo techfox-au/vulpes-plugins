@@ -18,7 +18,7 @@ async function render(ctx) {
     root.append(h('div', { class: 'card' }, h('h2', null, 'Failed to load'), ...data.failures.map((f) => h('div', { class: 'alert danger' }, h('strong', null, f.id || f.directory), ': ', f.error))));
   }
 
-  const grid = h('div', { class: 'grid cols-2' });
+  const grid = h('div', { class: 'grid' });
   for (const m of data.plugins) {
     grid.append(h('div', { class: 'card' },
       h('div', { class: 'card-header' }, h('h2', null, m.name), badge('v' + m.version)),
@@ -26,7 +26,7 @@ async function render(ctx) {
       kv([
         ['Id', m.id], ['Entry assembly', m.entryAssembly], ['SDK', m.sdkVersion],
         ['Installed', m.installed ? `${fmt.dateTime(m.installed.installedAt)} from ${m.installed.source}${m.installed.installedBy ? ' by ' + m.installed.installedBy : ''}` : 'unknown'],
-        ['HMAC-SHA512', m.installed && m.installed.packageHmac ? h('code', { class: 'small' }, m.installed.packageHmac) : null],
+        ['HMAC-SHA512', m.installed && m.installed.packageHmac ? h('code', { class: 'hmac' }, m.installed.packageHmac) : null],
         ['Pages', m.pages.map((p) => p.title).join(', ')],
       ]),
 
@@ -39,23 +39,23 @@ async function render(ctx) {
 
   root.append(h('h2', { class: 'mt' }, 'Available releases'));
   if (data.catalogError) root.append(h('div', { class: 'alert warning' }, data.catalogError));
+  const releases = (data.available || [])
+    .filter((offer) => offer.action === 'upgrade' || offer.action === 'install' || !offer.action)
+    .sort((a, b) => (a.action === 'upgrade' ? 0 : 1) - (b.action === 'upgrade' ? 0 : 1) || a.name.localeCompare(b.name));
   const offers = h('div', { class: 'grid cols-2' });
-  for (const offer of data.available || []) {
-    const action = offer.action === 'upgrade' || offer.action === 'current' ? offer.action : 'install';
-    const button = action === 'current'
-      ? h('p', { class: 'small' }, 'Installed')
-      : h('button', {
-        class: 'btn sm primary',
-        dataset: { pluginAction: action, asset: offer.asset },
-        onClick: () => install(ctx, offer),
-      }, action === 'upgrade' ? 'Upgrade' : 'Install');
+  for (const offer of releases) {
+    const action = offer.action === 'upgrade' ? 'upgrade' : 'install';
     offers.append(h('div', { class: 'card' },
       h('div', { class: 'card-header' }, h('h2', null, offer.name), offer.version ? badge(versionLabel(offer.version)) : null),
       offer.description ? h('p', null, offer.description) : null,
       h('p', { class: 'muted small' }, `${fmt.bytes(offer.size)}${offer.publishedAt ? ' · ' + fmt.dateTime(offer.publishedAt) : ''}`),
-      button));
+      h('button', {
+        class: 'btn sm primary',
+        dataset: { pluginAction: action, asset: offer.asset },
+        onClick: () => install(ctx, offer),
+      }, action === 'upgrade' ? 'Upgrade' : 'Install')));
   }
-  if (!data.catalogError && (data.available || []).length === 0) offers.append(h('div', { class: 'card muted' }, 'No plugin releases found.'));
+  if (!data.catalogError && releases.length === 0) offers.append(h('div', { class: 'card muted' }, (data.available || []).length === 0 ? 'No plugin releases found.' : 'No updates or new plugins.'));
   root.append(offers);
 }
 

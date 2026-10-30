@@ -70,14 +70,15 @@ async function openUser(ctx, id, note) {
     ['Status', user.isActive ? 'Active' : 'Disabled'], ['Locked out', user.lockedOut ? `until ${fmt.dateTime(user.lockoutEnd)}` : 'No'],
   ]));
 
+  const self = ctx.user?.id === user.id;
   const actions = h('div', { class: 'btn-group' });
   actions.append(h('button', { class: 'btn', onClick: () => editUser(ctx, user) }, 'Edit'));
-  actions.append(h('button', { class: 'btn', onClick: async () => {
+  if (!self) actions.append(h('button', { class: 'btn', onClick: async () => {
     if (!(await modal.confirm('Issue recovery link', `Create a new single-use enrollment link for ${user.username}? Any previous unused link is revoked.`))) return;
     try { const res = await ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/enrollment-link`); drawer.close(); await showEnrollmentLink(res, user.username); } catch (err) { panelNote(body, errorMessage(err)); }
   } }, 'Recovery link'));
-  actions.append(h('button', { class: 'btn', onClick: async () => {
-    if (!(await modal.confirm('Set temporary password', `Replace ${user.username}'s password with a random temporary one? They must change it at next sign-in and existing sessions are revoked.`))) return;
+  if (!self) actions.append(h('button', { class: 'btn', onClick: async () => {
+    if (!(await modal.confirm('Set temporary password', `Replace ${user.username}'s password with a random temporary one? Their passkeys, recovery links, sends, and collects are deleted. They must set a new password at next sign-in.`))) return;
     try {
       const res = await ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/temporary-password`);
       const input = h('input', { class: 'input mono', readonly: true, value: res.temporaryPassword });
@@ -94,14 +95,14 @@ async function openUser(ctx, id, note) {
     try { await ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`); panelNote(body, 'Sessions revoked.', 'success'); }
     catch (err) { panelNote(body, errorMessage(err)); }
   } }, 'Revoke sessions'));
-  actions.append(h('button', { class: 'btn ' + (user.isActive ? 'danger' : 'primary'), onClick: async () => {
+  if (!(self && user.isActive)) actions.append(h('button', { class: 'btn ' + (user.isActive ? 'danger' : 'primary'), onClick: async () => {
     try {
       await ctx.api.patch(`/api/admin/users/${encodeURIComponent(id)}`, { isActive: !user.isActive });
       const message = user.isActive ? 'Account disabled.' : 'Account enabled.';
       drawer.close(); await render(ctx); pageNote(root, message, 'success');
     } catch (err) { panelNote(body, errorMessage(err)); }
   } }, user.isActive ? 'Disable' : 'Enable'));
-  actions.append(h('button', { class: 'btn danger', onClick: async () => {
+  if (!self) actions.append(h('button', { class: 'btn danger', onClick: async () => {
     if (!(await modal.confirm('Delete user', `Permanently delete ${user.username}? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' }))) return;
     try { await ctx.api.delete(`/api/admin/users/${encodeURIComponent(id)}`); drawer.close(); await render(ctx); pageNote(root, 'User deleted.', 'success'); }
     catch (err) { panelNote(body, errorMessage(err)); }

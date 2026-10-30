@@ -1,0 +1,17 @@
+{
+  "id": "secret-sharing",
+  "name": "Secret Sharing",
+  "version": "0.1.1",
+  "description": "Send a secret to someone, or collect a secret from someone, with the same client-side encryption as Sendit.",
+  "entryAssembly": "Vulpes.Plugins.Secret-Sharing.dll",
+  "sdkVersion": "1.0.0",
+  "nav": [
+    { "page": "send", "title": "Send secret", "icon": "send-up", "roles": ["Viewer", "Analyst", "Admin"], "order": 10, "section": "Secret Sharing" },
+    { "page": "collect", "title": "Collect secret", "icon": "send-down", "roles": ["Viewer", "Analyst", "Admin"], "order": 20, "section": "Secret Sharing" },
+    { "page": "settings", "title": "Settings", "icon": "settings", "roles": ["Viewer", "Analyst", "Admin"], "order": 30, "section": "Secret Sharing" }
+  ],
+  "requirements": [
+    "A Vulpes account. The plugin does not have its own sign-in.",
+    "A user data key, created in the browser and wrapped with a password the same way Sendit wraps one."
+  ]
+}

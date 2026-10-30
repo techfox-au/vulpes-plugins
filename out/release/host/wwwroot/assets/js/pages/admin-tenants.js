@@ -42,16 +42,26 @@ function applicationCard(ctx, app, permissions) {
   const card = h('div', { class: 'card' });
   const form = h('form', { class: 'stack' });
   const input = (label, name, attrs) => h('div', { class: 'field' }, h('label', null, label), h('input', { class: 'input', name, autocomplete: 'off', ...attrs }));
+  const credential = dropdown([['secret', 'Client secret'], ['certificate', 'Certificate (PFX)']], { value: app.credentialType || 'secret', name: 'credentialType', ariaLabel: 'Credential' });
+  const secretField = input(app.hasSecret ? 'Client secret (blank keeps the stored one)' : 'Client secret', 'secret', { type: 'password' });
+  const certificateRow = h('div', { class: 'form-row' },
+    h('div', { class: 'field' }, h('label', null, app.hasCertificate ? 'Certificate (leave empty to keep the stored one)' : 'Certificate (PFX)'), h('input', { class: 'input', name: 'pfx', type: 'file', accept: '.pfx,.p12' })),
+    input('PFX password', 'certificatePassword', { type: 'password' }));
+  const showCredential = () => {
+    const certificate = credential.value === 'certificate';
+    secretField.hidden = certificate;
+    certificateRow.hidden = !certificate;
+  };
+  credential.addEventListener('change', showCredential);
+  showCredential();
   form.append(
     h('div', { class: 'form-row' },
       input('Application (client) id', 'clientId', { value: app.clientId || '', spellcheck: false, required: true }),
       h('div', { class: 'field' }, h('label', null, 'Cloud'), dropdown([['Global', 'Global'], ['USGov', 'US Government']], { value: app.cloud || 'Global', name: 'cloud', ariaLabel: 'Cloud' }))),
     h('div', { class: 'form-row' },
-      h('div', { class: 'field' }, h('label', null, 'Credential'), dropdown([['secret', 'Client secret'], ['certificate', 'Certificate (PFX)']], { value: app.credentialType || 'secret', name: 'credentialType', ariaLabel: 'Credential' })),
-      input(app.hasSecret ? 'Client secret (blank keeps the stored one)' : 'Client secret', 'secret', { type: 'password' })),
-    h('div', { class: 'form-row' },
-      h('div', { class: 'field' }, h('label', null, app.hasCertificate ? 'Certificate (leave empty to keep the stored one)' : 'Certificate (PFX)'), h('input', { class: 'input', name: 'pfx', type: 'file', accept: '.pfx,.p12' })),
-      input('PFX password', 'certificatePassword', { type: 'password' })),
+      h('div', { class: 'field' }, h('label', null, 'Credential'), credential),
+      secretField),
+    certificateRow,
     h('div', { class: 'field' }, h('label', null, 'Application permissions'), permissions.length
       ? h('div', { class: 'stack' }, ...permissions.map((p) => h('div', null, h('span', { class: 'mono' }, p.name), h('span', { class: 'small muted' }, ' ' + p.purpose))))
       : h('p', { class: 'small muted' }, 'No plugin has declared permissions yet.')),
@@ -61,7 +71,8 @@ function applicationCard(ctx, app, permissions) {
     panelNote(card, '');
     const button = form.querySelector('button[type="submit"]');
     const values = formValues(form);
-    const file = form.querySelector('input[name="pfx"]').files?.[0];
+    const certificate = values.credentialType === 'certificate';
+    const file = certificate ? form.querySelector('input[name="pfx"]').files?.[0] : null;
     let pfx = null;
     if (file) {
       const buf = await file.arrayBuffer();
@@ -71,7 +82,9 @@ function applicationCard(ctx, app, permissions) {
     try {
       await ctx.api.put('/api/admin/tenants/application', {
         clientId: values.clientId, credentialType: values.credentialType, cloud: values.cloud,
-        secret: values.secret || null, certificatePfxBase64: pfx, certificatePassword: values.certificatePassword || null,
+        secret: certificate ? null : (values.secret || null),
+        certificatePfxBase64: pfx,
+        certificatePassword: certificate ? (values.certificatePassword || null) : null,
       });
       await render(ctx);
       pageNote(root, 'Application saved.', 'success');

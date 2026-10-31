@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
 using Xunit;
 
@@ -77,6 +78,29 @@ public sealed class GraphClientTests
         Assert.Equal("Contoso", result.RootElement.GetProperty("value")[0].GetProperty("displayName").GetString());
         Assert.Equal(3, attempts);
         Assert.Equal(2, client.ThrottledCount);
+    }
+
+    [Fact]
+    public async Task Unauthorized_drops_the_token_and_asks_for_a_new_one()
+    {
+        var calls = 0;
+        var tokens = new FakeTokenProvider();
+        var handler = new RoutedGraphHandler().Get(p => p.Contains("auditLogs/signIns", StringComparison.Ordinal), _ =>
+        {
+            calls++;
+            return calls == 1
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{\"error\":{\"code\":\"InvalidAuthenticationToken\",\"message\":\"expired\"}}", Encoding.UTF8, "application/json") }
+                : RoutedGraphHandler.Page([new { id = "a" }]);
+        });
+        var client = new GraphClient(new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com") }, tokens, GraphCloud.Global, NullLogger.Instance);
+        var items = new List<string>();
+        await foreach (var item in client.GetPagedAsync("auditLogs/signIns?$top=1", 5, CancellationToken.None))
+        {
+            items.Add(item.GetProperty("id").GetString()!);
+        }
+
+        Assert.Equal(["a"], items);
+        Assert.Equal(2, tokens.Calls);
     }
 
     [Fact]

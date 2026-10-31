@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, hash router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui } from './ui.js?v=shell161';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell182';
 
 const content = document.getElementById('content');
 const navEl = document.getElementById('nav');
@@ -8,14 +8,15 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell155'),
-  '/account': () => import('./pages/account.js?v=shell133'),
+  '/': () => import('./pages/home.js?v=shell198'),
+  '/account': () => import('./pages/account.js?v=shell188'),
   '/alerts': () => import('./pages/alerts.js?v=shell101'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell127'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell156'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell179'),
   '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell161'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell164'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell199'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell144'),
+  '/admin/console': () => import('./pages/admin-console.js?v=shell170'),
 };
 
 function parseHash() {
@@ -106,6 +107,7 @@ function renderNav() {
     }
     const items = h('div', { class: 'nav-items', id: `nav-items-${index}` });
     for (const item of section.items) {
+      if (item.hidden) continue;
       const disabled = item.disabled === true;
       const active = !disabled && (isHomeLink(item.href, path) || item.href === '#' + path);
       const label = [icon(item.icon || 'dot'), h('span', { class: 'truncate' }, item.title)];
@@ -137,13 +139,18 @@ function setCrumbs(parts) {
 
 async function applyBusinessPremiumNav() {
   let riskOff = false;
+  let hideRisk = false;
   try {
     const sources = await api.get('/api/plugins/microsoft-365-audit/sources');
-    riskOff = sources.some((s) => s.source === 'risk' && s.unavailable);
+    const risk = sources.find((s) => s.source === 'risk');
+    riskOff = risk?.unavailable === true;
+    hideRisk = risk?.hidden === true;
   } catch { /* the plugin is not loaded */ }
   for (const section of state.nav?.sections || []) {
     for (const item of section.items) {
-      if (item.pluginId === 'microsoft-365-audit' && item.page === 'risk') item.disabled = riskOff;
+      if (item.pluginId !== 'microsoft-365-audit' || item.page !== 'risk') continue;
+      item.hidden = hideRisk;
+      item.disabled = riskOff && !hideRisk;
     }
   }
 }
@@ -152,6 +159,12 @@ function pageContext(params, query, pluginId) {
   return {
     api, ui, user: state.user, app: state.app, navigate, params, query,
     refreshNav: async () => { await applyBusinessPremiumNav(); renderNav(); },
+    refreshChrome: async () => {
+      const s = await session(true);
+      if (!s.authenticated) return;
+      state.user = s.user;
+      renderChip();
+    },
     plugin: pluginId ? { id: pluginId, apiBase: `/api/plugins/${pluginId}`, assetBase: `/plugins/${pluginId}` } : null,
     hasRole,
     setTitle: (parts) => setCrumbs(Array.isArray(parts) ? parts : [parts]),
@@ -196,7 +209,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell163`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell201`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }
@@ -243,9 +256,14 @@ async function route() {
   }
 }
 
-function renderChrome() {
+function renderChip() {
   const chip = document.getElementById('user-chip');
-  clear(chip).append(h('span', { class: 'avatar' }, (state.user.displayName || state.user.username || '?').slice(0, 2).toUpperCase()), h('span', { class: 'truncate' }, state.user.displayName || state.user.username));
+  const name = state.user.displayName || state.user.username || '';
+  clear(chip).append(avatar(name, { updatedAt: state.user.avatarUpdatedAt }), h('span', { class: 'truncate' }, name));
+}
+
+function renderChrome() {
+  renderChip();
   const logoutBtn = document.getElementById('logout-btn');
   clear(logoutBtn).append(icon('logout'));
   logoutBtn.addEventListener('click', async () => {

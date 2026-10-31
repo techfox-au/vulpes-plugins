@@ -21,9 +21,9 @@ public static class ShareEndpoints
         group.MapPut("/notifications", PutNotifications);
         group.MapPost("/sends", CreateSend);
         group.MapDelete("/sends/{id}", DeleteSend);
-        group.MapPost("/collects", CreateCollect);
-        group.MapDelete("/collects/{id}", DeleteCollect);
-        group.MapGet("/collects/{id}/owner-key", OwnerKey);
+        group.MapPost("/collects", CreateCollect).RequireAuthorization(Policies.Analyst);
+        group.MapDelete("/collects/{id}", DeleteCollect).RequireAuthorization(Policies.Analyst);
+        group.MapGet("/collects/{id}/owner-key", OwnerKey).RequireAuthorization(Policies.Analyst);
         group.MapPost("/public/collects/{id}/open", OpenCollect).AllowAnonymous();
 
         group.MapGet("/public/sends/{id}/pow", SendPow).AllowAnonymous();
@@ -92,10 +92,16 @@ public static class ShareEndpoints
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
-        return Results.Json(new { items = store.List(user) });
+        var items = store.List(user);
+        if (!ShareAccess.CanCollect(http.User))
+        {
+            items = items.Where(item => item.Kind != "collect").ToList();
+        }
+
+        return Results.Json(new { items });
     }
 
-    private static async Task<IResult> CreateSend(SendBody body, HttpContext http, ShareStore store, IHostAuditLog audit)
+    private static async Task<IResult> CreateSend(SendBody body, HttpContext http, ShareStore store, IClientIpCapability ipCap, IHostAuditLog audit)
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
@@ -108,6 +114,11 @@ public static class ShareEndpoints
         if (!IpRestriction.TryNormalize(body.AllowedCidr, out var allowedCidr, out var cidrError))
         {
             return Results.BadRequest(new { error = "validation", message = cidrError });
+        }
+
+        if (!string.IsNullOrEmpty(allowedCidr) && allowedCidr != "*" && !ipCap.IpRestrictionsEnabled)
+        {
+            return Results.BadRequest(new { error = "validation", message = "IP restrictions are unavailable on this server because the client address is not a public visitor address. Leave Allowed IPs empty." });
         }
 
         if (body.EncryptedLabel is { Length: > 4096 } || body.RecipientLabel is { Length: > 8192 })
@@ -197,7 +208,7 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash);
+        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
         if (error is not null) return Denied(scan, http, error);
         var row = store.TakeCollect(id);
         if (row is null) return Miss(scan, http);
@@ -218,21 +229,25 @@ public static class ShareEndpoints
     {
         // Issue for any plausible id. Existence is checked only after the proof is burned.
         if (!Plausible(id)) return Miss(scan, http);
-        if (Budget(scan, http) is { } limited) return limited;
-        var challenge = pow.Issue("send", id);
-        scan.RecordChallengeIssue(ShareScanGuard.ClientKey(http));
+        if (FailureBudget(scan, http) is { } limited) return limited;
+        var client = ShareScanGuard.ClientKey(http);
+        if (!pow.TryIssue("send", id, client, PowBrowser.Current(http), out var challenge, out var retry) || challenge is null)
+        {
+            return TooMany(http, retry);
+        }
+
         return Results.Json(challenge);
     }
 
-    private static async Task<IResult> SendMeta(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IHostAuditLog audit, HttpContext http)
+    private static async Task<IResult> SendMeta(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IClientIpCapability ipCap, IHostAuditLog audit, HttpContext http)
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash);
+        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
         if (error is not null) return Denied(scan, http, error);
         var meta = store.SendMeta(id);
         if (meta is null || meta.Status != "active") return Miss(scan, http);
-        if (!ClientAllowed(http, store, id)) return await IpDenied(http, audit, id);
+        if (!ClientAllowed(http, store, id, ipCap)) return await IpDenied(http, audit, id);
         return Results.Json(new
         {
             meta.Status,
@@ -248,15 +263,15 @@ public static class ShareEndpoints
         });
     }
 
-    private static async Task<IResult> SendPayload(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IHostAuditLog audit, HttpContext http)
+    private static async Task<IResult> SendPayload(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IClientIpCapability ipCap, IHostAuditLog audit, HttpContext http)
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash);
+        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
         if (error is not null) return Denied(scan, http, error);
         var peek = store.SendMeta(id);
         if (peek is null || peek.Status != "active") return Miss(scan, http);
-        if (!ClientAllowed(http, store, id)) return await IpDenied(http, audit, id);
+        if (!ClientAllowed(http, store, id, ipCap)) return await IpDenied(http, audit, id);
         var row = store.TakeSend(id);
         if (row is null || row.Status != "active" || row.Ciphertext.Length == 0) return Miss(scan, http);
         await audit.RecordAsync("secret.send.decrypted", id, "Payload released after proof of work.", actor: "anonymous", cancellationToken: http.RequestAborted);
@@ -268,9 +283,13 @@ public static class ShareEndpoints
     {
         // Issue for any plausible id. Existence is checked only after the proof is burned.
         if (!Plausible(id)) return Miss(scan, http);
-        if (Budget(scan, http) is { } limited) return limited;
-        var challenge = pow.Issue("collect", id);
-        scan.RecordChallengeIssue(ShareScanGuard.ClientKey(http));
+        if (FailureBudget(scan, http) is { } limited) return limited;
+        var client = ShareScanGuard.ClientKey(http);
+        if (!pow.TryIssue("collect", id, client, PowBrowser.Current(http), out var challenge, out var retry) || challenge is null)
+        {
+            return TooMany(http, retry);
+        }
+
         return Results.Json(challenge);
     }
 
@@ -278,7 +297,7 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash);
+        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
         if (error is not null) return Denied(scan, http, error);
         var meta = store.CollectMeta(id);
         if (meta is null || meta.Status is "expired" or "consumed") return Miss(scan, http);
@@ -291,7 +310,7 @@ public static class ShareEndpoints
         PowService.ReadFromHeaders(http.Request.Headers, out var challenge, out var nonce, out var hash);
         var meta = store.CollectMeta(id);
         if (meta is null || meta.Status != "waiting") return Results.StatusCode(StatusCodes.Status403Forbidden);
-        var error = pow.TryValidate("collect", id, challenge, nonce, hash);
+        var error = pow.TryValidate("collect", id, challenge, nonce, hash, PowBrowser.Current(http));
         return error is null ? Results.NoContent() : Results.StatusCode(StatusCodes.Status403Forbidden);
     }
 
@@ -301,7 +320,7 @@ public static class ShareEndpoints
         if (!Plausible(id)) return Miss(scan, http);
         if (!http.Items.ContainsKey(PowService.HttpContextPowConsumed))
         {
-            var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash);
+            var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
             if (error is not null) return Denied(scan, http, error);
         }
         var payloadError = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, 1);
@@ -329,23 +348,36 @@ public static class ShareEndpoints
         var email = Email(http);
         if (email is not null) store.RememberEmail(user, email);
         var prefs = store.GetNotifications(user);
-        return Results.Json(new { email = email ?? (string.IsNullOrEmpty(prefs.Email) ? null : prefs.Email), notifyCollectReady = prefs.NotifyCollectReady, notifySendOpened = prefs.NotifySendOpened });
+        var canCollect = ShareAccess.CanCollect(http.User);
+        var collect = canCollect && prefs.NotifyCollectReady;
+        if (prefs.NotifyCollectReady && !canCollect)
+        {
+            store.SaveNotifications(user, prefs.Email, false, prefs.NotifySendOpened);
+        }
+
+        return NotificationJson(email ?? (string.IsNullOrEmpty(prefs.Email) ? null : prefs.Email), collect, prefs.NotifySendOpened, canCollect);
     }
 
     private static async Task<IResult> PutNotifications(NotificationBody body, HttpContext http, ShareStore store, IHostAuditLog audit)
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
+        var canCollect = ShareAccess.CanCollect(http.User);
+        var collect = canCollect && body.NotifyCollectReady;
+        var send = body.NotifySendOpened;
         var email = Email(http) ?? "";
-        if ((body.NotifyCollectReady || body.NotifySendOpened) && email.Length == 0)
+        if ((collect || send) && email.Length == 0)
         {
             return Results.BadRequest(new { error = "validation", message = "Add an email address to this account before turning on these emails." });
         }
 
-        store.SaveNotifications(user, email, body.NotifyCollectReady, body.NotifySendOpened);
-        await audit.RecordAsync("secret.notify.changed", user, $"collectReady={body.NotifyCollectReady} sendOpened={body.NotifySendOpened}", cancellationToken: http.RequestAborted);
-        return Results.Json(new { email = email.Length == 0 ? null : email, notifyCollectReady = body.NotifyCollectReady, notifySendOpened = body.NotifySendOpened });
+        store.SaveNotifications(user, email, collect, send);
+        await audit.RecordAsync("secret.notify.changed", user, $"collectReady={collect} sendOpened={send}", cancellationToken: http.RequestAborted);
+        return NotificationJson(email.Length == 0 ? null : email, collect, send, canCollect);
     }
+
+    private static IResult NotificationJson(string? email, bool collect, bool send, bool canCollect) =>
+        Results.Json(new { email, notifyCollectReady = collect, notifySendOpened = send, canCollect });
 
     private static void RememberEmail(HttpContext http, ShareStore store, string userId)
     {
@@ -363,17 +395,6 @@ public static class ShareEndpoints
     }
 
     private static bool Plausible(string? id) => !string.IsNullOrEmpty(id) && id.Length is >= 1 and <= 128;
-
-    private static IResult? Budget(ShareScanGuard scan, HttpContext http)
-    {
-        var client = ShareScanGuard.ClientKey(http);
-        if (scan.IsFailureBudgetExceeded(client, out var retry) || scan.IsChallengeIssueBudgetExceeded(client, out retry))
-        {
-            return TooMany(http, retry);
-        }
-
-        return null;
-    }
 
     private static IResult? FailureBudget(ShareScanGuard scan, HttpContext http)
     {
@@ -404,8 +425,8 @@ public static class ShareEndpoints
         return Results.Json(new { error = "rate_limit", message = "Too many failed attempts. Wait before trying again." }, statusCode: StatusCodes.Status429TooManyRequests);
     }
 
-    private static bool ClientAllowed(HttpContext http, ShareStore store, string id) =>
-        IpRestriction.IsClientAllowed(store.AllowedCidr(id), http.Connection.RemoteIpAddress);
+    private static bool ClientAllowed(HttpContext http, ShareStore store, string id, IClientIpCapability ipCap) =>
+        !ipCap.IpRestrictionsEnabled || IpRestriction.IsClientAllowed(store.AllowedCidr(id), http.Connection.RemoteIpAddress);
 
     private static string? UserId(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier);
 

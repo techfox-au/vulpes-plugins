@@ -28,6 +28,6 @@ Names, private notes, and the collect owner key are encrypted under the user dat
 
 ## Proof of work
 
-HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 12 bits, 120 seconds for a send challenge, and 900 seconds for a collect challenge. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
+HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 14 bits and 120 seconds for a send or collect challenge. The collect page mints a new ticket when half of that life has passed. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
 
 Public pages are `/send`, `/upload`, and `/collect`.

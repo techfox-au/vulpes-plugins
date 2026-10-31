@@ -81,6 +81,9 @@ public abstract class WatermarkCollector : ICollector
     /// <summary>Builds the Graph request path for records at or after <paramref name="from"/>.</summary>
     protected abstract string BuildPath(CollectorContext context, DateTimeOffset from);
 
+    /// <summary>Date field used to page oldest-first. Must be the same field the filter and <see cref="Map"/> use.</summary>
+    protected abstract string OrderByField { get; }
+
     protected virtual bool UseBeta => false;
 
     protected virtual TimeSpan Overlap(CollectorContext context) => TimeSpan.FromMinutes(context.Options.LogOverlapMinutes);
@@ -93,9 +96,10 @@ public abstract class WatermarkCollector : ICollector
         ArgumentNullException.ThrowIfNull(context);
         var from = context.WindowStart(Overlap(context));
         var path = BuildPath(context, from);
+        path += path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        path += "%24orderby=" + Uri.EscapeDataString(OrderByField + " asc");
         var buffer = new List<SecurityEvent>(500);
         DateTimeOffset? max = null;
-        DateTimeOffset? min = null;
         var totals = (Indexed: 0, Duplicates: 0, Failed: 0, Alerts: 0);
         var complete = true;
         var seen = 0;
@@ -110,7 +114,6 @@ public abstract class WatermarkCollector : ICollector
             seen++;
             buffer.Add(mapped.Event);
             max = max is null || mapped.Timestamp > max ? mapped.Timestamp : max;
-            min = min is null || mapped.Timestamp < min ? mapped.Timestamp : min;
             if (buffer.Count >= 500)
             {
                 var r = await context.PublishAsync(buffer, cancellationToken);
@@ -127,9 +130,10 @@ public abstract class WatermarkCollector : ICollector
         var last = await context.PublishAsync(buffer, cancellationToken);
         totals = Add(totals, last);
 
-        // Newest-first APIs: a partial read has covered [min, now]; resume from min so nothing older is skipped.
-        var newWatermark = complete ? (max ?? context.Checkpoint.Watermark ?? context.Now) : (min ?? context.Checkpoint.Watermark);
-        if (newWatermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark || !complete))
+        // Oldest-first: a partial run has ingested everything from the window start through max.
+        // The next run continues after max. An empty finished run moves the watermark to now.
+        DateTimeOffset? newWatermark = max ?? (complete ? context.Checkpoint.Watermark ?? context.Now : context.Checkpoint.Watermark);
+        if (newWatermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark))
         {
             context.Checkpoint.Watermark = w;
         }

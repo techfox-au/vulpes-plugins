@@ -11,47 +11,60 @@ export async function mount(el, ctx) {
     return;
   }
 
-  const collect = h('input', { type: 'checkbox', checked: !!prefs.notifyCollectReady });
+  const canCollect = !!prefs.canCollect;
   const send = h('input', { type: 'checkbox', checked: !!prefs.notifySendOpened });
+  const collect = canCollect ? h('input', { type: 'checkbox', checked: !!prefs.notifyCollectReady }) : null;
   const note = h('div');
   let savedCollect = !!prefs.notifyCollectReady;
   let savedSend = !!prefs.notifySendOpened;
   const noEmail = !prefs.email;
   if (noEmail) {
-    collect.disabled = true;
+    if (collect) collect.disabled = true;
     send.disabled = true;
   }
 
   async function save() {
-    collect.disabled = true;
+    if (collect) collect.disabled = true;
     send.disabled = true;
     try {
-      const next = await ctx.api.put(`${ctx.plugin.apiBase}/notifications`, { notifyCollectReady: collect.checked, notifySendOpened: send.checked });
+      const next = await ctx.api.put(`${ctx.plugin.apiBase}/notifications`, {
+        notifyCollectReady: collect ? collect.checked : false,
+        notifySendOpened: send.checked,
+      });
       savedCollect = !!next.notifyCollectReady;
       savedSend = !!next.notifySendOpened;
+      if (collect) collect.checked = savedCollect;
+      send.checked = savedSend;
       panelNote(note, '');
     } catch (err) {
-      collect.checked = savedCollect;
+      if (collect) collect.checked = savedCollect;
       send.checked = savedSend;
       panelNote(note, err.message || 'Could not save settings.');
     } finally {
       if (!noEmail) {
-        collect.disabled = false;
+        if (collect) collect.disabled = false;
         send.disabled = false;
       }
     }
   }
 
-  collect.addEventListener('change', save);
+  if (collect) collect.addEventListener('change', save);
   send.addEventListener('change', save);
-  card.append(
-    h('div', { class: 'card-header' }, h('h2', null, 'Email')),
+  const rows = [
     prefs.email ? h('p', { class: 'muted' }, `Messages go to ${prefs.email}.`) : h('p', { class: 'muted' }, 'An administrator must add an email address to this account before these emails can be turned on.'),
-    h('label', { class: 'checkbox' }, collect, h('span', null, 'Email me when a collect is ready to retrieve')),
-    h('p', { class: 'muted small' }, 'Sent when someone submits to one of your collect links.'),
+  ];
+  if (collect) {
+    rows.push(
+      h('label', { class: 'checkbox' }, collect, h('span', null, 'Email me when a collect is ready to retrieve')),
+      h('p', { class: 'muted small' }, 'Sent when someone submits to one of your collect links.'));
+  }
+  rows.push(
     h('label', { class: 'checkbox' }, send, h('span', null, 'Email me when a send is opened for decryption')),
     h('p', { class: 'muted small' }, 'Sent when a recipient downloads the encrypted payload in their browser.'),
     note);
+  card.append(
+    h('div', { class: 'card-header' }, h('h2', null, 'Email')),
+    h('div', { class: 'col' }, rows));
 }
 
 export function unmount() {}

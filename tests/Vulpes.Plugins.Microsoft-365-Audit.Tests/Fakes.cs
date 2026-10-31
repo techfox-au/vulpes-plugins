@@ -126,7 +126,11 @@ public sealed class FakeTokenProvider : IGraphTokenProvider
     public Task<string> GetTokenAsync(CancellationToken cancellationToken)
     {
         Calls++;
-        return Task.FromResult("fake-token");
+        return Task.FromResult("fake-token-" + Calls);
+    }
+
+    public void Invalidate()
+    {
     }
 }
 

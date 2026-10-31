@@ -26,29 +26,58 @@ public sealed record GraphCloud(string Name, Uri AuthorityHost, string GraphBase
 public interface IGraphTokenProvider
 {
     Task<string> GetTokenAsync(CancellationToken cancellationToken);
+
+    /// <summary>Drops a token Graph has already rejected so the next call asks for a new one.</summary>
+    void Invalidate();
 }
 
 public sealed class AzureIdentityTokenProvider : IGraphTokenProvider
 {
-    private readonly TokenCredential _credential;
+    private readonly Func<TokenCredential> _createCredential;
     private readonly string _scope;
+    private readonly Lock _gate = new();
+    private TokenCredential _credential;
     private AccessToken _cached;
 
-    public AzureIdentityTokenProvider(TokenCredential credential, string scope)
+    public AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope)
     {
-        _credential = credential;
+        ArgumentNullException.ThrowIfNull(createCredential);
+        _createCredential = createCredential;
+        _credential = createCredential();
         _scope = scope;
+    }
+
+    public void Invalidate()
+    {
+        lock (_gate)
+        {
+            _cached = default;
+            // ClientSecretCredential keeps its own MSAL cache, so a new instance is required
+            // before the rejected token will actually be replaced.
+            _credential = _createCredential();
+        }
     }
 
     public async Task<string> GetTokenAsync(CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrEmpty(_cached.Token) && _cached.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(5))
+        TokenCredential credential;
+        lock (_gate)
         {
-            return _cached.Token;
+            if (!string.IsNullOrEmpty(_cached.Token) && _cached.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(5))
+            {
+                return _cached.Token;
+            }
+
+            credential = _credential;
         }
 
-        _cached = await _credential.GetTokenAsync(new TokenRequestContext([_scope]), cancellationToken);
-        return _cached.Token;
+        var token = await credential.GetTokenAsync(new TokenRequestContext([_scope]), cancellationToken);
+        lock (_gate)
+        {
+            _cached = token;
+        }
+
+        return token.Token;
     }
 }
 
@@ -59,7 +88,6 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
     {
         ArgumentNullException.ThrowIfNull(tenant);
         var cloud = GraphCloud.For(tenant.Cloud);
-        TokenCredential credential;
         if (string.Equals(tenant.CredentialType, CredentialTypes.Certificate, StringComparison.Ordinal))
         {
             if (string.IsNullOrEmpty(tenant.ProtectedCertificate))
@@ -69,27 +97,26 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
 
             var pfx = Convert.FromBase64String(protector.Unprotect(tenant.ProtectedCertificate));
             var password = tenant.ProtectedCertificatePassword is null ? null : protector.Unprotect(tenant.ProtectedCertificatePassword);
-            var certificate = X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.DefaultKeySet);
-            credential = new ClientCertificateCredential(tenant.TenantId, tenant.ClientId, certificate, new ClientCertificateCredentialOptions
+            return new AzureIdentityTokenProvider(() =>
             {
-                AuthorityHost = cloud.AuthorityHost,
-                SendCertificateChain = true,
-            });
+                var certificate = X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.DefaultKeySet);
+                return new ClientCertificateCredential(tenant.TenantId, tenant.ClientId, certificate, new ClientCertificateCredentialOptions
+                {
+                    AuthorityHost = cloud.AuthorityHost,
+                    SendCertificateChain = true,
+                });
+            }, cloud.Scope);
         }
-        else
+
+        if (string.IsNullOrEmpty(tenant.ProtectedSecret))
         {
-            if (string.IsNullOrEmpty(tenant.ProtectedSecret))
-            {
-                throw new InvalidOperationException("Tenant has no client secret configured.");
-            }
-
-            credential = new ClientSecretCredential(tenant.TenantId, tenant.ClientId, protector.Unprotect(tenant.ProtectedSecret), new ClientSecretCredentialOptions
-            {
-                AuthorityHost = cloud.AuthorityHost,
-            });
+            throw new InvalidOperationException("Tenant has no client secret configured.");
         }
 
-        return new AzureIdentityTokenProvider(credential, cloud.Scope);
+        var secret = protector.Unprotect(tenant.ProtectedSecret);
+        return new AzureIdentityTokenProvider(
+            () => new ClientSecretCredential(tenant.TenantId, tenant.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
+            cloud.Scope);
     }
 
     public static IGraphTokenProvider Create(string directoryId, EntraApplicationCredential application)
@@ -97,7 +124,6 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
         ArgumentException.ThrowIfNullOrWhiteSpace(directoryId);
         ArgumentNullException.ThrowIfNull(application);
         var cloud = GraphCloud.For(application.Cloud);
-        TokenCredential credential;
         if (string.Equals(application.CredentialType, CredentialTypes.Certificate, StringComparison.Ordinal))
         {
             if (string.IsNullOrEmpty(application.CertificatePfxBase64))
@@ -106,27 +132,27 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
             }
 
             var pfx = Convert.FromBase64String(application.CertificatePfxBase64);
-            var certificate = X509CertificateLoader.LoadPkcs12(pfx, application.CertificatePassword, X509KeyStorageFlags.DefaultKeySet);
-            credential = new ClientCertificateCredential(directoryId, application.ClientId, certificate, new ClientCertificateCredentialOptions
+            var password = application.CertificatePassword;
+            return new AzureIdentityTokenProvider(() =>
             {
-                AuthorityHost = cloud.AuthorityHost,
-                SendCertificateChain = true,
-            });
+                var certificate = X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.DefaultKeySet);
+                return new ClientCertificateCredential(directoryId, application.ClientId, certificate, new ClientCertificateCredentialOptions
+                {
+                    AuthorityHost = cloud.AuthorityHost,
+                    SendCertificateChain = true,
+                });
+            }, cloud.Scope);
         }
-        else
+
+        if (string.IsNullOrEmpty(application.Secret))
         {
-            if (string.IsNullOrEmpty(application.Secret))
-            {
-                throw new InvalidOperationException("The Entra application has no client secret configured.");
-            }
-
-            credential = new ClientSecretCredential(directoryId, application.ClientId, application.Secret, new ClientSecretCredentialOptions
-            {
-                AuthorityHost = cloud.AuthorityHost,
-            });
+            throw new InvalidOperationException("The Entra application has no client secret configured.");
         }
 
-        return new AzureIdentityTokenProvider(credential, cloud.Scope);
+        var secret = application.Secret;
+        return new AzureIdentityTokenProvider(
+            () => new ClientSecretCredential(directoryId, application.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
+            cloud.Scope);
     }
 }
 
@@ -312,6 +338,7 @@ public sealed class GraphClient
                 if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshedToken)
                 {
                     refreshedToken = true;
+                    _tokens.Invalidate();
                     continue;
                 }
 

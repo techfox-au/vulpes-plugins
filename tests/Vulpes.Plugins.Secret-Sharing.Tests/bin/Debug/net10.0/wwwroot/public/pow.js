@@ -12,6 +12,43 @@
 
   /** Abandon the current challenge this many ms before server expiresAt. */
   var ABANDON_BEFORE_MS = 5000;
+  var clockOffsetMs = 0;
+
+  function powNow() {
+    return Date.now() + clockOffsetMs;
+  }
+
+  var CLOCK_MARGIN_MS = 2000;
+
+  function clockOffset(serverUtcMs, clientBeforeMs, clientAfterMs) {
+    return serverUtcMs - (clientBeforeMs + clientAfterMs) / 2;
+  }
+
+  function powClockOffset(serverUtcMs, clientBeforeMs, clientAfterMs) {
+    return clockOffset(serverUtcMs, clientBeforeMs, clientAfterMs) + CLOCK_MARGIN_MS;
+  }
+
+  function parseServerTime(value) {
+    if (!value) return NaN;
+    var parsed = Date.parse(String(value).replace(/(\.\d{3})\d+/, "$1"));
+    return isNaN(parsed) ? NaN : parsed;
+  }
+
+  async function syncServerTime() {
+    try {
+      var before = Date.now();
+      var res = await fetch("/api/time", { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
+      var after = Date.now();
+      if (!res.ok) return false;
+      var data = await res.json();
+      var server = parseServerTime(data && data.utc);
+      if (isNaN(server)) return false;
+      clockOffsetMs = powClockOffset(server, before, after);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
 
   function b64urlDecode(str) {
     var s = str.replace(/-/g, "+").replace(/_/g, "/");
@@ -78,7 +115,7 @@
     if (!subtle) throw new Error("Web Crypto unavailable for proof of work.");
 
     var deadline = abandonDeadlineMs(challenge);
-    if (deadline != null && Date.now() >= deadline) {
+    if (deadline != null && powNow() >= deadline) {
       throw powExpiredError();
     }
 
@@ -105,7 +142,12 @@
     }
 
     while (true) {
-      if (deadline != null && Date.now() >= deadline) {
+      if (opts.shouldAbort && opts.shouldAbort()) {
+        var aborted = new Error("PoW abandoned.");
+        aborted.powAborted = true;
+        throw aborted;
+      }
+      if (deadline != null && powNow() >= deadline) {
         throw powExpiredError();
       }
 
@@ -124,7 +166,7 @@
       }
       nonce++;
       if (tries % yieldEvery === 0) {
-        if (deadline != null && Date.now() >= deadline) {
+        if (deadline != null && powNow() >= deadline) {
           throw powExpiredError();
         }
         if (opts.onProgress) {
@@ -200,9 +242,137 @@
     return b;
   }
 
+  /**
+   * Keep a solved ticket ready. Starts immediately. When half the ticket's life has passed,
+   * solve the next one. take() returns the newest finished solution.
+   */
+  function createKeeper(fetchChallenge, deps) {
+    deps = deps || {};
+    var now = deps.now || powNow;
+    var later = deps.setTimeout || setTimeout;
+    var cancel = deps.clearTimeout || clearTimeout;
+    var solveChallenge = deps.solve || solve;
+    var generation = 0;
+    var solveId = 0;
+    var held = null;
+    var pending = null;
+    var timer = 0;
+
+    function clearTimer() {
+      if (timer) {
+        cancel(timer);
+        timer = 0;
+      }
+    }
+
+    function usable(solution) {
+      if (!solution || !solution.expiresAt) return false;
+      var exp = expiresMs(solution.expiresAt);
+      return !isNaN(exp) && exp - now() > ABANDON_BEFORE_MS;
+    }
+
+    var refreshQueued = false;
+    var lastError = null;
+
+    function expiresMs(value) {
+      if (!value) return NaN;
+      var parsed = Date.parse(String(value).replace(/(\.\d{3})\d+/, "$1"));
+      return isNaN(parsed) ? NaN : parsed;
+    }
+
+    function schedule(receivedAt, challenge, gen) {
+      var exp = expiresMs(challenge.expiresAt);
+      if (isNaN(exp)) return;
+      var halfway = receivedAt + Math.max(0, (exp - receivedAt) / 2);
+      clearTimer();
+      timer = later(function () {
+        if (gen !== generation) return;
+        if (pending) { refreshQueued = true; return; }
+        begin(gen);
+      }, Math.max(0, halfway - now()));
+    }
+
+    function begin(gen) {
+      if (gen !== generation || pending) return pending;
+      var id = ++solveId;
+      refreshQueued = false;
+      var run = (async function () {
+        var challenge = await fetchChallenge();
+        var receivedAt = now();
+        if (gen !== generation || id !== solveId) return;
+        if (!challenge || !challenge.challengeId || !challenge.hmacKey) {
+          throw new Error("Invalid proof-of-work challenge from server.");
+        }
+        schedule(receivedAt, challenge, gen);
+        try {
+          var solution = await solveChallenge(challenge, {
+            shouldAbort: function () {
+              return gen !== generation || id !== solveId;
+            },
+          });
+          if (gen !== generation || id !== solveId) return;
+          if (!held || receivedAt >= held.fetchedAt) {
+            solution.fetchedAt = receivedAt;
+            solution.expiresAt = challenge.expiresAt;
+            held = solution;
+          }
+        } catch (err) {
+          if (err && err.powAborted) return;
+          if (err && err.powExpired) { refreshQueued = true; return; }
+          throw err;
+        }
+      })();
+      var current;
+      current = run.then(function () {}, function (err) { lastError = err; }).finally(function () {
+        if (pending !== current) return;
+        pending = null;
+        if (gen === generation && refreshQueued) {
+          refreshQueued = false;
+          begin(gen);
+        }
+      });
+      pending = current;
+      return pending;
+    }
+
+    return {
+      start: function () {
+        generation++;
+        held = null;
+        pending = null;
+        clearTimer();
+        begin(generation);
+      },
+      stop: function () {
+        generation++;
+        held = null;
+        pending = null;
+        clearTimer();
+        solveId++;
+      },
+      take: async function () {
+        for (var i = 0; i < 8; i++) {
+          if (usable(held)) {
+            var solution = held;
+            held = null;
+            if (!pending) begin(generation);
+            return solution;
+          }
+          lastError = null;
+          var wait = pending || begin(generation);
+          await wait;
+          if (lastError && !usable(held)) throw lastError;
+        }
+        throw new Error("Proof-of-work could not complete.");
+      },
+    };
+  }
+
   global.SenditPow = {
     solve: solve,
     solveRefreshing: solveRefreshing,
+    createKeeper: createKeeper,
+    syncServerTime: syncServerTime,
     statusLabel: statusLabel,
   };
 })(typeof window !== "undefined" ? window : globalThis);

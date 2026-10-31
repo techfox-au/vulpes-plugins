@@ -1,10 +1,11 @@
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Vulpes.Plugins.SecretSharing.Data;
+using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.SecretSharing.Services;
 
-public sealed class ShareStore(ShareDatabase database)
+public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuery
 {
     /// <summary>Base64url length of Sendit's 60 MiB × 1.05 ciphertext cap. A 40 MiB file encrypts to about 56 million characters.</summary>
     public const int MaxCipherChars = 88_080_384;
@@ -234,6 +235,30 @@ public sealed class ShareStore(ShareDatabase database)
 
         tx.Commit();
         return (sends, collects);
+    }
+
+    public bool HasAccessibleIpRestrictedSecret()
+    {
+        using var conn = database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT 1
+            FROM secrets
+            WHERE AllowedCidr IS NOT NULL
+              AND TRIM(AllowedCidr) != ''
+              AND AllowedCidr != '*'
+              AND ConsumedAt IS NULL
+              AND LENGTH(Ciphertext) > 0
+              AND ExpiresAt > @now
+              AND (
+                OneTime = 1
+                OR MaxAccessCount IS NULL
+                OR AccessCount < MaxAccessCount
+              )
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
+        return cmd.ExecuteScalar() is not null and not DBNull;
     }
 
     public string CreateSend(string ownerId, SendInput input)

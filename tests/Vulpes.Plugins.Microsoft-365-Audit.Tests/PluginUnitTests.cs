@@ -43,16 +43,25 @@ public sealed class TenantSettingsAndOptionsTests
         update.DefaultLookbackDays = 14;
         update.IntervalMinutes["signins"] = 12;
         update.BusinessPremiumMode = true;
+        update.HideRiskMenu = true;
         Assert.Null(store.Save(update));
         Assert.Equal(14, options.DefaultLookbackDays);
         Assert.Equal(TimeSpan.FromMinutes(12), options.IntervalFor("signins"));
         Assert.False(options.Collects("risk"));
         Assert.True(options.Collects("signins"));
+        Assert.True(options.HideRiskMenu);
 
         var again = new AuditOptions();
         new AuditSettingsStore(path, again).Load();
         Assert.Equal(14, again.DefaultLookbackDays);
         Assert.True(again.BusinessPremiumMode);
+        Assert.True(again.HideRiskMenu);
+
+        update.BusinessPremiumMode = false;
+        update.HideRiskMenu = true;
+        Assert.Null(store.Save(update));
+        Assert.False(options.BusinessPremiumMode);
+        Assert.False(options.HideRiskMenu);
         File.Delete(path);
 
         update.SchedulerIntervalSeconds = 1;

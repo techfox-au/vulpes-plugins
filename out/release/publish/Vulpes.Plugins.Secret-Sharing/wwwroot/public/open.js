@@ -12,6 +12,7 @@
   if (!id) { fail('Missing secret id.'); return; }
   const hasFragment = !!(SenditCrypto.secretKeyFromLocationHash(location.hash) || SenditCrypto.secretKeyPackageFromLocationHash(location.hash));
   if (!hasFragment) { fail('Missing decryption key. Open the full link including the #sk= fragment.'); return; }
+  await SenditPow.syncServerTime();
 
   let meta;
   const opening = SecretTransfer.showProgress('Opening secret');
@@ -81,6 +82,9 @@
     setAlert('info', 'This ' + (kind === 'collect' ? 'collect' : 'send') + ' allows up to ' + meta.maxAccessCount + ' opens (' + left + ' remaining).');
   }
   confirmBox.classList.remove('hidden');
+  const revealResource = kind === 'collect' ? 'collects' : 'sends';
+  const revealPow = SenditPow.createKeeper(function () { return fetchPow(revealResource); });
+  revealPow.start();
   revealBtn.addEventListener('click', reveal);
   if (passwordEl) passwordEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); reveal(); } });
 
@@ -97,13 +101,14 @@
       let payload;
       let plain;
       try {
-        progress.setStatus(meta.passwordProtected ? 'Unlocking key…' : 'Performing proof-of-work…');
+        progress.setStatus(meta.passwordProtected ? 'Unlocking key…' : (revealPow.ready() ? 'Downloading encrypted payload…' : 'Performing proof-of-work…'));
         progress.setProgress(null);
         key = await resolveKey();
-        progress.setStatus('Performing proof-of-work…');
-        progress.setProgress(null);
-        const resource = kind === 'collect' ? 'collects' : 'sends';
-        const solution = await SenditPow.solveRefreshing(() => fetchPow(resource), { onProgress: (_t, attempt) => progress.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+        if (!revealPow.ready()) {
+          progress.setStatus('Performing proof-of-work…');
+          progress.setProgress(null);
+        }
+        const solution = await revealPow.take();
         progress.setStatus('Downloading encrypted payload…');
         progress.setProgress(0);
         const path = kind === 'collect'

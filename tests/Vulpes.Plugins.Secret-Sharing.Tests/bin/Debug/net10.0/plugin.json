@@ -7,7 +7,7 @@
   "sdkVersion": "1.0.0",
   "nav": [
     { "page": "send", "title": "Send secret", "icon": "send-up", "roles": ["Viewer", "Analyst", "Admin"], "order": 10, "section": "Secret Sharing" },
-    { "page": "collect", "title": "Collect secret", "icon": "send-down", "roles": ["Viewer", "Analyst", "Admin"], "order": 20, "section": "Secret Sharing" },
+    { "page": "collect", "title": "Collect secret", "icon": "send-down", "roles": ["Analyst", "Admin"], "order": 20, "section": "Secret Sharing" },
     { "page": "settings", "title": "Settings", "icon": "settings", "roles": ["Viewer", "Analyst", "Admin"], "order": 30, "section": "Secret Sharing" }
   ],
   "requirements": [

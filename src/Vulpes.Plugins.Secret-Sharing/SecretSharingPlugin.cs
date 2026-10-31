@@ -19,6 +19,7 @@ public sealed class SecretSharingPlugin : IPlugin
         services.AddSingleton<PowService>();
         services.AddSingleton<ShareScanGuard>();
         services.AddSingleton<ShareStore>();
+        services.AddSingleton<IIpRestrictedSecretQuery>(sp => sp.GetRequiredService<ShareStore>());
         services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, CollectUploadGate>();
         services.AddHostedService<ShareExpiryService>();
         services.AddSingleton<NotificationMail>();

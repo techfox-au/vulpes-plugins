@@ -5,19 +5,36 @@ using Vulpes.Sdk;
 namespace Vulpes.Plugins.SecretSharing.Services;
 
 /// <summary>Owner emails for a ready collect or an opened send. Failures are logged and do not fail the request.</summary>
-public sealed class NotificationMail(ShareStore store, IHostEmail email, IHostAuditLog audit, ILogger<NotificationMail> logger)
+public sealed class NotificationMail(ShareStore store, IHostEmail email, IHostAuditLog audit, IUserRoles roles, ILogger<NotificationMail> logger)
 {
-    public void TryCollectReady(string collectId)
-    {
-        var target = store.CollectReadyTarget(collectId);
-        if (target is null)
-        {
-            return;
-        }
+    public void TryCollectReady(string collectId) => _ = DeliverCollectReadyAsync(collectId);
 
-        Queue(target, collectId, "collect_ready", "Vulpes - A collect is ready",
-            "Someone submitted a response to one of your collect links.",
-            "Collect id:");
+    /// <summary>Sends the collect-ready email, or turns that notification off when the owner can no longer collect.</summary>
+    public async Task DeliverCollectReadyAsync(string collectId)
+    {
+        try
+        {
+            var target = store.CollectReadyTarget(collectId);
+            if (target is null)
+            {
+                return;
+            }
+
+            if (!ShareAccess.CanCollect(await roles.GetRolesAsync(target.UserId)))
+            {
+                var prefs = store.GetNotifications(target.UserId);
+                store.SaveNotifications(target.UserId, prefs.Email, false, prefs.NotifySendOpened);
+                return;
+            }
+
+            await SendAsync(target, collectId, "collect_ready", "Vulpes - A collect is ready",
+                "Someone submitted a response to one of your collect links.",
+                "Collect id:");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Notification collect_ready failed for {CollectId}", collectId);
+        }
     }
 
     public void TrySendOpened(string sendId)

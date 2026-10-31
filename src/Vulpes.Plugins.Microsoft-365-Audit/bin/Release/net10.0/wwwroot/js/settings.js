@@ -20,16 +20,25 @@ export async function mount(el, ctx) {
   const card = (title, ...fields) => h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, title)), h('div', { class: 'stack' }, ...fields));
   const savedIntervals = current.intervalMinutes || {};
   const premium = h('input', { type: 'checkbox', checked: current.businessPremiumMode === true });
+  const hideRisk = h('input', { type: 'checkbox', checked: current.businessPremiumMode === true && current.hideRiskMenu === true });
+  const hideRiskLabel = h('label', { class: 'checkbox' }, hideRisk, h('span', null, 'Hide risk menu item'));
   const intervalFields = intervals.map(([source, label]) => {
     const input = h('input', { class: 'input', name: `interval-${source}`, type: 'number', value: savedIntervals[source] ?? '', required: true });
     return { source, input, field: h('div', { class: 'field' }, h('label', null, label), input) };
   });
-  const applyPremium = () => { const risk = intervalFields.find((f) => f.source === 'risk'); if (risk) risk.input.disabled = premium.checked; };
+  const applyPremium = () => {
+    const risk = intervalFields.find((f) => f.source === 'risk');
+    if (risk) risk.input.disabled = premium.checked;
+    if (!premium.checked) hideRisk.checked = false;
+    hideRiskLabel.hidden = !premium.checked;
+  };
   premium.addEventListener('change', applyPremium);
   applyPremium();
   form.append(
     card('Collection',
-      h('label', { class: 'checkbox' }, premium, h('span', null, 'Microsoft 365 Business Premium mode')),
+      h('div', { class: 'flex wrap' },
+        h('label', { class: 'checkbox' }, premium, h('span', null, 'Microsoft 365 Business Premium mode')),
+        hideRiskLabel),
       h('div', { class: 'form-row' },
         number('schedulerIntervalSeconds', 'Scheduler interval (seconds)', current.schedulerIntervalSeconds),
         number('maxConcurrentJobs', 'Concurrent jobs', current.maxConcurrentJobs)),
@@ -70,6 +79,7 @@ export async function mount(el, ctx) {
         purviewRecordTypes: String(data.get('purviewRecordTypes') || '').split(',').map((s) => s.trim()).filter(Boolean),
         intervalMinutes: Object.fromEntries(intervalFields.map((f) => [f.source, Number(f.input.value)])),
         businessPremiumMode: premium.checked,
+        hideRiskMenu: premium.checked && hideRisk.checked,
       });
       if (ctx.refreshNav) await ctx.refreshNav();
       panelNote(form, 'Settings saved.', 'success');

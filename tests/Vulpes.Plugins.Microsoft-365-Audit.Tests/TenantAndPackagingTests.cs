@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -116,14 +118,16 @@ public sealed class AuditPackagingTests : IDisposable
         Assert.True(new FileInfo(result.OutputPath).Length < 20 * 1024 * 1024, "package should stay small once host-shared assemblies are stripped");
 
         var options = new PluginOptions { Directory = Path.Combine(_temp, "plugins") };
-        var installer = new PluginPackageInstaller(options, options.Directory!, NullLogger<PluginPackageInstaller>.Instance);
-        var record = await installer.InstallAsync(result.OutputPath, "test", "tester", CancellationToken.None);
+        var pins = new PluginAssemblyPinStore(Path.Combine(_temp, "pins.db"));
+        pins.EnsureSchema();
+        var installer = new PluginPackageInstaller(options, options.Directory!, NullLogger<PluginPackageInstaller>.Instance, pins);
+        var record = await installer.InstallAsync(result.OutputPath, "test", "tester", ManifestFor(result.OutputPath, result.Version), CancellationToken.None);
         Assert.Equal("microsoft-365-audit", record.Id);
 
-        var catalog = PluginLoader.LoadAll(options.Directory!, new ConfigurationBuilder().Build(), installer, NullLogger.Instance);
+        var catalog = PluginLoader.LoadAll(options.Directory!, new ConfigurationBuilder().Build(), installer, pins, NullLogger.Instance);
         Assert.Empty(catalog.Failures);
         var plugin = Assert.Single(catalog.Plugins);
-        Assert.Equal(8, plugin.Manifest.Nav.Count);
+        Assert.Equal(9, plugin.Manifest.Nav.Count);
         Assert.True(File.Exists(Path.Combine(plugin.Context.WebRoot, "pages", "overview.html")));
         Assert.True(File.Exists(Path.Combine(plugin.Context.WebRoot, "js", "common.js")));
 
@@ -149,6 +153,18 @@ public sealed class AuditPackagingTests : IDisposable
         // Endpoints map without throwing on a real route builder.
         var app = WebApplication.CreateBuilder().Build();
         plugin.Instance.MapEndpoints(app.MapGroup("/api/plugins/microsoft-365-audit"), plugin.Context);
+    }
+
+    private static ReleaseManifest ManifestFor(string packagePath, string version)
+    {
+        var key = new byte[32];
+        using var algorithm = new HMACSHA512(key);
+        using var stream = File.OpenRead(packagePath);
+        var hmac = Convert.ToHexStringLower(algorithm.ComputeHash(stream));
+        var body = new StringBuilder()
+            .Append("hmac_key:").Append(Convert.ToHexString(key).ToLowerInvariant()).Append('\n')
+            .Append(Path.GetFileName(packagePath)).Append(':').Append(hmac).Append(':').Append(version).Append('\n');
+        return ReleaseManifest.Parse(body.ToString());
     }
 
     public void Dispose()

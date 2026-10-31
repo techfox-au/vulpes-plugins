@@ -61,6 +61,7 @@ public static class AuditEndpoints
             mode = s.Mode.ToString(),
             fields = catalog.GetFields(Normalizers.PluginId, s.Source).Where(f => f.Filterable).Select(f => new { f.Path, f.Label, type = f.Type.ToString() }).ToList(),
             unavailable = !options.Collects(s.Source),
+            hidden = options.HideRiskMenu && s.Source == "risk",
             collector = scheduler.Collectors.TryGetValue(s.Source, out var c) ? new { c.Title, permissions = c.RequiredPermissions, defaultIntervalMinutes = (int)options.IntervalFor(s.Source).TotalMinutes } : null,
         }).ToList(), Json);
 

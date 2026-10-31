@@ -52,6 +52,8 @@ public sealed class SignInsCollector : ICollector
         public override IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All"];
         public override string ProbePath => "auditLogs/signIns?$top=1";
 
+        protected override string OrderByField => "createdDateTime";
+
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"auditLogs/signIns?$filter=createdDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
 
@@ -69,6 +71,8 @@ public sealed class SignInsCollector : ICollector
         public override IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All"];
         public override string ProbePath => "auditLogs/signIns?$top=1";
         protected override bool UseBeta => true;
+
+        protected override string OrderByField => "createdDateTime";
 
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"auditLogs/signIns?$filter=createdDateTime%20ge%20{OData.Timestamp(from)}%20and%20signInEventTypes/any(t:%20t%20eq%20'nonInteractiveUser'%20or%20t%20eq%20'servicePrincipal'%20or%20t%20eq%20'managedIdentity')&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
@@ -102,6 +106,8 @@ public sealed class DirectoryAuditsCollector : WatermarkCollector
     public override IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All", "Directory.Read.All"];
     public override string ProbePath => "auditLogs/directoryAudits?$top=1";
 
+    protected override string OrderByField => "activityDateTime";
+
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
         $"auditLogs/directoryAudits?$filter=activityDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
 
@@ -118,6 +124,8 @@ public sealed class ProvisioningCollector : WatermarkCollector
     public override string Title => "Entra ID provisioning logs";
     public override IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All"];
     public override string ProbePath => "auditLogs/provisioning?$top=1";
+
+    protected override string OrderByField => "activityDateTime";
 
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
         $"auditLogs/provisioning?$filter=activityDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
@@ -138,6 +146,8 @@ public sealed class SecurityAlertsCollector : WatermarkCollector
 
     protected override TimeSpan Overlap(CollectorContext context) => TimeSpan.FromMinutes(10);
 
+    protected override string OrderByField => "lastUpdateDateTime";
+
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
         $"security/alerts_v2?$filter=lastUpdateDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 2000)}";
 
@@ -156,6 +166,8 @@ public sealed class IncidentsCollector : WatermarkCollector
     public override string ProbePath => "security/incidents?$top=1";
 
     protected override TimeSpan Overlap(CollectorContext context) => TimeSpan.FromMinutes(10);
+
+    protected override string OrderByField => "lastUpdateDateTime";
 
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
         $"security/incidents?$filter=lastUpdateDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 50)}";
@@ -194,6 +206,8 @@ public sealed class RiskCollector : ICollector
         public override IReadOnlyList<string> RequiredPermissions => ["IdentityRiskEvent.Read.All"];
         public override string ProbePath => "identityProtection/riskDetections?$top=1";
 
+        protected override string OrderByField => "lastUpdatedDateTime";
+
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"identityProtection/riskDetections?$filter=lastUpdatedDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 500)}";
 
@@ -211,6 +225,8 @@ public sealed class RiskCollector : ICollector
         public override IReadOnlyList<string> RequiredPermissions => ["IdentityRiskyUser.Read.All"];
         public override string ProbePath => "identityProtection/riskyUsers?$top=1";
 
+        protected override string OrderByField => "riskLastUpdatedDateTime";
+
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"identityProtection/riskyUsers?$filter=riskLastUpdatedDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 500)}";
 
@@ -227,6 +243,8 @@ public sealed class RiskCollector : ICollector
         public override string Title => "Risky service principals";
         public override IReadOnlyList<string> RequiredPermissions => ["IdentityRiskyServicePrincipal.Read.All"];
         public override string ProbePath => "identityProtection/riskyServicePrincipals?$top=1";
+
+        protected override string OrderByField => "riskLastUpdatedDateTime";
 
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"identityProtection/riskyServicePrincipals?$filter=riskLastUpdatedDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 500)}";

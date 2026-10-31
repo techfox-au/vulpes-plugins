@@ -51,7 +51,7 @@ export async function mount(el, ctx) {
         h('div', null, h('div', null, h('strong', null, m.name), ' ', badge('v' + m.version), ' ', pluginHealth(m.id, updateIds))),
         h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0] || ''}` }, 'Open'))),
       ...failures.map((f) => h('div', { class: 'flex between' },
-        h('div', null, h('div', null, h('strong', null, f.id), ' ', badge('unhealthy', 'danger', true))))),
+        h('div', null, h('div', null, h('strong', null, f.id), ' ', badge(f.unhealthy ? 'unhealthy' : 'failed', 'danger', true))))),
     ];
     const body = pluginsCard.lastChild;
     body.replaceWith(rows.length === 0 ? empty('No plugins installed.', 'plug') : h('div', { class: 'col' }, rows));
@@ -121,19 +121,20 @@ function applyFocus(card) {
   }
 }
 
-function shareHeader() {
-  return h('div', { class: 'card-header' }, h('h2', null, 'Secret sharing'), h('div', { class: 'btn-group' },
-    h('a', { class: 'btn sm', href: '#/p/secret-sharing/send' }, 'Send secret'),
-    h('a', { class: 'btn sm', href: '#/p/secret-sharing/collect' }, 'Collect secret')));
+function shareHeader(ctx) {
+  const actions = [h('a', { class: 'btn sm', href: '#/p/secret-sharing/send' }, 'Send secret')];
+  if (ctx.hasRole('Admin', 'Analyst')) actions.push(h('a', { class: 'btn sm', href: '#/p/secret-sharing/collect' }, 'Collect secret'));
+  return h('div', { class: 'card-header' }, h('h2', null, 'Secret sharing'), h('div', { class: 'btn-group' }, actions));
 }
 
 async function renderShares(ctx, card, quiet) {
   card.hidden = false;
-  if (!quiet) card.replaceChildren(shareHeader(), h('p', { class: 'muted' }, 'Loading…'));
+  const canCollect = ctx.hasRole('Admin', 'Analyst');
+  if (!quiet) card.replaceChildren(shareHeader(ctx), h('p', { class: 'muted' }, 'Loading…'));
   try {
     await ensureCrypto();
     const data = await ctx.api.get('/api/plugins/secret-sharing/home');
-    const items = data.items || [];
+    const items = (data.items || []).filter((item) => canCollect || item.kind !== 'collect');
     if (!keyPrompted && !window.SecretUdk.loadUserDataKey() && items.some((item) => item.encryptedLabel || item.privateNoteCiphertext || item.hasOwnerKey)) {
       keyPrompted = true;
       try { await requireUserDataKey(); } catch { /* names stay locked until a later attempt */ }
@@ -141,15 +142,15 @@ async function renderShares(ctx, card, quiet) {
     const rows = [];
     for (const item of items) rows.push(await shareItem(ctx, card, item));
     const list = items.length === 0
-      ? h('p', { class: 'muted share-empty' }, 'No sends or collects yet.')
+      ? h('p', { class: 'muted share-empty' }, canCollect ? 'No sends or collects yet.' : 'No sends yet.')
       : h('div', { class: 'share-list' }, rows);
-    const header = card.querySelector(':scope > .card-header') || shareHeader();
+    const header = card.querySelector(':scope > .card-header') || shareHeader(ctx);
     card.replaceChildren(header, list);
     applyFocus(card);
   } catch (err) {
     const note = h('div', { class: 'alert danger' }, errorMessage(err));
     if (quiet && card.querySelector('.share-list, .share-empty')) panelNote(card, errorMessage(err));
-    else card.replaceChildren(shareHeader(), note);
+    else card.replaceChildren(shareHeader(ctx), note);
   }
 }
 

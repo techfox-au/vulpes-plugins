@@ -1,6 +1,6 @@
 # Vulpes plugins
 
-Each plugin is its own .NET project in `Vulpes.Plugins.sln`. The Vulpes host does not contain plugin source. It lists the `.7z` assets published as [GitHub releases](https://github.com/techfox-au/vulpes-plugins/releases) of this repository and offers them as installs.
+Each plugin is its own .NET project in `Vulpes.Plugins.sln`. The Vulpes host does not contain plugin source. Release packages are the `.7z` files in `latest/`, listed in the clear-signed `latest/manifest`. The host reads that manifest and offers the listed packages as installs.
 
 Check this repo out next to the host repo:
 
@@ -36,4 +36,6 @@ dotnet run --project ../vulpes/tools/Vulpes.PluginPacker -- \
   --plugin-dir out/audit --host-dir out/host --rid-prefix linux --output dist/microsoft-365-audit.7z
 ```
 
-Publish `dist/microsoft-365-audit.7z` on a GitHub release. The dashboard picks it up under Manage → Plugins. The plugin id is `microsoft-365-audit` and its API is `/api/plugins/microsoft-365-audit`. The sidebar heading is the manifest section, shown in capitals, so this plugin reads **MICROSOFT 365 AUDIT**.
+`./build.sh` publishes every plugin, packs each `.7z` into `latest/`, and clear-signs `latest/manifest`. The host repo must be checked out next to this one, or set `VULPES_ROOT`. The manifest starts with `hmac_key:`. Each later line is `name.7z:<hmac-sha512>:<version>`. A `latest/<package name without .7z>.txt` file, when present, is the description shown on Manage → Plugins.
+
+The dashboard installs a package listed in that signed manifest. The Microsoft 365 plugin id is `microsoft-365-audit` and its API is `/api/plugins/microsoft-365-audit`. The sidebar heading is the manifest section, shown in capitals, so this plugin reads **MICROSOFT 365 AUDIT**.

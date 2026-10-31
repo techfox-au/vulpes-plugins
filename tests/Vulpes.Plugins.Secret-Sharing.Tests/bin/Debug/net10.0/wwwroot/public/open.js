@@ -12,23 +12,26 @@
   if (!id) { fail('Missing secret id.'); return; }
   const hasFragment = !!(SenditCrypto.secretKeyFromLocationHash(location.hash) || SenditCrypto.secretKeyPackageFromLocationHash(location.hash));
   if (!hasFragment) { fail('Missing decryption key. Open the full link including the #sk= fragment.'); return; }
+  await SenditPow.syncServerTime();
 
-  setAlert('info', 'Performing proof-of-work…');
   let meta;
+  const opening = SecretTransfer.showProgress('Opening secret');
   try {
+    opening.setStatus('Performing proof-of-work…');
+    opening.setProgress(null);
     if (kind === 'collect') {
-      const solution = await SenditPow.solveRefreshing(() => fetchPow('collects'), { onProgress: (_t, attempt) => setAlert('info', SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+      const solution = await SenditPow.solveRefreshing(() => fetchPow('collects'), { onProgress: (_t, attempt) => opening.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
       meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/meta', solution);
     } else {
-      const solution = await SenditPow.solveRefreshing(() => fetchPow('sends'), { onProgress: (_t, attempt) => setAlert('info', SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
-      const res = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id) + '/meta', solution);
-      meta = res;
+      const solution = await SenditPow.solveRefreshing(() => fetchPow('sends'), { onProgress: (_t, attempt) => opening.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+      meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id) + '/meta', solution);
     }
   } catch (err) {
     fail(err.message || 'This secret is no longer available.');
     return;
+  } finally {
+    opening.close();
   }
-  setAlert(null);
 
   let sk = kind === 'collect' || !meta.passwordProtected ? SenditCrypto.secretKeyFromLocationHash(location.hash) : null;
   const skPackage = SenditCrypto.secretKeyPackageFromLocationHash(location.hash);
@@ -79,6 +82,9 @@
     setAlert('info', 'This ' + (kind === 'collect' ? 'collect' : 'send') + ' allows up to ' + meta.maxAccessCount + ' opens (' + left + ' remaining).');
   }
   confirmBox.classList.remove('hidden');
+  const revealResource = kind === 'collect' ? 'collects' : 'sends';
+  const revealPow = SenditPow.createKeeper(function () { return fetchPow(revealResource); });
+  revealPow.start();
   revealBtn.addEventListener('click', reveal);
   if (passwordEl) passwordEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); reveal(); } });
 
@@ -90,23 +96,33 @@
         revealBtn.disabled = false;
         return;
       }
-      setAlert('info', meta.passwordProtected ? 'Unlocking key…' : 'Performing proof-of-work…');
-      const key = await resolveKey();
-      setAlert('info', 'Performing proof-of-work…');
+      const progress = SecretTransfer.showProgress('Opening secret');
+      let key;
       let payload;
-      if (kind === 'collect') {
-        const solution = await SenditPow.solveRefreshing(() => fetchPow('collects'), { onProgress: (_t, attempt) => setAlert('info', SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
-        setAlert('info', 'Downloading encrypted payload…');
-        const buf = await SecretTransfer.requestArrayBuffer('POST', '/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/open', solution);
+      let plain;
+      try {
+        progress.setStatus(meta.passwordProtected ? 'Unlocking key…' : 'Performing proof-of-work…');
+        progress.setProgress(null);
+        key = await resolveKey();
+        progress.setStatus('Performing proof-of-work…');
+        progress.setProgress(null);
+        const solution = await revealPow.take();
+        progress.setStatus('Downloading encrypted payload…');
+        progress.setProgress(0);
+        const path = kind === 'collect'
+          ? '/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/open'
+          : '/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id);
+        const buf = await SecretTransfer.requestArrayBuffer('POST', path, solution, (fraction) => progress.setProgress(fraction));
         payload = await SenditCrypto.ingestPayloadResponse(buf);
-      } else {
-        const solution = await SenditPow.solveRefreshing(() => fetchPow('sends'), { onProgress: (_t, attempt) => setAlert('info', SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
-        setAlert('info', 'Downloading encrypted payload…');
-        const buf = await SecretTransfer.requestArrayBuffer('POST', '/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id), solution);
-        payload = await SenditCrypto.ingestPayloadResponse(buf);
+        progress.setStatus('Decrypting…');
+        progress.setProgress(null);
+        plain = await SenditCrypto.decryptWithSecretKey(payload, key, (msg, frac) => {
+          progress.setStatus(msg || 'Decrypting…');
+          progress.setProgress(frac == null || !Number.isFinite(frac) ? null : frac);
+        });
+      } finally {
+        progress.close();
       }
-      setAlert('info', 'Decrypting…');
-      let plain = await SenditCrypto.decryptWithSecretKey(payload, key);
       key.fill(0);
       confirmBox.classList.add('hidden');
       title.textContent = 'Secret';

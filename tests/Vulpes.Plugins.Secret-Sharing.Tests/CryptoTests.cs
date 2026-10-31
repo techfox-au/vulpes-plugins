@@ -27,7 +27,18 @@ public sealed class ProofOfWorkTests : IDisposable
     {
         var challenge = _pow.Issue("collect", "collect-1");
         var (nonce, hash) = Solve(challenge);
+        var issued = DateTimeOffset.Parse(challenge.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture);
         Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash));
+        Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash));
+        using (var conn = _db.Open())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT ExpiresAt FROM pow_challenges WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@id", challenge.ChallengeId);
+            var stored = DateTimeOffset.Parse((string)cmd.ExecuteScalar()!, System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal(issued, stored);
+        }
+
         Assert.Null(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash));
         Assert.NotNull(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash));
     }
@@ -98,6 +109,10 @@ public sealed class ProofOfWorkTests : IDisposable
         var other = _pow.Issue("send", "secret-1");
         var solved = Solve(other);
         Assert.Equal("Proof-of-work challenge does not match this secret.", _pow.TryConsume("collect", "secret-1", other.ChallengeId, solved.Nonce, solved.Hash));
+        var bound = _pow.Issue("send", "secret-1", clientId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var boundSolved = Solve(bound);
+        Assert.Equal("Proof-of-work challenge does not match this browser.", _pow.TryConsume("send", "secret-1", bound.ChallengeId, boundSolved.Nonce, boundSolved.Hash, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        Assert.Null(_pow.TryConsume("send", "secret-1", bound.ChallengeId, boundSolved.Nonce, boundSolved.Hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         Assert.Equal("Invalid proof-of-work nonce.", _pow.TryConsume("send", "secret-1", other.ChallengeId, "01", solved.Hash));
         Assert.Equal("Proof-of-work hash does not match.", _pow.TryConsume("send", "secret-1", other.ChallengeId, solved.Nonce, Base64Url.Encode([1, 2, 3, 4])));
         Assert.Null(_pow.TryConsume("send", "secret-1", other.ChallengeId, solved.Nonce, solved.Hash));
@@ -120,7 +135,7 @@ public sealed class ProofOfWorkTests : IDisposable
     private static (string Nonce, string Hash) Solve(PowService.Challenge challenge)
     {
         var key = Base64Url.Decode(challenge.HmacKey);
-        for (var n = 0; n < 200_000; n++)
+        for (var n = 0; n < 2_000_000; n++)
         {
             var nonce = n.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var mac = HMACSHA256.HashData(key, Encoding.ASCII.GetBytes(nonce));
@@ -131,6 +146,55 @@ public sealed class ProofOfWorkTests : IDisposable
         }
 
         throw new InvalidOperationException("No proof found.");
+    }
+
+    [Fact]
+    public void Thirty_issues_is_the_cap_and_an_expired_challenge_is_purged()
+    {
+        const string client = "203.0.113.50";
+        string? expiredId = null;
+        for (var i = 0; i < ShareScanGuard.MaxChallengeIssuesInWindow; i++)
+        {
+            Assert.True(_pow.TryIssue("send", "s" + i, client, null, out var issued, out _));
+            expiredId ??= issued!.ChallengeId;
+        }
+
+        Assert.False(_pow.TryIssue("send", "over", client, null, out _, out var retry));
+        Assert.True(retry > 0);
+        Assert.True(_pow.TryIssue("send", "other", "203.0.113.51", null, out _, out _));
+
+        using (var conn = _db.Open())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE pow_challenges SET ExpiresAt = @exp WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@exp", DateTimeOffset.UnixEpoch.ToString("O"));
+            cmd.Parameters.AddWithValue("@id", expiredId);
+            cmd.ExecuteNonQuery();
+        }
+
+        Assert.True(_pow.TryIssue("send", "fresh", "203.0.113.52", null, out _, out _));
+        using (var conn = _db.Open())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM pow_challenges WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@id", expiredId);
+            Assert.Equal(0L, (long)cmd.ExecuteScalar()!);
+        }
+    }
+
+    [Fact]
+    public void A_burst_cannot_issue_more_than_the_cap()
+    {
+        const string client = "203.0.113.60";
+        var wins = 0;
+        Parallel.For(0, 40, index =>
+        {
+            if (_pow.TryIssue("send", "burst", client, null, out PowService.Challenge? issued, out double retry))
+            {
+                Interlocked.Increment(ref wins);
+            }
+        });
+        Assert.Equal(ShareScanGuard.MaxChallengeIssuesInWindow, wins);
     }
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
@@ -230,6 +294,7 @@ file sealed class MutablePowPolicy : IPowPolicy
     public int DifficultyBits { get; set; } = PowPolicyLimits.DefaultDifficultyBits;
     public int ChallengeTtlSeconds { get; set; } = PowPolicyLimits.DefaultChallengeTtlSeconds;
     public int CollectChallengeTtlSeconds { get; set; } = PowPolicyLimits.DefaultCollectChallengeTtlSeconds;
+    public int ScanBudgetWindowSeconds { get; set; } = PowPolicyLimits.DefaultScanBudgetWindowSeconds;
 }
 
 public sealed class ShareBurnTests : IDisposable

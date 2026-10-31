@@ -73,11 +73,11 @@ public sealed class CollectorTests
     }
 
     [Fact]
-    public async Task Partial_run_resumes_from_oldest_seen_record()
+    public async Task Partial_run_continues_after_the_newest_record_read_oldest_first()
     {
         var handler = new RoutedGraphHandler()
-            .Get(p => p.Contains("skiptoken=p1", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([SignIn("old", Now.AddHours(-3))]))
-            .Get(p => p.Contains("/v1.0/auditLogs/signIns", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([SignIn("new", Now.AddHours(-1)), SignIn("mid", Now.AddHours(-2))], "https://graph.microsoft.com/v1.0/auditLogs/signIns?$skiptoken=p1"));
+            .Get(p => p.Contains("skiptoken=p1", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([SignIn("newer", Now.AddHours(-1))]))
+            .Get(p => p.Contains("/v1.0/auditLogs/signIns", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([SignIn("oldest", Now.AddHours(-3)), SignIn("mid", Now.AddHours(-2))], "https://graph.microsoft.com/v1.0/auditLogs/signIns?$skiptoken=p1"));
         var pipeline = new FakePipeline();
         var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "signins", Watermark = Now.AddDays(-1) };
         var context = TestContext.Context(TestContext.Client(handler), pipeline, checkpoint, new AuditOptions { MaxPagesPerRun = 1 }, new SourceSettings { IncludeNonInteractive = false });
@@ -86,7 +86,8 @@ public sealed class CollectorTests
 
         Assert.False(result.Complete);
         Assert.Equal(2, result.Published);
-        Assert.Equal(Now.AddHours(-2), checkpoint.Watermark); // oldest seen, so "old" is picked up next run
+        Assert.Equal(Now.AddHours(-2), checkpoint.Watermark);
+        Assert.Contains(handler.Requests, r => Uri.UnescapeDataString(r.RequestUri!.ToString()).Contains("orderby=createdDateTime asc", StringComparison.Ordinal));
     }
 
     [Fact]

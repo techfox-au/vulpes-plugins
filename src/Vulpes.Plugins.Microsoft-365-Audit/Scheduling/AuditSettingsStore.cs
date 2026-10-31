@@ -139,6 +139,7 @@ public sealed class AuditSettingsStore
         target.IntervalMinutes = intervals;
         target.PurviewRecordTypes = recordTypes;
         target.BusinessPremiumMode = input.BusinessPremiumMode;
+        target.HideRiskMenu = input.BusinessPremiumMode && input.HideRiskMenu;
         return null;
     }
 }
@@ -160,6 +161,8 @@ public sealed class AuditSettingsDocument
 
     public bool BusinessPremiumMode { get; set; }
 
+    public bool HideRiskMenu { get; set; }
+
     public static AuditSettingsDocument From(AuditOptions options) => new()
     {
         SchedulerIntervalSeconds = options.SchedulerIntervalSeconds,
@@ -175,5 +178,6 @@ public sealed class AuditSettingsDocument
         IntervalMinutes = new Dictionary<string, int>(options.IntervalMinutes, StringComparer.Ordinal),
         PurviewRecordTypes = [.. options.PurviewRecordTypes],
         BusinessPremiumMode = options.BusinessPremiumMode,
+        HideRiskMenu = options.HideRiskMenu,
     };
 }

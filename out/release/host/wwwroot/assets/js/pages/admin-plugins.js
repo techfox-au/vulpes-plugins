@@ -7,7 +7,7 @@ export function unmount() { root = null; }
 async function render(ctx) {
   clear(root);
   const data = await ctx.api.get('/api/admin/plugins');
-  // Releases of techfox-au/vulpes-plugins. Each offer's action is install, upgrade, or current.
+  // Releases of techfox-au/vulpes-plugins. Each offer's action is install, upgrade, reinstall, or current.
   root.append(h('div', { class: 'page-header' },
     h('h1', null, 'Plugins'),
     h('div', { class: 'btn-group' },
@@ -15,7 +15,22 @@ async function render(ctx) {
 
   if (data.restartRequired) root.append(h('div', { class: 'alert warning' }, 'The plugin set on disk has changed. Restart the dashboard to load the new set.'));
   if (data.failures.length > 0) {
-    root.append(h('div', { class: 'card' }, h('h2', null, 'Failed to load'), ...data.failures.map((f) => h('div', { class: 'alert danger' }, h('strong', null, f.id || f.directory), ': ', f.error))));
+    const failures = data.failures.map((f) => {
+      const repair = (data.available || []).find((offer) => offer.pluginId === f.id && (offer.action === 'reinstall' || offer.action === 'upgrade'));
+      return h('div', { class: 'alert danger flex between' },
+        h('div', { class: 'grow' },
+          badge(f.unhealthy ? 'unhealthy' : 'failed', 'danger', true),
+          ' ',
+          h('strong', null, f.id || f.directory),
+          '. ',
+          f.error),
+        repair ? h('button', {
+          class: 'btn sm',
+          dataset: { pluginAction: repair.action, asset: repair.asset },
+          onClick: () => install(ctx, repair),
+        }, repair.action === 'upgrade' ? 'Upgrade' : 'Reinstall') : null);
+    });
+    root.append(h('div', { class: 'card' }, h('h2', null, 'Failed to load'), h('div', { class: 'col' }, failures)));
   }
 
   const grid = h('div', { class: 'grid' });
@@ -40,11 +55,11 @@ async function render(ctx) {
   root.append(h('h2', { class: 'mt' }, 'Available releases'));
   if (data.catalogError) root.append(h('div', { class: 'alert warning' }, data.catalogError));
   const releases = (data.available || [])
-    .filter((offer) => offer.action === 'upgrade' || offer.action === 'install' || !offer.action)
-    .sort((a, b) => (a.action === 'upgrade' ? 0 : 1) - (b.action === 'upgrade' ? 0 : 1) || a.name.localeCompare(b.name));
+    .filter((offer) => offer.action === 'upgrade' || offer.action === 'reinstall' || offer.action === 'install' || !offer.action)
+    .sort((a, b) => actionRank(a.action) - actionRank(b.action) || a.name.localeCompare(b.name));
   const offers = h('div', { class: 'grid cols-2' });
   for (const offer of releases) {
-    const action = offer.action === 'upgrade' ? 'upgrade' : 'install';
+    const action = offer.action === 'upgrade' ? 'upgrade' : offer.action === 'reinstall' ? 'reinstall' : 'install';
     offers.append(h('div', { class: 'card' },
       h('div', { class: 'card-header' }, h('h2', null, offer.name), offer.version ? badge(versionLabel(offer.version)) : null),
       offer.description ? h('p', null, offer.description) : null,
@@ -53,7 +68,7 @@ async function render(ctx) {
         class: 'btn sm primary',
         dataset: { pluginAction: action, asset: offer.asset },
         onClick: () => install(ctx, offer),
-      }, action === 'upgrade' ? 'Upgrade' : 'Install')));
+      }, action === 'upgrade' ? 'Upgrade' : action === 'reinstall' ? 'Reinstall' : 'Install')));
   }
   if (!data.catalogError && releases.length === 0) offers.append(h('div', { class: 'card muted' }, (data.available || []).length === 0 ? 'No plugin releases found.' : 'No updates or new plugins.'));
   root.append(offers);
@@ -63,11 +78,15 @@ function versionLabel(version) {
   return /^\d+\.\d+\.\d+/.test(version) ? 'v' + version : version;
 }
 
+function actionRank(action) {
+  return action === 'reinstall' ? 0 : action === 'upgrade' ? 1 : 2;
+}
+
 async function install(ctx, offer) {
   try {
     const res = await ctx.api.post('/api/admin/plugins/install', { asset: offer.asset });
     await render(ctx);
-    const verb = offer.action === 'upgrade' ? 'Upgraded' : 'Installed';
+    const verb = offer.action === 'upgrade' ? 'Upgraded' : offer.action === 'reinstall' ? 'Reinstalled' : 'Installed';
     pageNote(root, `${verb} ${res.installed.id} ${res.installed.version}. Restart to load it.`, 'success');
   } catch (err) { pageNote(root, errorMessage(err)); }
 }

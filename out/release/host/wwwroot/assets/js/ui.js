@@ -49,14 +49,34 @@ export function append(el, children) {
 
 export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
 
-const ICONS = new Set(['home', 'bell', 'user', 'users', 'puzzle', 'plug', 'settings', 'list', 'chart', 'login', 'directory', 'activity', 'shield', 'exclamation-octagon', 'warning', 'building', 'pulse', 'funnel', 'lock', 'key', 'sparkles', 'sun', 'moon', 'logout', 'x', 'check', 'search', 'refresh', 'plus', 'trash', 'edit', 'copy', 'download', 'upload', 'external', 'info', 'dot', 'mail', 'play', 'eye', 'send-up', 'send-down']);
+const ICONS = new Set(['home', 'bell', 'user', 'users', 'puzzle', 'plug', 'settings', 'list', 'terminal', 'chart', 'login', 'directory', 'activity', 'shield', 'exclamation-octagon', 'warning', 'building', 'pulse', 'funnel', 'lock', 'key', 'sparkles', 'sun', 'moon', 'logout', 'x', 'check', 'search', 'refresh', 'plus', 'trash', 'edit', 'copy', 'download', 'upload', 'external', 'info', 'dot', 'mail', 'play', 'eye', 'send-up', 'send-down']);
+
+/** One letter for a single word, otherwise the first letter of the first two words. */
+export function initials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const letter = (word) => Array.from(word)[0]?.toUpperCase() || '';
+  if (words.length === 0) return '?';
+  if (words.length === 1) return letter(words[0]) || '?';
+  return (letter(words[0]) + letter(words[1])) || '?';
+}
+
+/** Circle for the signed-in user. An account image replaces the initials. */
+export function avatar(name, opts = {}) {
+  const node = h('span', { class: 'avatar' + (opts.large ? ' lg' : '') });
+  if (opts.updatedAt) {
+    node.append(h('img', { alt: '', src: '/api/account/avatar?v=' + encodeURIComponent(opts.updatedAt) }));
+  } else {
+    node.textContent = initials(name);
+  }
+  return node;
+}
 
 export function icon(name, cls = 'icon') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('class', cls);
   svg.setAttribute('aria-hidden', 'true');
   const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-  use.setAttribute('href', '/assets/img/icons.svg?v=stroke2#' + (ICONS.has(name) ? name : 'dot'));
+  use.setAttribute('href', '/assets/img/icons.svg?v=stroke4#' + (ICONS.has(name) ? name : 'dot'));
   svg.append(use);
   return svg;
 }
@@ -316,8 +336,15 @@ export function formValues(form) {
 }
 
 export function setBusy(button, busy, label) {
-  if (busy) { button.dataset.label = button.textContent; button.disabled = true; clear(button).append(spinner(), ' ', label || button.dataset.label); }
-  else { button.disabled = false; button.textContent = button.dataset.label || button.textContent; }
+  if (busy) {
+    if (button.dataset.label == null) button.dataset.label = button.textContent;
+    button.disabled = true;
+    clear(button).append(spinner(), ' ', label || button.dataset.label);
+  } else {
+    button.disabled = false;
+    button.textContent = button.dataset.label || button.textContent;
+    delete button.dataset.label;
+  }
 }
 
 export function errorMessage(err) {

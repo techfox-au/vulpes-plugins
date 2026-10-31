@@ -38,6 +38,7 @@
   applyKind();
 
   if (!id) { setAlert('error', 'Missing collect id.'); return; }
+  await SenditPow.syncServerTime();
 
   let meta;
   const opening = SecretTransfer.showProgress('Opening upload');
@@ -71,6 +72,10 @@
     } catch { /* name stays hidden */ }
   }
   panel.hidden = false;
+  const uploadPow = SenditPow.createKeeper(function () {
+    return fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson);
+  });
+  uploadPow.start();
 
   let busy = false;
   form.addEventListener('submit', async (ev) => {
@@ -96,9 +101,11 @@
         progress.setStatus(msg || 'Encrypting…');
         progress.setProgress(frac == null || !Number.isFinite(frac) ? null : frac);
       });
-      progress.setStatus('Performing proof-of-work…');
-      progress.setProgress(null);
-      const solved = await SenditPow.solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => progress.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+      if (!uploadPow.ready()) {
+        progress.setStatus('Performing proof-of-work…');
+        progress.setProgress(null);
+      }
+      const solved = await uploadPow.take();
       progress.setTitle('Uploading');
       progress.setStatus('Uploading encrypted payload…');
       progress.setProgress(0);

@@ -1,8 +1,8 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
-import { setBusy, errorMessage } from './ui.js';
+import { setBusy, errorMessage } from './ui.js?v=shell195';
 import * as webauthn from './webauthn.js?v=shell160';
 import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell133';
-import { powBody, solvePow } from './pow.js?v=shell160';
+import { powBody, createPowKeeper, syncServerTime } from './pow.js?v=shell200';
 
 setRedirectOnUnauthorized(false);
 
@@ -41,6 +41,7 @@ async function init() {
   const passwordShown = !$('password-form').classList.contains('hidden');
   const moreWays = !passkeyBtn.classList.contains('hidden');
   $('or-1').classList.toggle('hidden', !(passwordShown && moreWays));
+  return true;
 }
 
 function closePluginMenus() {
@@ -53,19 +54,19 @@ function onSignedIn() {
   location.assign(returnUrl);
 }
 
-function prove(username) {
-  return solvePow(() => api.get('/auth/login/pow?username=' + encodeURIComponent(username), { noRedirect: true }));
-}
+const powKeeper = createPowKeeper(() => api.get('/auth/login/pow', { noRedirect: true }));
 
 $('password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   showError('');
   const btn = $('password-btn');
   const username = $('username').value.trim();
-  setBusy(btn, true, 'Performing proof-of-work…');
+  const solving = !powKeeper.ready();
+  setBusy(btn, true, solving ? 'Performing proof-of-work…' : 'Signing in…');
   try {
     const password = $('password').value;
-    const pow = await prove(username);
+    const pow = await powKeeper.take();
+    if (solving) setBusy(btn, true, 'Signing in…');
     const res = await api.post('/auth/login/password', { username, password, ...powBody(pow) }, { noRedirect: true });
     try { await unlockWithPassword(password); } catch { /* encryption unlock can wait until the next sign-in */ }
     if (res?.mustChangePassword) { invalidateSession(); closePluginMenus(); location.assign('/#/account?changePassword=1'); return; }
@@ -88,16 +89,21 @@ $('passkey-btn').addEventListener('click', async () => {
     return;
   }
   const btn = $('passkey-btn');
-  setBusy(btn, true, 'Performing proof-of-work…');
+  const solving = !powKeeper.ready();
+  setBusy(btn, true, solving ? 'Performing proof-of-work…' : 'Waiting for your passkey…');
   try {
-    const optionsPow = powBody(await prove(username));
-    setBusy(btn, false);
+    const optionsPow = powBody(await powKeeper.take());
     setBusy(btn, true, 'Waiting for your passkey…');
     await webauthn.authenticate({
       optionsUrl: '/auth/login/passkey/options',
       finishUrl: '/auth/login/passkey',
       optionsBody: { username, ...optionsPow },
-      extra: async () => ({ username, ...powBody(await prove(username)) }),
+      extra: async () => {
+        if (!powKeeper.ready()) setBusy(btn, true, 'Performing proof-of-work…');
+        const proof = { username, ...powBody(await powKeeper.take()) };
+        setBusy(btn, true, 'Signing in…');
+        return proof;
+      },
       onCredential: (credential) => unlockWithPasskey(credential),
     });
     onSignedIn();
@@ -109,4 +115,8 @@ $('passkey-btn').addEventListener('click', async () => {
   }
 });
 
-init().catch((err) => showError(errorMessage(err)));
+init().then(async (stay) => {
+  if (!stay) return;
+  await syncServerTime();
+  powKeeper.start();
+}).catch((err) => showError(errorMessage(err)));

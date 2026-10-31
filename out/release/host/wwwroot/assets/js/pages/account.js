@@ -1,4 +1,5 @@
-import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote } from '../ui.js?v=shell83';
+import { invalidateSession } from '../api.js';
+import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
 import * as webauthn from '../webauthn.js?v=shell127';
 import { rewrapPassword, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell133';
 
@@ -13,6 +14,100 @@ export async function mount(el, ctx) {
 
 export function unmount() { root = null; }
 
+const maxAvatarBytes = 500 * 1024;
+
+async function uploadAvatar(ctx, input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  if (!/\.(webp|jpe?g|png)$/.test(name)) {
+    pageNote(root, 'Choose a WebP, JPEG, or PNG image.');
+    input.value = '';
+    return;
+  }
+  if (file.size > maxAvatarBytes) {
+    pageNote(root, 'The image must be 500 KB or smaller.');
+    input.value = '';
+    return;
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const tooBig = bitmap.width > 512 || bitmap.height > 512;
+    bitmap.close();
+    if (tooBig) {
+      pageNote(root, 'The image must be 512×512 pixels or smaller.');
+      input.value = '';
+      return;
+    }
+  } catch {
+    // The server still checks the file.
+  }
+  const body = new FormData();
+  body.append('file', file);
+  try {
+    await ctx.api.upload('/api/account/avatar', body);
+    if (ctx.refreshChrome) await ctx.refreshChrome();
+    await render(ctx);
+  } catch (err) {
+    pageNote(root, errorMessage(err));
+  }
+}
+
+const sessionLengths = [
+  [900, '15m'],
+  [1800, '30m'],
+  [3600, '1h'],
+  [7200, '2h'],
+  [14400, '4h'],
+  [28800, '8h'],
+  [43200, '12h'],
+  [86400, '1d'],
+  [259200, '3d'],
+  [604800, '7d'],
+  [1209600, '14d'],
+  [2592000, '30d'],
+  [7776000, '90d'],
+];
+
+function sessionLength(ctx, current) {
+  const control = dropdown(sessionLengths, { value: String(current || 28800), name: 'sessionLifetime', ariaLabel: 'Session length' });
+  control.addEventListener('change', async () => {
+    const seconds = Number(control.querySelector('input[name="sessionLifetime"]')?.value);
+    const button = control.querySelector('button');
+    if (button) button.disabled = true;
+    try {
+      const result = await ctx.api.put('/api/account/session-lifetime', { seconds });
+      if (result?.signedOut) {
+        invalidateSession();
+        location.assign('/login');
+        return;
+      }
+      if (button) button.disabled = false;
+    } catch (err) {
+      pageNote(root, errorMessage(err));
+      if (button) button.disabled = false;
+    }
+  });
+  return control;
+}
+
+function plusBadge() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'avatar-plus');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', '8');
+  circle.setAttribute('cy', '8');
+  circle.setAttribute('r', '8');
+  circle.setAttribute('fill', 'var(--primary)');
+  const plus = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  plus.setAttribute('fill', 'var(--primary-contrast)');
+  plus.setAttribute('d', 'M8.5 4.5a.5.5 0 0 0-1 0v3h-3a.5.5 0 0 0 0 1h3v3a.5.5 0 0 0 1 0v-3h3a.5.5 0 0 0 0-1h-3z');
+  svg.append(circle, plus);
+  return svg;
+}
+
 async function render(ctx) {
   const el = root;
   clear(el);
@@ -23,14 +118,32 @@ async function render(ctx) {
   flash = null;
 
   const roleLabel = me.roles.length === 1 ? 'Role' : 'Roles';
+  const fileInput = h('input', { class: 'file-input-native', type: 'file', accept: '.webp,.jpg,.jpeg,.png,image/webp,image/jpeg,image/png', 'aria-label': 'Account image' });
+  const editor = h('label', { class: 'avatar-edit' },
+    fileInput,
+    avatar(me.displayName || me.username, { large: true, updatedAt: me.avatarUpdatedAt }),
+    plusBadge());
+  fileInput.addEventListener('change', () => uploadAvatar(ctx, fileInput));
+  fileInput.addEventListener('click', () => {
+    window.addEventListener('focus', () => {
+      fileInput.blur();
+      editor.classList.add('plus-hidden');
+      window.addEventListener('pointermove', () => editor.classList.remove('plus-hidden'), { once: true });
+    }, { once: true });
+  });
   el.append(h('div', { class: 'page-header' }, h('h1', null, 'Account')));
+  const profileCard = h('div', { class: 'card', dataset: { panel: 'profile' } },
+    editor,
+    kv([['Display name', me.displayName || '—'], ['Username', me.username], ['Email', me.email || '—'], [roleLabel, me.roles.join(', ')]]));
+  if (pending?.panel === 'profile') panelNote(profileCard, pending.message, pending.kind);
   el.append(h('div', { class: 'grid cols-2' },
-    h('div', { class: 'card' }, kv([['Display name', me.displayName || '—'], ['Username', me.username], ['Email', me.email || '—'], [roleLabel, me.roles.join(', ')]])),
+    profileCard,
     h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Session')),
       h('dl', { class: 'kv' },
         h('dt', null, 'Signed in with'), h('dd', null, { password: 'Password', pwd: 'Password', passkey: 'Passkey' }[me.authMethod] || '-'),
         h('dt', null, 'Last sign-in'), h('dd', null, fmt.dateTime(me.lastLoginAt)),
-        h('dt', null, 'Recently authenticated'), h('dd', null, me.recentlyAuthenticated ? 'Yes' : 'No')))));
+        h('dt', null, 'Recently authenticated'), h('dd', null, me.recentlyAuthenticated ? 'Yes' : 'No')),
+      h('div', { class: 'field mt' }, h('label', null, 'Session length'), sessionLength(ctx, me.sessionLifetimeSeconds)))));
 
   if (me.mustChangePassword || ctx.query.changePassword) {
     el.append(h('div', { class: 'alert warning' }, 'You are using a temporary password. Please set a new one now.'));

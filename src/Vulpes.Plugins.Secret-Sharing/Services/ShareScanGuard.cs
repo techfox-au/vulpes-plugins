@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Vulpes.Plugins.SecretSharing.Data;
+using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.SecretSharing.Services;
 
@@ -7,13 +8,13 @@ namespace Vulpes.Plugins.SecretSharing.Services;
 /// Per-IP budget for public send and collect lookups. Failures and challenge issues count.
 /// A success does not clear the budget. Shared through the plugin database.
 /// </summary>
-public sealed class ShareScanGuard(ShareDatabase database)
+public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = null)
 {
+    private readonly IPowPolicy _policy = policy ?? DefaultScanPolicy.Instance;
     public const int MaxFailuresInWindow = 10;
     public const int MaxChallengeIssuesInWindow = 30;
-    private const double WindowSeconds = 60;
     private const string KindFailure = "fail";
-    private const string KindIssue = "pow_issue";
+    internal const string IssueKind = "pow_issue";
     private long _opsSinceCleanup;
 
     public bool IsFailureBudgetExceeded(string clientKey, out double retryAfterSeconds)
@@ -22,9 +23,9 @@ public sealed class ShareScanGuard(ShareDatabase database)
     public void RecordFailure(string clientKey) => Record(KindFailure, clientKey);
 
     public bool IsChallengeIssueBudgetExceeded(string clientKey, out double retryAfterSeconds)
-        => IsBudgetExceeded(KindIssue, clientKey, MaxChallengeIssuesInWindow, out retryAfterSeconds);
+        => IsBudgetExceeded(IssueKind, clientKey, MaxChallengeIssuesInWindow, out retryAfterSeconds);
 
-    public void RecordChallengeIssue(string clientKey) => Record(KindIssue, clientKey);
+    public void RecordChallengeIssue(string clientKey) => Record(IssueKind, clientKey);
 
     public static string ClientKey(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
@@ -33,7 +34,8 @@ public sealed class ShareScanGuard(ShareDatabase database)
         MaybeCleanup();
         retryAfterSeconds = 0;
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var cutoff = nowMs - (long)(WindowSeconds * 1000);
+        var windowSeconds = _policy.ScanBudgetWindowSeconds;
+        var cutoff = nowMs - (long)(windowSeconds * 1000);
         using var conn = database.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT AtMs FROM scan_events WHERE Kind = @kind AND ClientKey = @ck AND AtMs >= @cut ORDER BY AtMs ASC";
@@ -51,8 +53,8 @@ public sealed class ShareScanGuard(ShareDatabase database)
 
         if (count < max) return false;
         retryAfterSeconds = oldest is long at
-            ? Math.Max(0.1, (at + (long)(WindowSeconds * 1000) - nowMs) / 1000.0)
-            : WindowSeconds;
+            ? Math.Max(0.1, (at + (long)(windowSeconds * 1000) - nowMs) / 1000.0)
+            : windowSeconds;
         return true;
     }
 
@@ -71,11 +73,24 @@ public sealed class ShareScanGuard(ShareDatabase database)
     private void MaybeCleanup()
     {
         if (Interlocked.Increment(ref _opsSinceCleanup) % 256 != 0) return;
-        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(WindowSeconds * 1000);
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(_policy.ScanBudgetWindowSeconds * 1000);
         using var conn = database.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM scan_events WHERE AtMs < @cut";
         cmd.Parameters.AddWithValue("@cut", cutoff);
         cmd.ExecuteNonQuery();
+        using var challenges = conn.CreateCommand();
+        challenges.CommandText = "DELETE FROM pow_challenges WHERE ExpiresAt < @now";
+        challenges.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
+        challenges.ExecuteNonQuery();
+    }
+
+    private sealed class DefaultScanPolicy : IPowPolicy
+    {
+        public static readonly DefaultScanPolicy Instance = new();
+        public int DifficultyBits => PowPolicyLimits.DefaultDifficultyBits;
+        public int ChallengeTtlSeconds => PowPolicyLimits.DefaultChallengeTtlSeconds;
+        public int CollectChallengeTtlSeconds => PowPolicyLimits.DefaultCollectChallengeTtlSeconds;
+        public int ScanBudgetWindowSeconds => PowPolicyLimits.DefaultScanBudgetWindowSeconds;
     }
 }

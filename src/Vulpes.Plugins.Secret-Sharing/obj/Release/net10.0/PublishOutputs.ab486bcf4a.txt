@@ -17,6 +17,7 @@
 /tmp/ss-pub/wwwroot/public/upload.js
 /tmp/ss-pub/docs/AUDIT.md
 /tmp/ss-pub/docs/CRYPTO.md
+/tmp/ss-pub/docs/VENDOR.md
 /tmp/ss-pub/Vulpes.Plugins.Secret-Sharing.dll
 /tmp/ss-pub/Vulpes.Plugins.Secret-Sharing.deps.json
 /tmp/ss-pub/Vulpes.Plugins.Secret-Sharing.runtimeconfig.json

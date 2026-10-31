@@ -11,17 +11,18 @@ const expiryChoices = [
 export async function mount(el, ctx) {
   const root = el.querySelector('#send-root');
   await loadCrypto();
-  await loadScript(`${pub}/transfer.js?v=crypto2`);
+  await loadScript(`${pub}/transfer.js?v=crypto6`);
   await loadScript(`${pub}/cidr.js?v=crypto3`);
-  const { h, dropdown } = ctx.ui;
+  const { h, dropdown, filePicker } = ctx.ui;
   const field = (label, control) => h('div', { class: 'field' }, h('label', null, label), control);
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. VPN credentials', autocomplete: 'off' });
   const textRadio = h('input', { type: 'radio', name: 'content-kind', value: 'text', checked: true });
   const fileRadio = h('input', { type: 'radio', name: 'content-kind', value: 'file' });
   const secret = h('textarea', { class: 'input chalkboard', rows: '6', maxlength: '1000000', placeholder: 'Paste token, note, or other secret…' });
-  const file = h('input', { class: 'input', type: 'file' });
+  const filePickerRow = filePicker();
+  const file = filePickerRow.querySelector('input');
   const textPanel = field('Secret text', secret);
-  const filePanel = field('File (max 40 MB)', file);
+  const filePanel = field('File (max 40 MB)', filePickerRow);
   filePanel.hidden = true;
   const mode = dropdown([['true', 'One-time (destroy after reveal)'], ['false', 'Multi-view until expiry']], { value: 'true', ariaLabel: 'Burn mode' });
   const expiry = dropdown(expiryChoices, { value: '1440', ariaLabel: 'Expires in' });
@@ -34,6 +35,7 @@ export async function mount(el, ctx) {
   const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password' });
   const confirmWrap = h('div', { class: 'field', hidden: true }, h('label', null, 'Confirm link password'), confirm);
   const cidr = h('input', { class: 'input', maxlength: '5000000', placeholder: 'e.g. 203.0.113.10, 192.168.1.0/24, 2001:db8::/32', autocomplete: 'off', spellcheck: 'false' });
+  const cidrField = field('Allowed IPs / CIDRs', cidr);
   const button = h('button', { class: 'btn primary', type: 'button' }, 'Encrypt & create link');
   const out = h('div', { class: 'col' });
   const syncKind = () => {
@@ -66,12 +68,24 @@ export async function mount(el, ctx) {
     field('Private note', note),
     field('Link password', password),
     confirmWrap,
-    field('Allowed IPs / CIDRs', cidr),
+    cidrField,
     h('div', null, button),
     out));
 
+  async function refreshIpRestrictions() {
+    try {
+      const cfg = await ctx.api.get('/api/client-ip/capability');
+      const enabled = cfg.ipRestrictionsEnabled !== false;
+      cidrField.hidden = !enabled;
+      if (!enabled) cidr.value = '';
+    } catch { /* keep the field until the probe result is known */ }
+  }
+  await refreshIpRestrictions();
+  setTimeout(refreshIpRestrictions, 3500);
+
   async function create() {
     button.disabled = true;
+    let progress = null;
     try {
       const udk = await ensureUdk();
       const label = name.value.trim();
@@ -96,9 +110,15 @@ export async function mount(el, ctx) {
       } else if (!secret.value) {
         throw new Error('Enter a secret to encrypt.');
       }
+      progress = SecretTransfer.showProgress('Creating send');
+      progress.setStatus('Reading and encrypting…');
+      progress.setProgress(null);
       const plain = chosen ? new Uint8Array(await chosen.arrayBuffer()) : new TextEncoder().encode(secret.value);
       const kp = SenditCrypto.generateKeyPair();
-      const wire = await SenditCrypto.encryptForRecipient(plain, kp.publicKey);
+      const wire = await SenditCrypto.encryptForRecipient(plain, kp.publicKey, (msg, frac) => {
+        progress.setStatus(msg || 'Encrypting…');
+        progress.setProgress(frac == null || !Number.isFinite(frac) ? null : frac);
+      });
       let recipientLabel = null;
       if (label) {
         recipientLabel = await SenditCrypto.encryptForRecipient(new TextEncoder().encode(label), kp.publicKey);
@@ -113,6 +133,9 @@ export async function mount(el, ctx) {
         passwordProtected = true;
       }
       kp.secretKey.fill(0);
+      progress.setTitle('Uploading');
+      progress.setStatus('Uploading encrypted payload…');
+      progress.setProgress(0);
       const created = await SecretTransfer.postJson(`${ctx.plugin.apiBase}/sends`, {
         ciphertext: wire.ciphertext,
         iv: wire.iv,
@@ -129,13 +152,16 @@ export async function mount(el, ctx) {
         maxAccessCount,
         passwordProtected,
         recipientLabel,
-      });
+      }, (fraction) => progress.setProgress(fraction));
       wire.ciphertext = null;
+      progress.setProgress(1);
+      progress.setStatus('Done');
       const link = `${location.origin}/send?id=${encodeURIComponent(created.id)}${fragment}`;
       out.replaceChildren(h('p', null, 'Your link. The decryption key is only in the # fragment.'), h('code', { class: 'share-link' }, link));
     } catch (err) {
       out.replaceChildren(h('div', { class: 'alert danger' }, err.message || 'Could not create the send.'));
     } finally {
+      if (progress) progress.close();
       button.disabled = false;
     }
   }

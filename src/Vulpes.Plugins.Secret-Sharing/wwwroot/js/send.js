@@ -35,6 +35,7 @@ export async function mount(el, ctx) {
   const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password' });
   const confirmWrap = h('div', { class: 'field', hidden: true }, h('label', null, 'Confirm link password'), confirm);
   const cidr = h('input', { class: 'input', maxlength: '5000000', placeholder: 'e.g. 203.0.113.10, 192.168.1.0/24, 2001:db8::/32', autocomplete: 'off', spellcheck: 'false' });
+  const cidrField = field('Allowed IPs / CIDRs', cidr);
   const button = h('button', { class: 'btn primary', type: 'button' }, 'Encrypt & create link');
   const out = h('div', { class: 'col' });
   const syncKind = () => {
@@ -67,9 +68,20 @@ export async function mount(el, ctx) {
     field('Private note', note),
     field('Link password', password),
     confirmWrap,
-    field('Allowed IPs / CIDRs', cidr),
+    cidrField,
     h('div', null, button),
     out));
+
+  async function refreshIpRestrictions() {
+    try {
+      const cfg = await ctx.api.get('/api/client-ip/capability');
+      const enabled = cfg.ipRestrictionsEnabled !== false;
+      cidrField.hidden = !enabled;
+      if (!enabled) cidr.value = '';
+    } catch { /* keep the field until the probe result is known */ }
+  }
+  await refreshIpRestrictions();
+  setTimeout(refreshIpRestrictions, 3500);
 
   async function create() {
     button.disabled = true;

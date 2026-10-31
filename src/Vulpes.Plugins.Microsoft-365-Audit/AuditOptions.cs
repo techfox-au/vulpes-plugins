@@ -44,6 +44,9 @@ public sealed class AuditOptions
     /// <summary>Microsoft 365 Business Premium includes Entra ID P1. Identity Protection risk reports need P2, so that source is not collected.</summary>
     public bool BusinessPremiumMode { get; set; }
 
+    /// <summary>When Business Premium mode is on, omit the Risk page from the menu. Turning the mode off clears this.</summary>
+    public bool HideRiskMenu { get; set; }
+
     /// <summary>Sources the Graph APIs will not serve on a Business Premium tenant.</summary>
     public static readonly string[] BusinessPremiumUnavailableSources = ["risk"];
 

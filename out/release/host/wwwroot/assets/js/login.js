@@ -1,7 +1,8 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js';
-import * as webauthn from './webauthn.js?v=shell125';
+import * as webauthn from './webauthn.js?v=shell160';
 import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell133';
+import { powBody, solvePow } from './pow.js?v=shell160';
 
 setRedirectOnUnauthorized(false);
 
@@ -52,14 +53,20 @@ function onSignedIn() {
   location.assign(returnUrl);
 }
 
+function prove(username) {
+  return solvePow(() => api.get('/auth/login/pow?username=' + encodeURIComponent(username), { noRedirect: true }));
+}
+
 $('password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   showError('');
   const btn = $('password-btn');
-  setBusy(btn, true, 'Signing in…');
+  const username = $('username').value.trim();
+  setBusy(btn, true, 'Performing proof-of-work…');
   try {
     const password = $('password').value;
-    const res = await api.post('/auth/login/password', { username: $('username').value.trim(), password }, { noRedirect: true });
+    const pow = await prove(username);
+    const res = await api.post('/auth/login/password', { username, password, ...powBody(pow) }, { noRedirect: true });
     try { await unlockWithPassword(password); } catch { /* encryption unlock can wait until the next sign-in */ }
     if (res?.mustChangePassword) { invalidateSession(); closePluginMenus(); location.assign('/#/account?changePassword=1'); return; }
     onSignedIn();
@@ -81,9 +88,18 @@ $('passkey-btn').addEventListener('click', async () => {
     return;
   }
   const btn = $('passkey-btn');
-  setBusy(btn, true, 'Waiting for your passkey…');
+  setBusy(btn, true, 'Performing proof-of-work…');
   try {
-    await webauthn.authenticate({ optionsUrl: '/auth/login/passkey/options', finishUrl: '/auth/login/passkey', optionsBody: { username }, onCredential: (credential) => unlockWithPasskey(credential) });
+    const optionsPow = powBody(await prove(username));
+    setBusy(btn, false);
+    setBusy(btn, true, 'Waiting for your passkey…');
+    await webauthn.authenticate({
+      optionsUrl: '/auth/login/passkey/options',
+      finishUrl: '/auth/login/passkey',
+      optionsBody: { username, ...optionsPow },
+      extra: async () => ({ username, ...powBody(await prove(username)) }),
+      onCredential: (credential) => unlockWithPasskey(credential),
+    });
     onSignedIn();
   } catch (err) {
     const text = err?.status === 401 ? 'Invalid credentials.' : err?.status === 429 ? 'Too many attempts. Please wait a minute and try again.' : webauthn.describeError(err);

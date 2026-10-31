@@ -12,7 +12,7 @@ export async function mount(el, ctx) {
   const root = el.querySelector('#send-root');
   await loadCrypto();
   await loadScript(`${pub}/transfer.js?v=crypto2`);
-  await loadScript(`${pub}/cidr.js?v=crypto2`);
+  await loadScript(`${pub}/cidr.js?v=crypto3`);
   const { h, dropdown } = ctx.ui;
   const field = (label, control) => h('div', { class: 'field' }, h('label', null, label), control);
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. VPN credentials', autocomplete: 'off' });

@@ -124,7 +124,7 @@
         const text = await SenditCrypto.plainToText(plain);
         plain = null;
         const shown = hide ? '••••••••' : escapeHtml(text);
-        renderMeta('<pre class="card" id="secret-text">' + shown + '</pre>' + (hide ? '<p><button type="button" class="btn" id="show-secret">Show</button></p>' : ''));
+        renderMeta('<pre class="secret-reveal" id="secret-text">' + shown + '</pre>' + (hide ? '<div class="show-secret"><button type="button" class="btn" id="show-secret">Show</button></div>' : ''));
         const show = document.getElementById('show-secret');
         if (show) show.addEventListener('click', () => { document.getElementById('secret-text').textContent = text; show.remove(); });
       }

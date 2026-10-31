@@ -22,6 +22,23 @@ export function h(tag, props, ...children) {
   return el;
 }
 
+let filePickerSeq = 0;
+
+/** Native file input, drawn as a normal button with the chosen file name beside it. */
+export function filePicker(attrs = {}) {
+  const id = attrs.id || `file-${++filePickerSeq}`;
+  const input = h('input', { ...attrs, id, class: 'file-input-native', type: 'file' });
+  const name = h('span', { class: 'file-picker-name' }, 'No file chosen');
+  input.addEventListener('change', () => {
+    const chosen = input.files && input.files[0];
+    name.textContent = chosen ? chosen.name : 'No file chosen';
+  });
+  return h('div', { class: 'file-picker' },
+    input,
+    h('label', { class: 'btn file-picker-btn', for: id }, 'Choose file'),
+    name);
+}
+
 export function append(el, children) {
   for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;
@@ -628,5 +645,5 @@ export function dropdown(options, { value, ariaLabel, name, disabled = false } =
   return root;
 }
 
-export const ui = { h, append, clear, icon, badge, fmt, table, kv, jsonView, empty, spinner, toast, panelNote, pageNote, drawer, modal, dropdown, formValues, setBusy, errorMessage, copyToClipboard, columnChart, barList, valueAt };
+export const ui = { h, append, clear, icon, badge, fmt, table, kv, jsonView, empty, spinner, toast, panelNote, pageNote, drawer, modal, dropdown, filePicker, formValues, setBusy, errorMessage, copyToClipboard, columnChart, barList, valueAt };
 export default ui;

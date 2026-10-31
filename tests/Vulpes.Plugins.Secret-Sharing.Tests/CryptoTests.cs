@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Vulpes.Plugins.SecretSharing.Data;
 using Vulpes.Plugins.SecretSharing.Services;
+using Vulpes.Sdk;
 using Xunit;
 
 namespace Vulpes.Plugins.SecretSharing.Tests;
@@ -29,6 +30,24 @@ public sealed class ProofOfWorkTests : IDisposable
         Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash));
         Assert.Null(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash));
         Assert.NotNull(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash));
+    }
+
+    [Fact]
+    public void Issued_difficulty_follows_the_host_policy()
+    {
+        var policy = new MutablePowPolicy { DifficultyBits = 5, ChallengeTtlSeconds = 45, CollectChallengeTtlSeconds = 900 };
+        var pow = new PowService(_db, policy);
+        var first = pow.Issue("send", "a");
+        Assert.Equal(5, first.DifficultyBits);
+        var sendLife = DateTimeOffset.Parse(first.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture) - DateTimeOffset.UtcNow;
+        Assert.InRange(sendLife.TotalSeconds, 30, 50);
+
+        policy.DifficultyBits = 7;
+        policy.CollectChallengeTtlSeconds = 1200;
+        var second = pow.Issue("collect", "b");
+        Assert.Equal(7, second.DifficultyBits);
+        var collectLife = DateTimeOffset.Parse(second.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture) - DateTimeOffset.UtcNow;
+        Assert.InRange(collectLife.TotalSeconds, 1100, 1210);
     }
 
     [Fact]
@@ -130,6 +149,22 @@ public sealed class IpRestrictionTests
         Assert.False(IpRestriction.IsClientAllowed(canonical, System.Net.IPAddress.Parse("198.51.100.1")));
         Assert.False(IpRestriction.TryNormalize("10.0.0.1/99", out _, out error));
         Assert.Contains("prefix", error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(IpRestriction.TryNormalize("192.168.001.1", out _, out error));
+        Assert.Contains("dotted decimal", error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(IpRestriction.TryNormalize("::ffff:192.0.2.1", out _, out error));
+        Assert.Contains("IPv4", error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(IpRestriction.TryNormalize("fe80::1%eth0", out _, out error));
+        Assert.Contains("zone", error, StringComparison.OrdinalIgnoreCase);
+        Assert.True(IpRestriction.TryNormalize("2001:db8::1", out canonical, out error));
+        Assert.Null(error);
+        Assert.Equal("2001:db8::1", canonical);
+        Assert.True(IpRestriction.TryNormalize("2001:db8::/32", out canonical, out error));
+        Assert.Equal("2001:db8::/32", canonical);
+        Assert.True(IpRestriction.IsClientAllowed(canonical, System.Net.IPAddress.Parse("2001:db8::1")));
+        Assert.False(IpRestriction.IsClientAllowed(canonical, System.Net.IPAddress.Parse("2001:db9::1")));
+        Assert.True(IpRestriction.TryNormalize("*, 10.0.0.1", out canonical, out error));
+        Assert.Equal("*", canonical);
+        Assert.True(IpRestriction.IsClientAllowed(canonical, System.Net.IPAddress.Parse("198.51.100.9")));
     }
 }
 
@@ -190,6 +225,13 @@ public sealed class WrapPackageTests
     }
 }
 
+file sealed class MutablePowPolicy : IPowPolicy
+{
+    public int DifficultyBits { get; set; } = PowPolicyLimits.DefaultDifficultyBits;
+    public int ChallengeTtlSeconds { get; set; } = PowPolicyLimits.DefaultChallengeTtlSeconds;
+    public int CollectChallengeTtlSeconds { get; set; } = PowPolicyLimits.DefaultCollectChallengeTtlSeconds;
+}
+
 public sealed class ShareBurnTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "ss-burn-" + Guid.NewGuid().ToString("N"));
@@ -221,6 +263,16 @@ public sealed class ShareBurnTests : IDisposable
         Assert.Equal("ciphertext", _store.TakeSend(id)!.Ciphertext);
         Assert.Equal("consumed", _store.TakeSend(id)!.Status);
         Assert.Equal("", SendCiphertext(id));
+    }
+
+    [Fact]
+    public void One_time_collect_can_be_retrieved_without_the_owner_and_then_burns()
+    {
+        var id = _store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        Assert.Null(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
+        Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
+        Assert.Null(_store.TakeCollect(id));
+        Assert.Null(CollectCiphertext(id));
     }
 
     [Fact]

@@ -99,8 +99,35 @@
     for (var z = 0; z < mid; z++) groups.push(0);
     for (var j = 0; j < tail.length; j++) if (!pushGroup(tail[j])) return { ok: false, error: "Invalid IPv6 address." };
     if (groups.length !== 8) return { ok: false, error: "Invalid IPv6 address." };
-    var canonical = groups.map(function (g) { return g.toString(16); }).join(":");
-    return { ok: true, family: 6, canonical: canonical };
+    return { ok: true, family: 6, bytes: [], canonical: compressIPv6(groups) };
+  }
+
+  function compressIPv6(groups) {
+    var bestStart = -1;
+    var bestLen = 0;
+    var i = 0;
+    while (i < 8) {
+      if (groups[i] !== 0) { i++; continue; }
+      var j = i;
+      while (j < 8 && groups[j] === 0) j++;
+      var len = j - i;
+      if (len > bestLen) { bestStart = i; bestLen = len; }
+      i = j;
+    }
+    var parts = [];
+    i = 0;
+    while (i < 8) {
+      if (bestLen >= 2 && i === bestStart) {
+        parts.push("");
+        if (i === 0) parts.push("");
+        i += bestLen;
+        if (i >= 8) parts.push("");
+        continue;
+      }
+      parts.push(groups[i].toString(16));
+      i++;
+    }
+    return parts.join(":").replace(/^:$/, "::");
   }
 
   global.SecretCidr = { parseAllowedCidr: parseAllowedCidr };

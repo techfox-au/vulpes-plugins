@@ -110,10 +110,25 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = cidrError });
         }
 
+        if (body.EncryptedLabel is { Length: > 4096 } || body.RecipientLabel is { Length: > 8192 })
+        {
+            return Results.BadRequest(new { error = "validation", message = "Send name is too long." });
+        }
+
+        if (body.PrivateNoteCiphertext is { Length: > 30_000_000 })
+        {
+            return Results.BadRequest(new { error = "validation", message = "Private note is too long." });
+        }
+
+        if (body.Filename is { Length: > 200 })
+        {
+            return Results.BadRequest(new { error = "validation", message = "Filename is too long." });
+        }
+
         var error = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, 1);
-        if (error is not null) return Results.BadRequest();
+        if (error is not null) return Results.BadRequest(new { error = "validation", message = error });
         RememberEmail(http, store, user);
-        var id = store.CreateSend(user, new SendInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), ClipOrNull(body.Filename, 200), body.OneTime, minutes, ClipOrNull(body.EncryptedLabel, 2000), ClipOrNull(body.PrivateNoteCiphertext, 8000), body.MaxAccessCount is > 0 and <= 100000 ? body.MaxAccessCount : null, body.PasswordProtected, body.HideTextByDefault, allowedCidr, ClipOrNull(body.RecipientLabel, 8000)));
+        var id = store.CreateSend(user, new SendInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), TrimOrNull(body.Filename), body.OneTime, minutes, TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), body.MaxAccessCount is > 0 and <= 100000 ? body.MaxAccessCount : null, body.PasswordProtected, body.HideTextByDefault, allowedCidr, TrimOrNull(body.RecipientLabel)));
         await audit.RecordAsync("secret.send.created", id, $"oneTime={body.OneTime} passwordProtected={body.PasswordProtected}", cancellationToken: http.RequestAborted);
         return Results.Json(new { id });
     }
@@ -142,9 +157,19 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = "Maximum access count must be between 1 and 100000." });
         }
 
-        if (body.PrivateNoteCiphertext is { Length: > 30_000_000 } || body.EncryptedLabel is { Length: > 4096 })
+        if (body.PrivateNoteCiphertext is { Length: > 30_000_000 })
         {
-            return Results.BadRequest(new { error = "validation", message = "That field is too long." });
+            return Results.BadRequest(new { error = "validation", message = "Private note is too long." });
+        }
+
+        if (body.EncryptedLabel is { Length: > 4096 })
+        {
+            return Results.BadRequest(new { error = "validation", message = "Collect name is too long." });
+        }
+
+        if (body.OwnerPrivateKeyProtected is { Length: < 28 or > 4096 })
+        {
+            return Results.BadRequest(new { error = "validation", message = "Owner key has invalid length." });
         }
 
         var publicLabel = PublicLabelWire(body.PublicLabel);
@@ -154,7 +179,7 @@ public static class ShareEndpoints
         }
 
         RememberEmail(http, store, user);
-        var id = store.CreateCollect(user, new CollectInput(body.PublicKey, ClipOrNull(body.OwnerPrivateKeyProtected, 8000), body.EncryptedLabel, body.PrivateNoteCiphertext, body.OneTime, minutes, body.OneTime ? null : body.MaxAccessCount is > 0 and <= 100000 ? body.MaxAccessCount : null, body.PasswordProtected, body.HideTextByDefault, publicLabel));
+        var id = store.CreateCollect(user, new CollectInput(body.PublicKey, TrimOrNull(body.OwnerPrivateKeyProtected), TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), body.OneTime, minutes, body.OneTime ? null : body.MaxAccessCount is > 0 and <= 100000 ? body.MaxAccessCount : null, body.PasswordProtected, body.HideTextByDefault, publicLabel));
         await audit.RecordAsync("secret.collect.created", id, $"oneTime={body.OneTime} passwordProtected={body.PasswordProtected}", cancellationToken: http.RequestAborted);
         return Results.Json(new { id });
     }
@@ -199,14 +224,15 @@ public static class ShareEndpoints
         return Results.Json(challenge);
     }
 
-    private static IResult SendMeta(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, HttpContext http)
+    private static async Task<IResult> SendMeta(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IHostAuditLog audit, HttpContext http)
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
         var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash);
         if (error is not null) return Denied(scan, http, error);
         var meta = store.SendMeta(id);
-        if (meta is null || meta.Status != "active" || !ClientAllowed(http, store, id)) return Miss(scan, http);
+        if (meta is null || meta.Status != "active") return Miss(scan, http);
+        if (!ClientAllowed(http, store, id)) return await IpDenied(http, audit, id);
         return Results.Json(new
         {
             meta.Status,
@@ -228,7 +254,9 @@ public static class ShareEndpoints
         if (!Plausible(id)) return Miss(scan, http);
         var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash);
         if (error is not null) return Denied(scan, http, error);
-        if (!ClientAllowed(http, store, id)) return Miss(scan, http);
+        var peek = store.SendMeta(id);
+        if (peek is null || peek.Status != "active") return Miss(scan, http);
+        if (!ClientAllowed(http, store, id)) return await IpDenied(http, audit, id);
         var row = store.TakeSend(id);
         if (row is null || row.Status != "active" || row.Ciphertext.Length == 0) return Miss(scan, http);
         await audit.RecordAsync("secret.send.decrypted", id, "Payload released after proof of work.", actor: "anonymous", cancellationToken: http.RequestAborted);
@@ -328,6 +356,12 @@ public static class ShareEndpoints
     private static IResult Gone() =>
         Results.Json(new { error = "gone", message = "This secret is no longer available." }, statusCode: StatusCodes.Status404NotFound);
 
+    private static async Task<IResult> IpDenied(HttpContext http, IHostAuditLog audit, string id)
+    {
+        await audit.RecordAsync("secret.send.ip_denied", id, $"Send access denied: IP not allowed (id {id})", actor: "anonymous", cancellationToken: http.RequestAborted);
+        return Results.Json(new { error = "ip", message = "This send is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     private static bool Plausible(string? id) => !string.IsNullOrEmpty(id) && id.Length is >= 1 and <= 128;
 
     private static IResult? Budget(ShareScanGuard scan, HttpContext http)
@@ -409,11 +443,12 @@ public static class ShareEndpoints
 
     private static bool IsTokenChar(char c) => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-' or '_';
 
+    private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static string? ClipOrNull(string? value, int max)
     {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        var text = value.Trim();
-        return text.Length <= max ? text : text[..max];
+        var text = TrimOrNull(value);
+        return text is null || text.Length <= max ? text : text[..max];
     }
 
     private sealed record KeyBody(string? WrappedUserDataKey, string? Kind, string? CredentialId, string? Wrapped);

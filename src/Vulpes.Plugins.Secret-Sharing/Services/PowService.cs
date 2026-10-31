@@ -3,17 +3,19 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Vulpes.Plugins.SecretSharing.Data;
+using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.SecretSharing.Services;
 
 /// <summary>
 /// HMAC-SHA256 proof of work. Same check as Sendit: leading zero bits, ASCII decimal nonce, one-time delete.
-/// Difficulty is at least 1. Default is 12 bits.
+/// Difficulty and lifetimes come from the host <see cref="IPowPolicy"/> (Manage → Settings). Difficulty is at least 1.
 /// </summary>
-public sealed class PowService(ShareDatabase database)
+public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null)
 {
-    public const int DifficultyBits = 12;
-    public const int CollectTtlSeconds = 900;
+    private readonly IPowPolicy _policy = policy ?? DefaultPowPolicy.Instance;
+    public const int DefaultDifficultyBits = PowPolicyLimits.DefaultDifficultyBits;
+    public const int DefaultCollectTtlSeconds = PowPolicyLimits.DefaultCollectChallengeTtlSeconds;
     public const string HeaderChallenge = "X-Sendit-Pow-Challenge";
     public const string HeaderNonce = "X-Sendit-Pow-Nonce";
     public const string HeaderHash = "X-Sendit-Pow-Hash";
@@ -41,9 +43,10 @@ public sealed class PowService(ShareDatabase database)
 
         var id = NewId();
         var key = RandomNumberGenerator.GetBytes(32);
+        var bits = _policy.DifficultyBits;
         var ttl = string.Equals(resourceKind, "collect", StringComparison.OrdinalIgnoreCase)
-            ? CollectTtlSeconds
-            : 120;
+            ? _policy.CollectChallengeTtlSeconds
+            : _policy.ChallengeTtlSeconds;
         var exp = now.AddSeconds(ttl);
         if (secretExpiresAt is DateTimeOffset cap && cap < exp) exp = cap;
         using var conn = database.Open();
@@ -56,15 +59,15 @@ public sealed class PowService(ShareDatabase database)
         cmd.Parameters.AddWithValue("@kind", resourceKind);
         cmd.Parameters.AddWithValue("@rid", resourceId);
         cmd.Parameters.AddWithValue("@key", key);
-        cmd.Parameters.AddWithValue("@bits", DifficultyBits);
+        cmd.Parameters.AddWithValue("@bits", bits);
         cmd.Parameters.AddWithValue("@exp", exp.ToString("O"));
         cmd.ExecuteNonQuery();
-        return new Challenge(id, Base64Url.Encode(key), DifficultyBits, exp.ToString("O"));
+        return new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"));
     }
 
     /// <summary>
     /// Validate without consuming. nginx <c>auth_request</c> uses this so the following POST can still <see cref="TryConsume"/>.
-    /// A valid collect challenge is stretched to <see cref="CollectTtlSeconds"/> from now.
+    /// A valid collect challenge is stretched to the current collect lifetime from now.
     /// </summary>
     public string? TryValidate(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64)
     {
@@ -74,7 +77,7 @@ public sealed class PowService(ShareDatabase database)
         using var conn = database.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE pow_challenges SET ExpiresAt = @exp WHERE Id = @id AND ResourceKind = 'collect'";
-        cmd.Parameters.AddWithValue("@exp", DateTimeOffset.UtcNow.AddSeconds(CollectTtlSeconds).ToString("O"));
+        cmd.Parameters.AddWithValue("@exp", DateTimeOffset.UtcNow.AddSeconds(_policy.CollectChallengeTtlSeconds).ToString("O"));
         cmd.Parameters.AddWithValue("@id", challengeId);
         cmd.ExecuteNonQuery();
         return null;
@@ -208,6 +211,14 @@ public sealed class PowService(ShareDatabase database)
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string NewId() => Base64Url.Encode(RandomNumberGenerator.GetBytes(16));
+
+    private sealed class DefaultPowPolicy : IPowPolicy
+    {
+        public static readonly DefaultPowPolicy Instance = new();
+        public int DifficultyBits => PowPolicyLimits.DefaultDifficultyBits;
+        public int ChallengeTtlSeconds => PowPolicyLimits.DefaultChallengeTtlSeconds;
+        public int CollectChallengeTtlSeconds => PowPolicyLimits.DefaultCollectChallengeTtlSeconds;
+    }
 }
 
 public static class Base64Url

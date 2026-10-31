@@ -420,11 +420,11 @@ public sealed class ShareStore(ShareDatabase database)
         using var cmd = conn.CreateCommand();
         if (row.OneTime)
         {
-            cmd.CommandText = "UPDATE secrets SET ConsumedAt = @now, AccessCount = AccessCount + 1, Ciphertext = '', Iv = '', WrappedKey = '', EphemeralPublicKey = '' WHERE Id = @id AND ConsumedAt IS NULL";
+            cmd.CommandText = "UPDATE secrets SET ConsumedAt = @now, AccessCount = AccessCount + 1, Ciphertext = '', Iv = '', WrappedKey = '', EphemeralPublicKey = '' WHERE Id = @id AND ConsumedAt IS NULL AND ExpiresAt >= @now";
         }
         else
         {
-            cmd.CommandText = "UPDATE secrets SET AccessCount = AccessCount + 1, ConsumedAt = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN @now ELSE ConsumedAt END, Ciphertext = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE Ciphertext END, Iv = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE Iv END, WrappedKey = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE WrappedKey END, EphemeralPublicKey = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE EphemeralPublicKey END WHERE Id = @id AND ConsumedAt IS NULL AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
+            cmd.CommandText = "UPDATE secrets SET AccessCount = AccessCount + 1, ConsumedAt = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN @now ELSE ConsumedAt END, Ciphertext = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE Ciphertext END, Iv = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE Iv END, WrappedKey = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE WrappedKey END, EphemeralPublicKey = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE EphemeralPublicKey END WHERE Id = @id AND ConsumedAt IS NULL AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
         }
 
         cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
@@ -524,11 +524,11 @@ public sealed class ShareStore(ShareDatabase database)
         using var upd = conn.CreateCommand();
         if (burn)
         {
-            upd.CommandText = "UPDATE collects SET AccessCount = AccessCount + 1, ConsumedAt = @now, Ciphertext = NULL, Iv = NULL, WrappedKey = NULL, EphemeralPublicKey = NULL WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
+            upd.CommandText = "UPDATE collects SET AccessCount = AccessCount + 1, ConsumedAt = @now, Ciphertext = NULL, Iv = NULL, WrappedKey = NULL, EphemeralPublicKey = NULL WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
         }
         else
         {
-            upd.CommandText = "UPDATE collects SET AccessCount = AccessCount + 1 WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
+            upd.CommandText = "UPDATE collects SET AccessCount = AccessCount + 1 WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
         }
 
         upd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));

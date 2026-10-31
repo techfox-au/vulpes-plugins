@@ -1,49 +1,33 @@
 # Secret Sharing cryptography
 
-This plugin uses the Sendit protocol version 1 without changing the algorithms.
-The browser encrypts. The plugin stores ciphertext, wrapped keys, and the user-data-key package.
-It never decrypts a secret.
+The browser encrypts. The plugin stores ciphertext and wrapped keys. It never decrypts a secret.
 
-The implementation copied from Sendit is `wwwroot/public/crypto.js` and `wwwroot/public/nacl-fast.js` (TweetNaCl 1.0.3).
-`wwwroot/public/udk.js` performs the same user-data-key wrap as Sendit `user-data-key.js`.
+Read the source, not a minified copy served from an installed package. `wwwroot/public/crypto.js` is the Sendit payload implementation with two edits: `GET /api/plugins/secret-sharing/crypto/params`, and rejection of a link-password package whose iteration count is not 893241. `wwwroot/public/nacl-fast.js` and `wwwroot/public/pow.js` are byte-identical to Sendit. The user data key script matches the host file `wwwroot/assets/js/udk.js`. See [VENDOR.md](VENDOR.md).
+
+The host user-data-key review is `vulpes/docs/CRYPTO.md`.
 
 ## Payload
 
 | Purpose | Algorithm | Parameters |
 |---------|-----------|------------|
-| Payload | AES-256-GCM | 12-byte IV, 128-bit tag, Web Crypto inside a blob worker |
-| Key agreement | X25519 | TweetNaCl `nacl.box.keyPair` |
+| Payload | AES-256-GCM | 12-byte IV, 128-bit tag, Web Crypto, one shot inside the blob worker in `crypto.js` |
+| Key agreement | X25519 | TweetNaCl `nacl.box.keyPair` / `nacl.scalarMult` |
 | Wrap KDF | HKDF-SHA-256 | salt = 32 zero bytes, info = `sendit-v1-wrap`, length 32 |
 | Key wrap | AES-256-GCM | 12-byte IV prepended to the wrap ciphertext |
-| Link password | PBKDF2-HMAC-SHA512 | 893241 iterations, 16-byte salt, 12-byte IV, 32-byte `sk` |
-| User data key, password wrap | PBKDF2-HMAC-SHA512 | 893241 iterations, 16-byte salt, 12-byte IV, 32-byte key |
-| User data key, passkey wrap | AES-256-GCM | key = 32-byte WebAuthn PRF output, 12-byte IV |
+| Link password | PBKDF2-HMAC-SHA512 | 893241 iterations, 16-byte salt, 12-byte IV, seals the 32-byte secret key |
 
-A send link puts the X25519 secret key in the URL fragment (`#sk=`), which the browser does not send to the server.
-A link password replaces that fragment with base64url of `{ i, s, iv, ct }`. The server stores only `passwordProtected`.
+A send or collect link puts the X25519 secret key in `#sk=`. The browser does not send the fragment. A link password replaces that fragment with base64url of `{ i, s, iv, ct }`. The server stores only `passwordProtected`.
 
-Owner names, private notes, and collect secret keys are encrypted with the user data key before they are uploaded:
-`base64url(iv || AES-256-GCM ciphertext and tag)`.
+All payload sizes use that one worker. There is no page-thread AES and no JavaScript AES. A large ciphertext is spliced into the JSON body by `wwwroot/public/transfer.js`. It is not passed through `JSON.stringify`.
 
-## User data key
+UI caps: file 40 MiB, secret text 1,000,000 characters. The server accepts a base64url ciphertext up to 88,080,384 characters.
 
-The browser generates one 32-byte user data key only while it wraps the first password or passkey. The raw key is kept only after that wrap is stored. Sign-in never creates a key.
-Later credentials wrap that same key. A password wrap uses the sign-in password.
-An administrator-issued temporary password deletes every passkey, every wrap, and every send and collect for that account. The next password the user chooses creates a new user data key and wraps it. Credentials added after that wrap the new key.
-A passkey wrap uses AES-256-GCM under the 32-byte output of the WebAuthn PRF extension (`hmac-secret`) with the fixed salt SHA-256(`vulpes-secret-sharing-udk-v1`).
-Changing the password replaces only the password wrap. Adding a passkey adds another wrap of the same key.
-The server stores the wraps and never sees the key. Sign-in unwraps it into `sessionStorage` (`vulpes_secret_sharing_udk`).
-An authenticator that does not return the PRF output can still sign in, but it cannot unwrap the key.
+## Owner fields
 
-Passkey-only onboarding also stores a random password hash the user is never shown, with password sign-in left off.
-That hash is not the user data key and cannot unwrap it. It exists so an empty password cannot sign in if password sign-in is turned on by mistake.
+Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The host holds that key. This plugin only stores the ciphertext.
 
 ## Proof of work
 
-Public send download and collect upload solve HMAC-SHA256 proof of work at 12 leading zero bits.
-The challenge is deleted when it succeeds, and the one-time payload is burned only after that.
+HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 12 bits, 120 seconds for a send challenge, and 900 seconds for a collect challenge. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
 
-## What this plugin does not do
-
-Sendit account passwords, email OTP, TOTP, IP allow-lists, and storage quotas are not part of this plugin.
-Vulpes authenticates the owner. Recipients open `/plugins/secret-sharing/send` or `/plugins/secret-sharing/public/upload` without a Vulpes session. A collect is retrieved at `/plugins/secret-sharing/public/open?kind=collect`.
+Public pages are `/send`, `/upload`, and `/collect`.

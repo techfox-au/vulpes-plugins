@@ -8,6 +8,11 @@
   const filePanel = document.getElementById('panel-file');
   const textEl = document.getElementById('secret-text');
   const fileEl = document.getElementById('secret-file');
+  const fileNameEl = document.getElementById('secret-file-name');
+  fileEl.addEventListener('change', () => {
+    const chosen = fileEl.files && fileEl.files[0];
+    if (fileNameEl) fileNameEl.textContent = chosen ? chosen.name : 'No file chosen';
+  });
   const nameEl = document.getElementById('collect-name');
   const metaEl = document.getElementById('meta');
   const alertEl = document.getElementById('alert');
@@ -35,14 +40,17 @@
   if (!id) { setAlert('error', 'Missing collect id.'); return; }
 
   let meta;
+  const opening = SecretTransfer.showProgress('Opening upload');
   try {
-    setAlert('info', 'Performing proof-of-work…');
-    const solved = await SenditPow.solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => setAlert('info', SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+    opening.setStatus('Performing proof-of-work…');
+    opening.setProgress(null);
+    const solved = await SenditPow.solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => opening.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
     meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/meta', solved);
-    setAlert(null);
   } catch (err) {
     setAlert('error', err.message || 'This collect is not open.');
     return;
+  } finally {
+    opening.close();
   }
 
   let when = '';
@@ -72,12 +80,28 @@
     const button = document.querySelector('#upload-panel button[type="submit"]');
     button.disabled = true;
     try {
+      if (selectedKind() === 'file') {
+        const picked = fileEl.files && fileEl.files[0];
+        if (!picked) throw new Error('Choose a file to encrypt.');
+        if (picked.size > FILE_LIMIT) throw new Error('File exceeds 40 MB limit.');
+      } else if (!textEl.value) {
+        throw new Error('Enter a secret to encrypt.');
+      }
+      const progress = SecretTransfer.showProgress('Uploading secret');
+      try {
+      progress.setStatus('Reading and encrypting…');
+      progress.setProgress(null);
       const input = await readSecret();
-      setAlert('info', 'Encrypting…');
-      const payload = await SenditCrypto.encryptForRecipient(input.plain, publicKey, (msg) => setAlert('info', msg || 'Encrypting…'));
-      setAlert('info', 'Performing proof-of-work…');
-      const solved = await SenditPow.solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => setAlert('info', SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
-      setAlert('info', 'Uploading encrypted payload…');
+      const payload = await SenditCrypto.encryptForRecipient(input.plain, publicKey, (msg, frac) => {
+        progress.setStatus(msg || 'Encrypting…');
+        progress.setProgress(frac == null || !Number.isFinite(frac) ? null : frac);
+      });
+      progress.setStatus('Performing proof-of-work…');
+      progress.setProgress(null);
+      const solved = await SenditPow.solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => progress.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+      progress.setTitle('Uploading');
+      progress.setStatus('Uploading encrypted payload…');
+      progress.setProgress(0);
       await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id), {
         ciphertext: payload.ciphertext,
         iv: payload.iv,
@@ -88,10 +112,15 @@
         challengeId: solved.challengeId,
         nonce: solved.nonce,
         hash: solved.hash,
-      }, (fraction) => setAlert('info', 'Uploading encrypted payload… ' + Math.round(fraction * 100) + '%'));
+      }, (fraction) => progress.setProgress(fraction));
       payload.ciphertext = null;
+      progress.setProgress(1);
+      progress.setStatus('Done');
       panel.hidden = true;
       setAlert('ok', 'Encrypted secret uploaded. You can close this page.');
+      } finally {
+        progress.close();
+      }
     } catch (err) {
       setAlert('error', err.message || 'Upload failed.');
       busy = false;

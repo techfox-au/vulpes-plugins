@@ -109,7 +109,9 @@ export async function authenticate({ optionsUrl, finishUrl, optionsBody = {}, ex
   const publicKey = withPrf(parseRequestOptions(options));
   const credential = await navigator.credentials.get({ publicKey, mediation, signal });
   if (!credential) throw new Error('No credential was provided.');
-  const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
+  // extra may be a function so the caller can solve a fresh proof after the user approves the passkey.
+  const more = typeof extra === 'function' ? await extra() : extra;
+  const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...more }, { signal });
   if (onCredential) await onCredential(credential);
   return result;
 }

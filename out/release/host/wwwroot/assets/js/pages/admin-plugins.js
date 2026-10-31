@@ -24,7 +24,7 @@ async function render(ctx) {
       h('div', { class: 'card-header' }, h('h2', null, m.name), badge('v' + m.version)),
       // Description and requirements stay in plugin.json; they are not shown here.
       kv([
-        ['Id', m.id], ['Entry assembly', m.entryAssembly], ['SDK', m.sdkVersion],
+        ['ID', m.id], ['Entry assembly', m.entryAssembly], ['SDK', m.sdkVersion],
         ['Installed', m.installed ? `${fmt.dateTime(m.installed.installedAt)} from ${m.installed.source}${m.installed.installedBy ? ' by ' + m.installed.installedBy : ''}` : 'unknown'],
         ['HMAC-SHA512', m.installed && m.installed.packageHmac ? h('code', { class: 'hmac' }, m.installed.packageHmac) : null],
         ['Pages', m.pages.map((p) => p.title).join(', ')],

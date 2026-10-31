@@ -89,6 +89,39 @@ async function render(ctx) {
     smtpCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
   }
 
+  // ---- proof of work (sign-in and secret sharing)
+  const powCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Proof of work')));
+  grid.append(powCard);
+  try {
+    const pow = await ctx.api.get('/api/admin/settings/pow');
+    const form = h('form', { class: 'col', novalidate: true });
+    const number = (name, label, value, min, max, help) => h('div', { class: 'field' },
+      h('label', null, label),
+      h('input', { class: 'input', name, type: 'number', min: String(min), max: String(max), step: '1', value: value ?? '', required: true, autocomplete: 'off' }),
+      h('div', { class: 'help' }, help));
+    form.append(
+      number('difficultyBits', 'Difficulty (bits)', pow.difficultyBits, 1, 28, 'Leading zero bits for every challenge. 12 is about four thousand tries. 1 is the minimum and cannot be turned off.'),
+      number('challengeTtlSeconds', 'Sign-in and send lifetime (seconds)', pow.challengeTtlSeconds, 30, 600, 'How long a sign-in or send challenge stays valid. 30 to 600 seconds.'),
+      number('collectChallengeTtlSeconds', 'Collect lifetime (seconds)', pow.collectChallengeTtlSeconds, 900, 3600, 'How long a collect upload or retrieve challenge stays valid. At least 15 minutes.'),
+    );
+    const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
+    form.append(h('div', { class: 'form-actions' }, save));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      panelNote(powCard, '');
+      const v = formValues(form);
+      setBusy(save, true, 'Saving…');
+      try {
+        await ctx.api.put('/api/admin/settings/pow', v);
+        panelNote(powCard, 'Proof-of-work settings saved. The next challenge uses these values.', 'success');
+      } catch (err) { panelNote(powCard, errorMessage(err)); }
+      finally { setBusy(save, false); }
+    });
+    powCard.append(form);
+  } catch (err) {
+    powCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
+
   // ---- runtime info
   const infoCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Runtime')));
   grid.append(infoCard);
@@ -96,7 +129,7 @@ async function render(ctx) {
     const status = await ctx.api.get('/api/status');
     infoCard.append(kv([
       ['Version', status.version], ['Public origin', status.publicOrigin],
-      ['Search backend', status.elasticsearch?.enabled ? h('span', null, badge(status.elasticsearch.healthy ? 'healthy' : 'unreachable', status.elasticsearch.healthy ? 'success' : 'danger'), ' ', status.elasticsearch.url || '', status.elasticsearch.version ? ` (v${status.elasticsearch.version})` : '') : badge('not configured', 'warning')],
+      ['Search backend', status.elasticsearch?.enabled ? h('span', null, status.elasticsearch.url || '', status.elasticsearch.version ? ` (v${status.elasticsearch.version}) ` : ' ', badge(status.elasticsearch.healthy ? 'healthy' : 'unreachable', status.elasticsearch.healthy ? 'success' : 'danger')) : badge('not configured', 'warning')],
       ['Retention', status.elasticsearch?.retentionDays ? `${status.elasticsearch.retentionDays} days` : null],
       ['Plugins', `${status.plugins?.loaded ?? 0} loaded, ${status.plugins?.failed ?? 0} failed`],
       ['Notification outbox', `${status.notifications?.pending ?? 0} pending, ${status.notifications?.failed ?? 0} failed`],

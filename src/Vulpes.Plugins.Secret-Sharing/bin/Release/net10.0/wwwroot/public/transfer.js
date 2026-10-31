@@ -70,7 +70,7 @@
     });
   }
 
-  function requestArrayBuffer(method, path, body) {
+  function requestArrayBuffer(method, path, body, onDownloadProgress) {
     return csrf().then(function (token) {
       return new Promise(function (resolve, reject) {
         var xhr = new XMLHttpRequest();
@@ -80,6 +80,12 @@
         xhr.setRequestHeader("Accept", "application/json");
         if (token) xhr.setRequestHeader("X-CSRF-TOKEN", token);
         if (body != null) xhr.setRequestHeader("Content-Type", "application/json");
+        if (typeof onDownloadProgress === "function") {
+          xhr.onprogress = function (ev) {
+            if (!ev.lengthComputable || ev.total <= 0) return;
+            onDownloadProgress(ev.loaded / ev.total, ev.loaded, ev.total);
+          };
+        }
         xhr.onload = function () {
           var buf = xhr.response instanceof ArrayBuffer ? xhr.response : new ArrayBuffer(0);
           if (xhr.status >= 200 && xhr.status < 300) { resolve(buf); return; }
@@ -92,5 +98,70 @@
     });
   }
 
-  global.SecretTransfer = { postJson: postJson, requestArrayBuffer: requestArrayBuffer, serializeJsonBody: serializeJsonBody };
+  /**
+   * Blocking encrypt/upload progress. setProgress(null) is indeterminate; 0..1 fills the bar.
+   */
+  function showProgress(title) {
+    var prev = document.getElementById("vulpes-progress");
+    if (prev) prev.remove();
+    var overlay = document.createElement("div");
+    overlay.id = "vulpes-progress";
+    overlay.className = "progress-modal";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-busy", "true");
+    overlay.setAttribute("aria-label", title || "Working");
+    var card = document.createElement("div");
+    card.className = "progress-modal-card";
+    var heading = document.createElement("h2");
+    heading.textContent = title || "Working…";
+    var status = document.createElement("p");
+    status.className = "progress-modal-status";
+    status.textContent = "Please wait…";
+    var track = document.createElement("div");
+    track.className = "progress-bar-track";
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", "100");
+    var fill = document.createElement("div");
+    fill.className = "progress-bar-fill progress-bar-indeterminate";
+    var pct = document.createElement("p");
+    pct.className = "progress-modal-pct";
+    track.appendChild(fill);
+    card.appendChild(heading);
+    card.appendChild(status);
+    card.appendChild(track);
+    card.appendChild(pct);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    document.body.classList.add("progress-modal-open");
+    return {
+      setTitle: function (text) {
+        heading.textContent = text || "Working…";
+        overlay.setAttribute("aria-label", text || "Working");
+      },
+      setStatus: function (text) { status.textContent = text || ""; },
+      setProgress: function (fraction) {
+        if (fraction == null || !isFinite(fraction)) {
+          fill.classList.add("progress-bar-indeterminate");
+          fill.style.width = "40%";
+          track.removeAttribute("aria-valuenow");
+          pct.textContent = "";
+          return;
+        }
+        var clamped = Math.max(0, Math.min(1, fraction));
+        var shown = Math.round(clamped * 100);
+        fill.classList.remove("progress-bar-indeterminate");
+        fill.style.width = shown + "%";
+        track.setAttribute("aria-valuenow", String(shown));
+        pct.textContent = shown + "%";
+      },
+      close: function () {
+        overlay.remove();
+        document.body.classList.remove("progress-modal-open");
+      },
+    };
+  }
+
+  global.SecretTransfer = { postJson: postJson, requestArrayBuffer: requestArrayBuffer, serializeJsonBody: serializeJsonBody, showProgress: showProgress };
 })(typeof window !== "undefined" ? window : globalThis);

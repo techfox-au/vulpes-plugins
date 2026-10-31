@@ -1,4 +1,4 @@
-import { h, table, modal, errorMessage, clear, dropdown, panelNote, pageNote, badge } from '../ui.js?v=shell84';
+import { h, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell161';
 
 let root;
 const plugin = '/api/plugins/microsoft-365-audit';
@@ -45,7 +45,7 @@ function applicationCard(ctx, app, permissions) {
   const credential = dropdown([['secret', 'Client secret'], ['certificate', 'Certificate (PFX)']], { value: app.credentialType || 'secret', name: 'credentialType', ariaLabel: 'Credential' });
   const secretField = input(app.hasSecret ? 'Client secret (blank keeps the stored one)' : 'Client secret', 'secret', { type: 'password' });
   const certificateRow = h('div', { class: 'form-row' },
-    h('div', { class: 'field' }, h('label', null, app.hasCertificate ? 'Certificate (leave empty to keep the stored one)' : 'Certificate (PFX)'), h('input', { class: 'input', name: 'pfx', type: 'file', accept: '.pfx,.p12' })),
+    h('div', { class: 'field' }, h('label', null, app.hasCertificate ? 'Certificate (leave empty to keep the stored one)' : 'Certificate (PFX)'), filePicker({ name: 'pfx', accept: '.pfx,.p12' })),
     input('PFX password', 'certificatePassword', { type: 'password' }));
   const showCredential = () => {
     const certificate = credential.value === 'certificate';

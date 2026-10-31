@@ -17,6 +17,7 @@
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/upload.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/docs/AUDIT.md
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/docs/CRYPTO.md
+/Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/docs/VENDOR.md
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.dll
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.deps.json
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.runtimeconfig.json

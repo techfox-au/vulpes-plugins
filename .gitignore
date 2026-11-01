@@ -1,0 +1,9 @@
+# Editor and agent local state
+.grok/
+.cursor/
+
+# macOS
+.DS_Store
+
+# Local secrets
+.env

@@ -108,7 +108,7 @@ async function render(ctx) {
       h('input', { class: 'input', name, type: 'number', min: String(min), max: String(max), step: '1', value: value ?? '', required: true, autocomplete: 'off' }));
     form.append(
       number('difficultyBits', 'Difficulty (bits)', pow.difficultyBits, 1, 28),
-      number('challengeTtlSeconds', 'PoW ticket duration', pow.challengeTtlSeconds, 30, 600),
+      number('challengeTtlSeconds', 'Ticket duration', pow.challengeTtlSeconds, 30, 600),
       number('scanBudgetWindowSeconds', 'Scan window (seconds)', pow.scanBudgetWindowSeconds, 30, 3600),
     );
     const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
@@ -144,7 +144,7 @@ async function render(ctx) {
       h('input', { class: 'input', name, type, value: value ?? '', autocomplete: 'off', placeholder: type === 'password' ? 'Leave blank to keep' : '' }),
       help ? h('div', { class: 'help' }, help) : null);
     form.append(
-      h('div', { class: 'field' }, h('label', null, 'SQLiteDB maintenance schedule'), dropdown(hours, { value: String(sqlite.hourUtc ?? 3), name: 'hourUtc', ariaLabel: 'SQLiteDB maintenance schedule' })),
+      h('div', { class: 'field' }, h('label', null, 'SQLite daily maintenance schedule'), dropdown(hours, { value: String(sqlite.hourUtc ?? 3), name: 'hourUtc', ariaLabel: 'SQLite daily maintenance schedule' })),
       input('publicOrigin', 'Public origin', runtime.publicOrigin, 'url'),
       input('knownProxies', 'Known proxies', runtime.knownProxies),
       h('h3', { class: 'mt' }, 'Search'),

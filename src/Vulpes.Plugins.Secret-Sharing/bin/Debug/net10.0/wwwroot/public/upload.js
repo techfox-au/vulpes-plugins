@@ -1,3 +1,5 @@
+import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell211';
+
 (async function () {
   const FILE_LIMIT = 40 * 1024 * 1024;
   const TEXT_LIMIT = 1000000;
@@ -38,14 +40,14 @@
   applyKind();
 
   if (!id) { setAlert('error', 'Missing collect id.'); return; }
-  await SenditPow.syncServerTime();
+  await syncServerTime();
 
   let meta;
   const opening = SecretTransfer.showProgress('Opening upload');
   try {
     opening.setStatus('Performing proof-of-work…');
     opening.setProgress(null);
-    const solved = await SenditPow.solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => opening.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+    const solved = await solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
     meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/meta', solved);
   } catch (err) {
     setAlert('error', err.message || 'This collect is not open.');
@@ -72,7 +74,7 @@
     } catch { /* name stays hidden */ }
   }
   panel.hidden = false;
-  const uploadPow = SenditPow.createKeeper(function () {
+  const uploadPow = createPowKeeper(function () {
     return fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson);
   });
   uploadPow.start();
@@ -101,8 +103,10 @@
         progress.setStatus(msg || 'Encrypting…');
         progress.setProgress(frac == null || !Number.isFinite(frac) ? null : frac);
       });
-      progress.setStatus('Performing proof-of-work…');
-      progress.setProgress(null);
+      if (!uploadPow.ready()) {
+        progress.setStatus('Performing proof-of-work…');
+        progress.setProgress(null);
+      }
       const solved = await uploadPow.take();
       progress.setTitle('Uploading');
       progress.setStatus('Uploading encrypted payload…');

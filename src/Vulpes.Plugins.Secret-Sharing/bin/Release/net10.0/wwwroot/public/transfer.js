@@ -163,5 +163,5 @@
     };
   }
 
-  global.SecretTransfer = { postJson: postJson, requestArrayBuffer: requestArrayBuffer, serializeJsonBody: serializeJsonBody, showProgress: showProgress };
+  global.SecretTransfer = { postJson: postJson, requestArrayBuffer: requestArrayBuffer, showProgress: showProgress };
 })(typeof window !== "undefined" ? window : globalThis);

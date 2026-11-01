@@ -190,13 +190,49 @@ public sealed class RiskCollector : ICollector
     public async Task<CollectorResult> CollectAsync(CollectorContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var detections = new Detections();
-        var users = new Users();
-        var principals = new ServicePrincipals();
-        var r1 = await detections.CollectAsync(context, cancellationToken);
-        var r2 = await users.CollectAsync(context, cancellationToken);
-        var r3 = await principals.CollectAsync(context, cancellationToken);
+        // Each feed has its own watermark. Sharing the checkpoint would make a finished detection pass
+        // shrink the user and service-principal lookback to the overlap window.
+        var r1 = await new Detections().CollectAsync(context, cancellationToken);
+        var r2 = await CollectFeed(context, "riskyUsersWatermark", new Users(), cancellationToken);
+        var r3 = await CollectFeed(context, "riskyServicePrincipalsWatermark", new ServicePrincipals(), cancellationToken);
         return new CollectorResult(r1.Published + r2.Published + r3.Published, r1.Duplicates + r2.Duplicates + r3.Duplicates, r1.Failed + r2.Failed + r3.Failed, r1.Alerts + r2.Alerts + r3.Alerts, r1.Complete && r2.Complete && r3.Complete, r1.Note ?? r2.Note ?? r3.Note);
+    }
+
+    private static async Task<CollectorResult> CollectFeed(CollectorContext context, string stateKey, WatermarkCollector collector, CancellationToken cancellationToken)
+    {
+        var state = context.State;
+        DateTimeOffset? watermark = null;
+        if (state.TryGetValue(stateKey, out var raw) && raw.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(raw.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            watermark = parsed;
+        }
+
+        var shadow = new Data.Checkpoint { TenantId = context.Checkpoint.TenantId, Source = context.Checkpoint.Source, Watermark = watermark };
+        var shadowContext = new CollectorContext
+        {
+            Tenant = context.Tenant,
+            Settings = context.Settings,
+            Graph = context.Graph,
+            Checkpoint = shadow,
+            Pipeline = context.Pipeline,
+            Options = context.Options,
+            Time = context.Time,
+            Logger = context.Logger,
+            Deadline = context.Deadline,
+        };
+        var result = await collector.CollectAsync(shadowContext, cancellationToken);
+        var next = new Dictionary<string, object?>();
+        foreach (var pair in context.State)
+        {
+            if (pair.Value.ValueKind == JsonValueKind.String)
+            {
+                next[pair.Key] = pair.Value.GetString();
+            }
+        }
+
+        next[stateKey] = shadow.Watermark?.ToString("O", CultureInfo.InvariantCulture);
+        context.SaveState(next);
+        return result;
     }
 
     private sealed class Detections : WatermarkCollector

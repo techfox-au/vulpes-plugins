@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Vulpes.Plugins.SecretSharing.Services;
 
-/// <summary>Deletes expired and consumed sends and collects every minute, same as Sendit.</summary>
+/// <summary>Deletes expired and consumed sends and collects every three minutes.</summary>
 public sealed class ShareExpiryService(ShareStore store, ILogger<ShareExpiryService> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -31,7 +31,7 @@ public sealed class ShareExpiryService(ShareStore store, ILogger<ShareExpiryServ
 
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                await Task.Delay(TimeSpan.FromMinutes(3), stoppingToken);
             }
             catch (OperationCanceledException)
             {

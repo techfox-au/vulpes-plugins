@@ -4,6 +4,8 @@
  * Solving abandons work 5 seconds before expiresAt and fetches a fresh challenge.
  */
 
+import { solveParallel } from './pow-engine.js';
+
 const ABANDON_BEFORE_MS = 5000;
 
 // Page-load offset so ticket expiry uses the server clock. Zero means local time.
@@ -64,16 +66,10 @@ function b64urlEncode(bytes) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function hasLeadingZeroBits(hash, bits) {
-  if (bits <= 0) return true;
-  const full = (bits / 8) | 0;
-  const rem = bits % 8;
-  for (let i = 0; i < full; i++) {
-    if (hash[i] !== 0) return false;
-  }
-  if (rem === 0) return true;
-  const mask = 0xff << (8 - rem);
-  return (hash[full] & mask) === 0;
+function hexEncode(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+  return out;
 }
 
 function powExpiredError() {
@@ -95,32 +91,42 @@ function abortedError() {
   return err;
 }
 
+function logPow(event, detail) {
+  console.info('pow:', event, detail);
+}
+
+export function statusLabel(base, attempt) {
+  const text = base || 'Performing proof-of-work…';
+  return attempt > 1 ? `${text} (${attempt})` : text;
+}
+
 async function solve(challenge, opts = {}) {
   const bits = Math.max(1, challenge.difficultyBits | 0);
-  const subtle = globalThis.crypto && globalThis.crypto.subtle;
-  if (!subtle) throw new Error('Web Crypto is unavailable for proof of work.');
   const deadline = abandonDeadlineMs(challenge);
-  if (opts.shouldAbort?.()) throw abortedError();
-  if (deadline != null && powNow() >= deadline) throw powExpiredError();
-
-  const key = await subtle.importKey('raw', b64urlDecode(challenge.hmacKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const enc = new TextEncoder();
-  let nonce = 0;
-  let tries = 0;
-  while (true) {
-    if (opts.shouldAbort?.()) throw abortedError();
-    if (deadline != null && powNow() >= deadline) throw powExpiredError();
-    const nonceStr = String(nonce);
-    const mac = new Uint8Array(await subtle.sign('HMAC', key, enc.encode(nonceStr)));
-    tries++;
-    if (hasLeadingZeroBits(mac, bits)) {
-      return { challengeId: challenge.challengeId, nonce: nonceStr, hash: b64urlEncode(mac), tries };
-    }
-    nonce++;
-    if (tries % 250 === 0) {
-      await new Promise((r) => { setTimeout(r, 0); });
-    }
+  if (opts.onProgress) {
+    try { opts.onProgress(0, opts.attempt || undefined); } catch { /* ignore UI errors */ }
   }
+  if (opts.shouldAbort?.()) throw abortedError();
+  if (deadline != null && powNow() >= deadline) {
+    logPow('expired', { challengeId: challenge.challengeId, expiresAt: challenge.expiresAt });
+    throw powExpiredError();
+  }
+  const stopAt = deadline == null ? 0 : deadline - clockOffsetMs;
+  let found;
+  try {
+    found = await solveParallel(b64urlDecode(challenge.hmacKey), bits, stopAt, opts.shouldAbort);
+  } catch (err) {
+    if (err?.powExpired) logPow('expired', { challengeId: challenge.challengeId, expiresAt: challenge.expiresAt });
+    throw err;
+  }
+  const solution = {
+    challengeId: challenge.challengeId,
+    nonce: String(found.nonce),
+    hash: b64urlEncode(found.hash),
+    tries: found.tries,
+  };
+  logPow('found', { challengeId: solution.challengeId, nonce: solution.nonce, hash: hexEncode(found.hash), tries: solution.tries, difficultyBits: bits, expiresAt: challenge.expiresAt });
+  return solution;
 }
 
 /** Fetch and solve until a challenge completes. Retries only when the current challenge is about to expire. */
@@ -135,7 +141,7 @@ export async function solvePow(fetchChallenge, opts = {}) {
       throw new Error('Invalid proof-of-work challenge from server.');
     }
     try {
-      const solution = await solve(challenge, opts);
+      const solution = await solve(challenge, { ...opts, attempt });
       solution.attempts = attempt;
       return solution;
     } catch (err) {
@@ -146,8 +152,10 @@ export async function solvePow(fetchChallenge, opts = {}) {
   throw new Error('Proof-of-work could not complete.');
 }
 
+export { solvePow as solveRefreshing };
+
 /**
- * Keeps a solved login ticket ready. Starts immediately, and when half the ticket's
+ * Keeps a solved ticket ready. Starts immediately, and when half the ticket's
  * life has passed it solves the next ticket. take() returns the newest finished solution.
  */
 export function createPowKeeper(fetchChallenge, deps = {}) {
@@ -185,8 +193,13 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
     clearTimer();
     timer = later(() => {
       if (gen !== generation) return;
-      // A solve that is still running must be allowed to finish. Start the next ticket after it.
-      if (pending) { refreshQueued = true; return; }
+      // No hash yet: drop this ticket and start a fresh one. A finished ticket stays held.
+      const dropped = !!pending;
+      if (pending) {
+        solveId++;
+        pending = null;
+      }
+      logPow('refresh', { challengeId: challenge.challengeId, expiresAt: challenge.expiresAt, droppedUnsolved: dropped });
       begin(gen);
     }, Math.max(0, halfway - now()));
   }
@@ -249,6 +262,10 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
     },
     async take() {
       for (let i = 0; i < 8; i++) {
+        if (held && !usable(held)) {
+          logPow('expired', { challengeId: held.challengeId, expiresAt: held.expiresAt });
+          held = null;
+        }
         if (usable(held)) {
           const solution = held;
           held = null;

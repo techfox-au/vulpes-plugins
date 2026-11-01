@@ -114,10 +114,13 @@ async function openUser(ctx, id, note) {
       { title: 'Name', key: 'name' },
       { title: 'Added', render: (p) => fmt.date(p.createdAt) },
       { title: 'Transports', render: (p) => (p.transports || []).join(', ') },
-      { title: '', class: 'right', render: (p) => h('button', { class: 'btn sm danger', onClick: async () => {
+      { title: '', class: 'right', render: (p) => {
+        const passwordActive = user.passwordSet && user.passwordLoginEnabled;
+        const lastWayIn = passkeys.length === 1 && !passwordActive;
+        return h('button', { class: 'btn sm danger', disabled: lastWayIn, title: lastWayIn ? 'This is the only way to sign in.' : '', onClick: async () => {
         if (!(await modal.confirm('Revoke passkey', `Revoke "${p.name}"? The user's sessions are also revoked.`, { danger: true, confirmLabel: 'Revoke' }))) return;
         try { await ctx.api.delete(`/api/admin/users/${encodeURIComponent(id)}/passkeys/${encodeURIComponent(p.id)}`); openUser(ctx, id, { message: 'Passkey revoked.', kind: 'success' }); } catch (err) { panelNote(body, errorMessage(err)); }
-      } }, 'Revoke') },
+      } }, 'Revoke'); } },
     ],
     rows: passkeys,
     emptyText: 'No passkeys.',

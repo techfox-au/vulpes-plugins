@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -29,11 +31,18 @@ public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.Ap
             HostDirectory = Path.Combine(repoRoot, "..", "vulpes", "src", "Vulpes.Host", "bin", configuration, tfm),
             OutputPath = Path.Combine(_root, "audit.7z"),
         });
-        File.Copy(result.OutputPath, Path.Combine(incoming, "audit.7z"));
+        var package = Path.Combine(incoming, "audit.7z");
+        File.Copy(result.OutputPath, package);
+        var catalog = Path.Combine(_root, "catalog");
+        Directory.CreateDirectory(catalog);
+        File.WriteAllText(Path.Combine(catalog, "manifest"), ReleaseLine(package, result.Version));
+        CatalogDirectory = catalog;
         DataDirectory = data;
     }
 
     public string DataDirectory { get; }
+
+    public string CatalogDirectory { get; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -43,6 +52,7 @@ public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.Ap
         builder.UseSetting("Host:SetupToken", SetupToken);
         builder.UseSetting("Host:MasterKey", Convert.ToBase64String(new byte[32]));
         builder.UseSetting("Plugins:InstallBundled", "false");
+        builder.UseSetting("Plugins:PluginLocalDirectory", CatalogDirectory);
         builder.UseSetting("Plugins:Settings:microsoft-365-audit:SchedulerIntervalSeconds", "600");
         builder.UseSetting("LocalAuth:PasswordHashIterations", "100000");
         builder.UseSetting("LocalAuth:AuthRateLimitPerMinute", "1000");
@@ -62,6 +72,14 @@ public sealed class AuditHostFactory : WebApplicationFactory<Vulpes.Host.Data.Ap
             {
             }
         }
+    }
+
+    private static string ReleaseLine(string packagePath, string version)
+    {
+        using var algorithm = new HMACSHA512(new byte[32]);
+        using var stream = File.OpenRead(packagePath);
+        var hmac = Convert.ToHexStringLower(algorithm.ComputeHash(stream));
+        return "hmac_key:" + Convert.ToHexString(new byte[32]).ToLowerInvariant() + "\n" + Path.GetFileName(packagePath) + ":" + hmac + ":" + version + "\n";
     }
 }
 
@@ -116,10 +134,44 @@ public sealed class AuditApiTests : IDisposable
 
     private Client NewClient() => new(_factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("http://localhost") }));
 
+    private static (string Nonce, string Hash) Solve(string hmacKey, int difficultyBits)
+    {
+        var key = Base64UrlDecode(hmacKey);
+        for (var nonce = 0; nonce < 5_000_000; nonce++)
+        {
+            var text = nonce.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var mac = HMACSHA256.HashData(key, Encoding.ASCII.GetBytes(text));
+            if (!HasLeadingZeroBits(mac, Math.Max(1, difficultyBits))) continue;
+            return (text, Convert.ToBase64String(mac).TrimEnd('=').Replace('+', '-').Replace('/', '_'));
+        }
+
+        throw new InvalidOperationException("Could not solve the login proof of work.");
+    }
+
+    private static bool HasLeadingZeroBits(ReadOnlySpan<byte> hash, int bits)
+    {
+        var full = bits / 8;
+        var rem = bits % 8;
+        for (var i = 0; i < full; i++)
+        {
+            if (hash[i] != 0) return false;
+        }
+
+        if (rem == 0) return true;
+        return (hash[full] & (byte)(0xFF << (8 - rem))) == 0;
+    }
+
+    private static byte[] Base64UrlDecode(string input)
+    {
+        var text = input.Replace('-', '+').Replace('_', '/');
+        text += (text.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
+        return Convert.FromBase64String(text);
+    }
+
     private async Task<Client> AdminAsync()
     {
         var client = NewClient();
-        var setup = await client.SendAsync(HttpMethod.Post, "/auth/setup", new { token = AuditHostFactory.SetupToken, username = "admin", password = "correct horse battery staple 42" });
+        var setup = await client.SendAsync(HttpMethod.Post, "/auth/setup", new { token = AuditHostFactory.SetupToken, username = "admin", displayName = "Admin", email = "admin@example.com", password = "correct horse battery staple 42" });
         Assert.Equal(HttpStatusCode.OK, setup.StatusCode);
         client.Reset();
         return client;
@@ -131,7 +183,9 @@ public sealed class AuditApiTests : IDisposable
         var id = created.GetProperty("user").GetProperty("id").GetString();
         var password = (await admin.JsonAsync(HttpMethod.Post, $"/api/admin/users/{id}/temporary-password")).GetProperty("temporaryPassword").GetString();
         var client = NewClient();
-        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, remember = false });
+        var proof = await client.JsonAsync(HttpMethod.Get, "/auth/login/pow");
+        var (nonce, hash) = Solve(proof.GetProperty("hmacKey").GetString()!, proof.GetProperty("difficultyBits").GetInt32());
+        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash });
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         client.Reset();
         return client;

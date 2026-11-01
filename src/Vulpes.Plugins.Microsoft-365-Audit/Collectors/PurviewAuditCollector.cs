@@ -17,6 +17,7 @@ public sealed class PurviewAuditCollector : ICollector
     private const string PendingStartKey = "pendingWindowStart";
     private const string PendingEndKey = "pendingWindowEnd";
     private const string PendingCreatedKey = "pendingCreatedAt";
+    private const string PendingNextKey = "pendingNextLink";
     private static readonly TimeSpan PendingTimeout = TimeSpan.FromHours(6);
 
     public string Source => Sources.Activity;
@@ -117,9 +118,14 @@ public sealed class PurviewAuditCollector : ICollector
         var totals = (Indexed: 0, Duplicates: 0, Failed: 0, Alerts: 0);
         var complete = true;
         DateTimeOffset? max = null;
-        var path = $"security/auditLog/queries/{Uri.EscapeDataString(queryId)}/records?$top={Math.Clamp(context.Options.GraphPageSize, 1, 1000)}";
+        var prior = context.State;
+        var savedNext = prior.TryGetValue(PendingNextKey, out var nextEl) && nextEl.ValueKind == JsonValueKind.String ? nextEl.GetString() : null;
+        var path = string.IsNullOrEmpty(savedNext)
+            ? $"security/auditLog/queries/{Uri.EscapeDataString(queryId)}/records?$top={Math.Clamp(context.Options.GraphPageSize, 1, 1000)}"
+            : savedNext;
+        string? resume = null;
 
-        await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun * 5, cancellationToken, false, c => complete &= c))
+        await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun * 5, cancellationToken, false, c => complete &= c, url => resume = url))
         {
             var mapped = Normalizers.AuditLogRecord(record, context.Tenant.TenantId, context.Tenant.DiscoveredName ?? context.Tenant.DisplayName);
             if (mapped is null)
@@ -147,7 +153,15 @@ public sealed class PurviewAuditCollector : ICollector
 
         if (!complete)
         {
-            // Keep the pending query so the next run resumes paging (duplicates are harmless).
+            // Keep the query and the next page. The following run continues there instead of downloading page 1 again.
+            context.SaveState(new Dictionary<string, object?>
+            {
+                [PendingIdKey] = queryId,
+                [PendingStartKey] = StateString(prior, PendingStartKey),
+                [PendingEndKey] = StateString(prior, PendingEndKey),
+                [PendingCreatedKey] = StateString(prior, PendingCreatedKey),
+                [PendingNextKey] = resume,
+            });
             return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run");
         }
 
@@ -160,6 +174,9 @@ public sealed class PurviewAuditCollector : ICollector
 
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true, $"query {queryId} drained");
     }
+
+    private static string? StateString(Dictionary<string, JsonElement> state, string key) =>
+        state.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static bool IsSafeId(string id) => id.Length <= 128 && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 

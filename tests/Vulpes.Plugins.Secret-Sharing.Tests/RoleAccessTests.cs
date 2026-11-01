@@ -59,6 +59,50 @@ public sealed class RoleAccessTests : IDisposable
         Assert.DoesNotContain(home.GetProperty("items").EnumerateArray(), item => item.GetProperty("kind").GetString() == "collect");
     }
 
+    [Fact]
+    public async Task Send_payload_requires_a_proof_before_it_looks_up_the_secret()
+    {
+        var anon = NewClient();
+        const string id = "missing-send-id";
+        var path = "/api/plugins/secret-sharing/public/sends/" + id;
+        var denied = await anon.SendAsync(HttpMethod.Post, path, new { });
+        var deniedText = await denied.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        Assert.Contains("\"pow\"", deniedText, StringComparison.Ordinal);
+        Assert.DoesNotContain("ciphertext", deniedText, StringComparison.OrdinalIgnoreCase);
+
+        var challenge = await anon.JsonAsync(HttpMethod.Get, path + "/pow");
+        var (nonce, hash) = Solve(challenge.GetProperty("hmacKey").GetString()!, challenge.GetProperty("difficultyBits").GetInt32());
+        var proof = new { challengeId = challenge.GetProperty("challengeId").GetString(), nonce, hash };
+        var missed = await anon.SendAsync(HttpMethod.Post, path, proof);
+        Assert.Equal(HttpStatusCode.NotFound, missed.StatusCode);
+
+        var replay = await anon.SendAsync(HttpMethod.Post, path, proof);
+        Assert.Equal(HttpStatusCode.Forbidden, replay.StatusCode);
+    }
+
+    [Fact]
+    public async Task Collect_retrieval_requires_a_proof_before_it_looks_up_the_secret()
+    {
+        var anon = NewClient();
+        const string id = "missing-collect-id";
+        var path = "/api/plugins/secret-sharing/public/collects/" + id + "/open";
+        var denied = await anon.SendAsync(HttpMethod.Post, path, new { });
+        var deniedText = await denied.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        Assert.Contains("\"pow\"", deniedText, StringComparison.Ordinal);
+        Assert.DoesNotContain("ciphertext", deniedText, StringComparison.OrdinalIgnoreCase);
+
+        var challenge = await anon.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/public/collects/" + id + "/pow");
+        var (nonce, hash) = Solve(challenge.GetProperty("hmacKey").GetString()!, challenge.GetProperty("difficultyBits").GetInt32());
+        var proof = new { challengeId = challenge.GetProperty("challengeId").GetString(), nonce, hash };
+        var missed = await anon.SendAsync(HttpMethod.Post, path, proof);
+        Assert.Equal(HttpStatusCode.NotFound, missed.StatusCode);
+
+        var replay = await anon.SendAsync(HttpMethod.Post, path, proof);
+        Assert.Equal(HttpStatusCode.Forbidden, replay.StatusCode);
+    }
+
     public void Dispose() => _factory.Dispose();
 
     private static string PublicKey() => Convert.ToBase64String(new byte[32]).TrimEnd('=').Replace('+', '-').Replace('/', '_');

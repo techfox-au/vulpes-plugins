@@ -10,7 +10,6 @@
 /tmp/vulpes-share-publish/wwwroot/public/nacl-fast.js
 /tmp/vulpes-share-publish/wwwroot/public/open.html
 /tmp/vulpes-share-publish/wwwroot/public/open.js
-/tmp/vulpes-share-publish/wwwroot/public/pow.js
 /tmp/vulpes-share-publish/wwwroot/public/transfer.js
 /tmp/vulpes-share-publish/wwwroot/public/udk.js
 /tmp/vulpes-share-publish/wwwroot/public/upload.html

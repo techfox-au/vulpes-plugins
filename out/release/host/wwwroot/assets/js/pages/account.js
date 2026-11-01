@@ -1,7 +1,7 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
 import * as webauthn from '../webauthn.js?v=shell127';
-import { rewrapPassword, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell133';
+import { preparePasswordWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell213';
 
 let root;
 let flash;
@@ -162,9 +162,13 @@ async function render(ctx) {
       { title: 'Name', render: (p) => h('div', null, h('div', null, p.name), h('div', { class: 'small muted' }, (p.transports || []).join(', '))) },
       { title: 'Added', render: (p) => fmt.date(p.createdAt) },
       { title: 'Backed up', render: (p) => badge(p.isBackedUp ? 'synced' : 'device-bound', p.isBackedUp ? 'info' : '') },
-      { title: '', class: 'right', render: (p) => h('div', { class: 'btn-group' },
-        h('button', { class: 'btn sm', onClick: () => rename(ctx, p) }, 'Rename'),
-        h('button', { class: 'btn sm danger', onClick: () => remove(ctx, p) }, 'Remove')) },
+      { title: '', class: 'right', render: (p) => {
+        const passwordActive = me.passwordSet && me.userPasswordLoginEnabled && me.passwordLoginAvailable;
+        const lastWayIn = passkeys.length === 1 && !passwordActive;
+        return h('div', { class: 'btn-group' },
+          h('button', { class: 'btn sm', onClick: () => rename(ctx, p) }, 'Rename'),
+          h('button', { class: 'btn sm danger', disabled: lastWayIn, title: lastWayIn ? 'Add another passkey or a password first.' : '', onClick: () => remove(ctx, p) }, 'Remove'));
+      } },
     ],
     rows: passkeys,
     emptyText: 'No passkeys registered yet.',
@@ -199,10 +203,9 @@ async function render(ctx) {
       setBusy(submit, true, 'Saving…');
       try {
         if (me.mustChangePassword) await replaceAfterTemporaryPassword(v.newPassword);
+        else await preparePasswordWrap(v.currentPassword || null);
         await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
-        if (!me.mustChangePassword) {
-          try { await rewrapPassword(v.currentPassword || null, v.newPassword); } catch { /* sign in again if the wrap did not save */ }
-        }
+        if (!me.mustChangePassword) await commitPasswordWrap(v.newPassword);
         if (me.mustChangePassword) { location.assign('/'); return; }
         flash = { panel: 'password', message: 'Password updated.', kind: 'success' };
         await render(ctx);

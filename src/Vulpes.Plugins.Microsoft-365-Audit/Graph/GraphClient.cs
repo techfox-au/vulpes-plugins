@@ -223,19 +223,23 @@ public sealed class GraphClient
         SendJsonAsync(HttpMethod.Post, Resolve(pathAndQuery, beta), jsonBody, cancellationToken);
 
     /// <summary>Follows <c>@odata.nextLink</c> and yields every item of every page (bounded by <paramref name="maxPages"/>).</summary>
-    public async IAsyncEnumerable<JsonElement> GetPagedAsync(string pathAndQuery, int maxPages, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken, bool beta = false, Action<bool>? onCompleted = null)
+    public async IAsyncEnumerable<JsonElement> GetPagedAsync(string pathAndQuery, int maxPages, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken, bool beta = false, Action<bool>? onCompleted = null, Action<string?>? onResume = null)
     {
         var next = Resolve(pathAndQuery, beta);
         var pages = 0;
         var complete = true;
         while (next is not null)
         {
-            if (pages++ >= maxPages)
+            if (pages >= maxPages)
             {
                 complete = false;
+                onResume?.Invoke(next.AbsoluteUri);
                 break;
             }
 
+            pages++;
+            // Remember this page so a caller that stops early can fetch it again. Duplicates are ignored downstream.
+            onResume?.Invoke(next.AbsoluteUri);
             using var document = await SendJsonAsync(HttpMethod.Get, next, null, cancellationToken);
             var root = document.RootElement;
             if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
@@ -249,6 +253,7 @@ public sealed class GraphClient
             next = root.TryGetProperty("@odata.nextLink", out var link) && link.ValueKind == JsonValueKind.String ? ValidateNextLink(link.GetString()) : null;
         }
 
+        if (complete) onResume?.Invoke(null);
         onCompleted?.Invoke(complete);
     }
 

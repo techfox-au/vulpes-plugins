@@ -54,17 +54,63 @@ export async function mount(el, ctx) {
     prefs.email ? h('p', { class: 'muted' }, `Messages go to ${prefs.email}.`) : h('p', { class: 'muted' }, 'An administrator must add an email address to this account before these emails can be turned on.'),
   ];
   if (collect) {
-    rows.push(
-      h('label', { class: 'checkbox' }, collect, h('span', null, 'Email me when a collect is ready to retrieve')),
-      h('p', { class: 'muted small' }, 'Sent when someone submits to one of your collect links.'));
+    rows.push(h('label', { class: 'checkbox' }, collect, h('span', null, 'Email me when a collect is ready to retrieve')));
   }
   rows.push(
     h('label', { class: 'checkbox' }, send, h('span', null, 'Email me when a send is opened for decryption')),
-    h('p', { class: 'muted small' }, 'Sent when a recipient downloads the encrypted payload in their browser.'),
     note);
   card.append(
     h('div', { class: 'card-header' }, h('h2', null, 'Email')),
     h('div', { class: 'col' }, rows));
+
+  if (ctx.hasRole('Admin')) await mountRetrieveIps(root, ctx);
+}
+
+async function mountRetrieveIps(root, ctx) {
+  const { h, panelNote } = ctx.ui;
+  const card = h('div', { class: 'card' });
+  root.append(card);
+  let current;
+  try {
+    current = await ctx.api.get(`${ctx.plugin.apiBase}/collect-retrieve-ips`);
+  } catch (err) {
+    card.append(h('div', { class: 'alert danger' }, err.message || 'Could not load collect retrieval addresses.'));
+    return;
+  }
+
+  const list = h('textarea', { class: 'input', rows: '4', spellcheck: 'false', placeholder: 'Blank or * allows any address. Example: 203.0.113.10, 198.51.100.0/24' });
+  list.value = current.allowedIps || '';
+  const save = h('button', { class: 'btn primary', type: 'button' }, 'Save');
+  const note = h('div');
+  card.hidden = current.publicAddressVisible === false;
+  card.append(
+    h('div', { class: 'card-header' }, h('h2', null, 'Collect retrieval')),
+    h('div', { class: 'col' },
+      h('label', null, 'IPs allowed to retrieve collected secrets'),
+      list,
+      h('p', { class: 'muted small' }, 'Comma-separated IPv4, IPv6, or CIDR addresses. Leave blank or enter * to allow any address. Checked when a collected submission is opened, before the submission is removed.'),
+      h('div', null, save),
+      note));
+  async function refreshIpRestrictions() {
+    try {
+      const cfg = await ctx.api.get('/api/client-ip/capability');
+      card.hidden = cfg.ipRestrictionsEnabled === false;
+    } catch { /* keep the card until the probe result is known */ }
+  }
+  await refreshIpRestrictions();
+  setTimeout(refreshIpRestrictions, 3500);
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      const next = await ctx.api.put(`${ctx.plugin.apiBase}/collect-retrieve-ips`, { allowedIps: list.value });
+      list.value = next.allowedIps || '';
+      panelNote(note, 'Saved.');
+    } catch (err) {
+      panelNote(note, err.message || 'Could not save the address list.');
+    } finally {
+      save.disabled = false;
+    }
+  });
 }
 
 export function unmount() {}

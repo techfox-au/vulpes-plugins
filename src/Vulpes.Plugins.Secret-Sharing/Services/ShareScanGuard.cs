@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Vulpes.Plugins.SecretSharing.Data;
 using Vulpes.Sdk;
 
@@ -8,7 +9,7 @@ namespace Vulpes.Plugins.SecretSharing.Services;
 /// Per-IP budget for public send and collect lookups. Failures and challenge issues count.
 /// A success does not clear the budget. Shared through the plugin database.
 /// </summary>
-public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = null)
+public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = null, ILogger<ShareScanGuard>? logger = null)
 {
     private readonly IPowPolicy _policy = policy ?? DefaultScanPolicy.Instance;
     public const int MaxFailuresInWindow = 10;
@@ -21,11 +22,6 @@ public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = 
         => IsBudgetExceeded(KindFailure, clientKey, MaxFailuresInWindow, out retryAfterSeconds);
 
     public void RecordFailure(string clientKey) => Record(KindFailure, clientKey);
-
-    public bool IsChallengeIssueBudgetExceeded(string clientKey, out double retryAfterSeconds)
-        => IsBudgetExceeded(IssueKind, clientKey, MaxChallengeIssuesInWindow, out retryAfterSeconds);
-
-    public void RecordChallengeIssue(string clientKey) => Record(IssueKind, clientKey);
 
     public static string ClientKey(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
@@ -79,10 +75,25 @@ public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = 
         cmd.CommandText = "DELETE FROM scan_events WHERE AtMs < @cut";
         cmd.Parameters.AddWithValue("@cut", cutoff);
         cmd.ExecuteNonQuery();
+        var now = DateTimeOffset.UtcNow.ToString("O");
+        var expired = new List<(string Id, string Kind)>();
+        using (var sel = conn.CreateCommand())
+        {
+            sel.CommandText = "SELECT Id, ResourceKind FROM pow_challenges WHERE ExpiresAt < @now";
+            sel.Parameters.AddWithValue("@now", now);
+            using var reader = sel.ExecuteReader();
+            while (reader.Read()) expired.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        if (expired.Count == 0) return;
         using var challenges = conn.CreateCommand();
         challenges.CommandText = "DELETE FROM pow_challenges WHERE ExpiresAt < @now";
-        challenges.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
+        challenges.Parameters.AddWithValue("@now", now);
         challenges.ExecuteNonQuery();
+        foreach (var row in expired)
+        {
+            logger?.LogInformation("PoW expired {Kind} {ChallengeId} unused", row.Kind, row.Id);
+        }
     }
 
     private sealed class DefaultScanPolicy : IPowPolicy

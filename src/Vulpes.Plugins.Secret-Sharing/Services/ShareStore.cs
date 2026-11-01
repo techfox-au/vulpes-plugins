@@ -5,7 +5,7 @@ using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.SecretSharing.Services;
 
-public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuery
+public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dataAtRest = null) : IIpRestrictedSecretQuery
 {
     /// <summary>Base64url length of Sendit's 60 MiB × 1.05 ciphertext cap. A 40 MiB file encrypts to about 56 million characters.</summary>
     public const int MaxCipherChars = 88_080_384;
@@ -16,7 +16,7 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Wrapped FROM user_data_keys WHERE UserId = @id";
         cmd.Parameters.AddWithValue("@id", userId);
-        return cmd.ExecuteScalar() as string;
+        return Open(cmd.ExecuteScalar() as string);
     }
 
     public IReadOnlyList<UserDataKeyWrap> ListWraps(string userId)
@@ -29,7 +29,7 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         var rows = new List<UserDataKeyWrap>();
         while (reader.Read())
         {
-            rows.Add(new UserDataKeyWrap(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+            rows.Add(new UserDataKeyWrap(reader.GetString(0), reader.GetString(1), Open(reader.GetString(2))!));
         }
 
         return rows;
@@ -52,7 +52,7 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         cmd.Parameters.AddWithValue("@id", userId);
         cmd.Parameters.AddWithValue("@kind", kind);
         cmd.Parameters.AddWithValue("@cred", credentialId);
-        cmd.Parameters.AddWithValue("@wrapped", wrapped);
+        cmd.Parameters.AddWithValue("@wrapped", Seal(wrapped));
         cmd.Parameters.AddWithValue("@at", DateTimeOffset.UtcNow.ToString("O"));
         cmd.ExecuteNonQuery();
         return first;
@@ -290,7 +290,7 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         cmd.Parameters.AddWithValue("@owner", ownerId);
         cmd.Parameters.AddWithValue("@label", (object?)input.EncryptedLabel ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@pk", input.PublicKey);
-        cmd.Parameters.AddWithValue("@sk", (object?)input.OwnerPrivateKeyProtected ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@sk", (object?)Seal(input.OwnerPrivateKeyProtected) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@once", input.OneTime ? 1 : 0);
         cmd.Parameters.AddWithValue("@created", now.ToString("O"));
         cmd.Parameters.AddWithValue("@expires", now.AddMinutes(input.ExpiresInMinutes).ToString("O"));
@@ -512,7 +512,7 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         return cmd.ExecuteNonQuery() == 1 ? null : "This collect is not open for upload.";
     }
 
-    /// <summary>Anyone with the link. Proof of work is enforced by the caller before this burns the upload.</summary>
+    /// <summary>Anyone with the link. The caller burns the upload. Collect retrieval does not require a proof.</summary>
     public SendPublic? TakeCollect(string id)
     {
         using var conn = database.Open();
@@ -568,7 +568,121 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         cmd.CommandText = "SELECT OwnerPrivateKeyProtected FROM collects WHERE Id = @id AND OwnerUserId = @owner";
         cmd.Parameters.AddWithValue("@id", id);
         cmd.Parameters.AddWithValue("@owner", ownerId);
-        return cmd.ExecuteScalar() as string;
+        return Open(cmd.ExecuteScalar() as string);
+    }
+
+    /// <summary>Seals owner keys and user-data-key wraps that were stored before the outer seal existed.</summary>
+    public void SealExistingKeyMaterial()
+    {
+        if (dataAtRest is null)
+        {
+            return;
+        }
+
+        using var conn = database.Open();
+        SealCollectOwnerKeys(conn);
+        SealLegacyUserDataKeys(conn);
+        SealUserDataKeyWraps(conn);
+    }
+
+    private void SealCollectOwnerKeys(SqliteConnection conn)
+    {
+        using var sel = conn.CreateCommand();
+        sel.CommandText = "SELECT Id, OwnerPrivateKeyProtected FROM collects WHERE OwnerPrivateKeyProtected IS NOT NULL";
+        using var reader = sel.ExecuteReader();
+        var pending = new List<(string Id, string Value)>();
+        while (reader.Read())
+        {
+            var value = reader.GetString(1);
+            if (!dataAtRest!.IsProtected(value))
+            {
+                pending.Add((reader.GetString(0), value));
+            }
+        }
+
+        reader.Close();
+        foreach (var (id, value) in pending)
+        {
+            using var upd = conn.CreateCommand();
+            upd.CommandText = "UPDATE collects SET OwnerPrivateKeyProtected = @value WHERE Id = @id";
+            upd.Parameters.AddWithValue("@value", Seal(value));
+            upd.Parameters.AddWithValue("@id", id);
+            upd.ExecuteNonQuery();
+        }
+    }
+
+    private void SealLegacyUserDataKeys(SqliteConnection conn)
+    {
+        using var sel = conn.CreateCommand();
+        sel.CommandText = "SELECT UserId, Wrapped FROM user_data_keys";
+        using var reader = sel.ExecuteReader();
+        var pending = new List<(string Id, string Value)>();
+        while (reader.Read())
+        {
+            var value = reader.GetString(1);
+            if (!dataAtRest!.IsProtected(value))
+            {
+                pending.Add((reader.GetString(0), value));
+            }
+        }
+
+        reader.Close();
+        foreach (var (id, value) in pending)
+        {
+            using var upd = conn.CreateCommand();
+            upd.CommandText = "UPDATE user_data_keys SET Wrapped = @value WHERE UserId = @id";
+            upd.Parameters.AddWithValue("@value", Seal(value));
+            upd.Parameters.AddWithValue("@id", id);
+            upd.ExecuteNonQuery();
+        }
+    }
+
+    private void SealUserDataKeyWraps(SqliteConnection conn)
+    {
+        using var sel = conn.CreateCommand();
+        sel.CommandText = "SELECT UserId, Kind, CredentialId, Wrapped FROM user_data_key_wraps";
+        using var reader = sel.ExecuteReader();
+        var pending = new List<(string UserId, string Kind, string CredentialId, string Value)>();
+        while (reader.Read())
+        {
+            var value = reader.GetString(3);
+            if (!dataAtRest!.IsProtected(value))
+            {
+                pending.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), value));
+            }
+        }
+
+        reader.Close();
+        foreach (var row in pending)
+        {
+            using var upd = conn.CreateCommand();
+            upd.CommandText = "UPDATE user_data_key_wraps SET Wrapped = @value WHERE UserId = @id AND Kind = @kind AND CredentialId = @cred";
+            upd.Parameters.AddWithValue("@value", Seal(row.Value));
+            upd.Parameters.AddWithValue("@id", row.UserId);
+            upd.Parameters.AddWithValue("@kind", row.Kind);
+            upd.Parameters.AddWithValue("@cred", row.CredentialId);
+            upd.ExecuteNonQuery();
+        }
+    }
+
+    private string? Seal(string? value)
+    {
+        if (value is null || dataAtRest is null || dataAtRest.IsProtected(value))
+        {
+            return value;
+        }
+
+        return dataAtRest.Protect(value);
+    }
+
+    private string? Open(string? value)
+    {
+        if (value is null || dataAtRest is null || !dataAtRest.IsProtected(value))
+        {
+            return value;
+        }
+
+        return dataAtRest.Unprotect(value);
     }
 
     private SendPublic? ReadSend(string id, bool includePayload)
@@ -643,6 +757,39 @@ public sealed class ShareStore(ShareDatabase database) : IIpRestrictedSecretQuer
         cmd.Parameters.AddWithValue("@hide", input.HideTextByDefault ? 1 : 0);
         cmd.Parameters.AddWithValue("@cidr", (object?)input.AllowedCidr ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@recipient", (object?)input.RecipientLabel ?? DBNull.Value);
+    }
+
+    public const string CollectRetrieveAllowedIpsKey = "collect_retrieve_allowed_ips";
+
+    public string? CollectRetrieveAllowedIps()
+    {
+        using var conn = database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Value FROM server_settings WHERE Key = @key";
+        cmd.Parameters.AddWithValue("@key", CollectRetrieveAllowedIpsKey);
+        var value = cmd.ExecuteScalar();
+        return value is string s && s.Length > 0 ? s : null;
+    }
+
+    public void SaveCollectRetrieveAllowedIps(string? canonical)
+    {
+        using var conn = database.Open();
+        using var cmd = conn.CreateCommand();
+        if (string.IsNullOrEmpty(canonical))
+        {
+            cmd.CommandText = "DELETE FROM server_settings WHERE Key = @key";
+            cmd.Parameters.AddWithValue("@key", CollectRetrieveAllowedIpsKey);
+            cmd.ExecuteNonQuery();
+            return;
+        }
+
+        cmd.CommandText = """
+            INSERT INTO server_settings (Key, Value) VALUES (@key, @value)
+            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value
+            """;
+        cmd.Parameters.AddWithValue("@key", CollectRetrieveAllowedIpsKey);
+        cmd.Parameters.AddWithValue("@value", canonical);
+        cmd.ExecuteNonQuery();
     }
 
     public string? AllowedCidr(string id)

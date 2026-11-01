@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using Vulpes.Plugins.SecretSharing.Data;
 using Vulpes.Sdk;
 
@@ -11,11 +12,9 @@ namespace Vulpes.Plugins.SecretSharing.Services;
 /// HMAC-SHA256 proof of work. Same check as Sendit: leading zero bits, ASCII decimal nonce, one-time delete.
 /// Difficulty and lifetimes come from the host <see cref="IPowPolicy"/> (Manage → Settings). Difficulty is at least 1.
 /// </summary>
-public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null)
+public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null, ILogger<PowService>? logger = null)
 {
     private readonly IPowPolicy _policy = policy ?? DefaultPowPolicy.Instance;
-    public const int DefaultDifficultyBits = PowPolicyLimits.DefaultDifficultyBits;
-    public const int DefaultCollectTtlSeconds = PowPolicyLimits.DefaultCollectChallengeTtlSeconds;
     public const string HeaderChallenge = "X-Sendit-Pow-Challenge";
     public const string HeaderNonce = "X-Sendit-Pow-Nonce";
     public const string HeaderHash = "X-Sendit-Pow-Hash";
@@ -50,8 +49,9 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         var exp = now.AddSeconds(ttl);
         if (secretExpiresAt is DateTimeOffset cap && cap < exp) exp = cap;
         using var conn = database.Open();
-        PurgeExpired(conn, now);
+        LogExpired(PurgeExpired(conn, now));
         InsertChallenge(conn, id, resourceKind, resourceId, clientId, key, bits, exp);
+        logger?.LogInformation("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
         return new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"));
     }
 
@@ -87,13 +87,14 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
 
         try
         {
-            PurgeExpired(conn, now);
+            var expired = PurgeExpired(conn, now);
             var count = CountIssues(conn, clientKey, now, out var oldest);
             if (count >= ShareScanGuard.MaxChallengeIssuesInWindow)
             {
                 using var commit = conn.CreateCommand();
                 commit.CommandText = "COMMIT";
                 commit.ExecuteNonQuery();
+                LogExpired(expired);
                 retryAfterSeconds = RetryAfter(oldest, now);
                 return false;
             }
@@ -103,6 +104,8 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
             using var done = conn.CreateCommand();
             done.CommandText = "COMMIT";
             done.ExecuteNonQuery();
+            LogExpired(expired);
+            logger?.LogInformation("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
             challenge = new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"));
             return true;
         }
@@ -136,6 +139,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
     {
         if (string.IsNullOrWhiteSpace(challengeId) || string.IsNullOrWhiteSpace(nonce))
         {
+            LogInvalid(resourceKind, challengeId, "missing challenge or nonce");
             return "Proof of work is required (challengeId and nonce).";
         }
 
@@ -149,6 +153,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         if (!reader.Read())
         {
             tx.Rollback();
+            LogInvalid(resourceKind, challengeId, "unknown");
             return "Unknown or expired proof-of-work challenge.";
         }
 
@@ -164,24 +169,28 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         {
             Delete(conn, tx, challengeId);
             tx.Commit();
+            logger?.LogInformation("PoW expired {Kind} {ChallengeId} expires={ExpiresAt}", kind, challengeId, exp.ToString("O"));
             return "Proof-of-work challenge expired.";
         }
 
         if (!string.Equals(kind, resourceKind, StringComparison.Ordinal) || !string.Equals(rid, resourceId, StringComparison.Ordinal))
         {
             tx.Rollback();
+            LogInvalid(resourceKind, challengeId, "secret does not match");
             return "Proof-of-work challenge does not match this secret.";
         }
 
         if (!string.Equals(storedClient, clientId ?? "", StringComparison.Ordinal))
         {
             tx.Rollback();
+            LogInvalid(resourceKind, challengeId, "browser does not match");
             return "Proof-of-work challenge does not match this browser.";
         }
 
         if (nonce.Length is 0 or > 24 || !nonce.All(char.IsAsciiDigit) || (nonce.Length > 1 && nonce[0] == '0'))
         {
             tx.Rollback();
+            LogInvalid(resourceKind, challengeId, "invalid nonce");
             return "Invalid proof-of-work nonce.";
         }
 
@@ -189,6 +198,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         if (!HasLeadingZeroBits(mac, bits))
         {
             tx.Rollback();
+            LogInvalid(resourceKind, challengeId, "difficulty not met");
             return "Proof of work does not meet difficulty.";
         }
 
@@ -200,12 +210,14 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
                 if (!CryptographicOperations.FixedTimeEquals(mac, presented))
                 {
                     tx.Rollback();
+                    LogInvalid(resourceKind, challengeId, "hash does not match");
                     return "Proof-of-work hash does not match.";
                 }
             }
             catch (FormatException)
             {
                 tx.Rollback();
+                LogInvalid(resourceKind, challengeId, "hash encoding");
                 return "Invalid proof-of-work hash encoding.";
             }
         }
@@ -213,10 +225,12 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         if (consume && Delete(conn, tx, challengeId) != 1)
         {
             tx.Rollback();
+            LogInvalid(resourceKind, challengeId, "already used");
             return "Proof-of-work challenge already used.";
         }
 
         tx.Commit();
+        logger?.LogInformation("PoW valid {Kind} {ChallengeId} difficulty={Difficulty} consumed={Consumed}", resourceKind, challengeId, bits, consume);
         return null;
     }
 
@@ -315,13 +329,35 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         cmd.ExecuteNonQuery();
     }
 
-    private static void PurgeExpired(SqliteConnection conn, DateTimeOffset now)
+    private static List<(string Id, string Kind)> PurgeExpired(SqliteConnection conn, DateTimeOffset now)
     {
+        var rows = new List<(string Id, string Kind)>();
+        using (var sel = conn.CreateCommand())
+        {
+            sel.CommandText = "SELECT Id, ResourceKind FROM pow_challenges WHERE ExpiresAt < @now";
+            sel.Parameters.AddWithValue("@now", now.ToString("O"));
+            using var reader = sel.ExecuteReader();
+            while (reader.Read()) rows.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        if (rows.Count == 0) return rows;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM pow_challenges WHERE ExpiresAt < @now";
         cmd.Parameters.AddWithValue("@now", now.ToString("O"));
         cmd.ExecuteNonQuery();
+        return rows;
     }
+
+    private void LogExpired(IReadOnlyList<(string Id, string Kind)> rows)
+    {
+        foreach (var row in rows)
+        {
+            logger?.LogInformation("PoW expired {Kind} {ChallengeId} unused", row.Kind, row.Id);
+        }
+    }
+
+    private void LogInvalid(string kind, string? challengeId, string reason) =>
+        logger?.LogInformation("PoW invalid {Kind} {ChallengeId} {Reason}", kind, string.IsNullOrWhiteSpace(challengeId) ? "-" : challengeId, reason);
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

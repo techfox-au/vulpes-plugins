@@ -10,7 +10,6 @@
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/nacl-fast.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open.js
-/Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/pow.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/transfer.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/udk.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/upload.html

@@ -95,13 +95,30 @@ public static class IpRestriction
         return true;
     }
 
+    /// <summary>A stored list other than blank or <c>*</c>.</summary>
+    public static bool IsRestrictive(string? allowedCidr) =>
+        !string.IsNullOrEmpty(allowedCidr) && allowedCidr != "*";
+
+    /// <summary>
+    /// Blank or <c>*</c> allows anyone. A real allow-list is checked only when the server can see a public
+    /// visitor address. Otherwise the list stays closed and the request is denied.
+    /// </summary>
+    public static bool AllowsClient(string? allowedCidr, IPAddress? client, bool publicAddressVisible)
+    {
+        if (!IsRestrictive(allowedCidr))
+            return true;
+        if (!publicAddressVisible)
+            return false;
+        return IsClientAllowed(allowedCidr, client);
+    }
+
     /// <summary>
     /// True if <paramref name="client"/> matches any entry in the stored list
     /// (null/empty restriction or "*" = allow all).
     /// </summary>
     public static bool IsClientAllowed(string? allowedCidr, IPAddress? client)
     {
-        if (string.IsNullOrEmpty(allowedCidr) || allowedCidr == "*")
+        if (!IsRestrictive(allowedCidr) || allowedCidr is null)
             return true;
         if (client is null)
             return false;

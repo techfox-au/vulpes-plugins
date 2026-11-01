@@ -9,12 +9,12 @@ let current = null; // { unmount, key }
 
 const corePages = {
   '/': () => import('./pages/home.js?v=shell198'),
-  '/account': () => import('./pages/account.js?v=shell188'),
+  '/account': () => import('./pages/account.js?v=shell214'),
   '/alerts': () => import('./pages/alerts.js?v=shell101'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell127'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell214'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell179'),
   '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell161'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell199'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell204'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell144'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell170'),
 };
@@ -209,7 +209,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell201`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell212`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

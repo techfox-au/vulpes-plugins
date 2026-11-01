@@ -5,7 +5,17 @@ import { establishWithPassword, establishWithPasskey } from './data-key.js?v=she
 
 setRedirectOnUnauthorized(false);
 const $ = (id) => document.getElementById(id);
-const token = new URLSearchParams(location.search).get('token') || '';
+const token = readToken();
+
+function readToken() {
+  const hash = new URLSearchParams(location.hash.startsWith('#') ? location.hash.slice(1) : '');
+  const query = new URLSearchParams(location.search);
+  const value = hash.get('token') || query.get('token') || '';
+  if (!value) return sessionStorage.getItem('vc.enroll.token') || '';
+  sessionStorage.setItem('vc.enroll.token', value);
+  history.replaceState(null, '', '/enroll');
+  return value;
+}
 const errorBox = $('error');
 
 function showError(message) {
@@ -45,6 +55,7 @@ $('submit-passkey').addEventListener('click', async () => {
     await webauthn.register({ optionsUrl: '/auth/enroll/passkey/options', finishUrl: '/auth/enroll/passkey', optionsBody: { token }, extra: { token, passkeyName: $('passkeyName').value }, onCredential: (credential) => establishWithPasskey(credential) });
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }
+    sessionStorage.removeItem('vc.enroll.token');
     history.replaceState(null, '', '/enroll');
     location.assign('/');
   } catch (err) {
@@ -65,6 +76,7 @@ $('panel-password').addEventListener('submit', async (e) => {
     await establishWithPassword(password);
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }
+    sessionStorage.removeItem('vc.enroll.token');
     history.replaceState(null, '', '/enroll');
     location.assign('/');
   } catch (err) {

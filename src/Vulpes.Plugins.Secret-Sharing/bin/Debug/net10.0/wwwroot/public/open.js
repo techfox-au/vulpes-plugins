@@ -1,3 +1,5 @@
+import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell211';
+
 (async function () {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
@@ -12,7 +14,7 @@
   if (!id) { fail('Missing secret id.'); return; }
   const hasFragment = !!(SenditCrypto.secretKeyFromLocationHash(location.hash) || SenditCrypto.secretKeyPackageFromLocationHash(location.hash));
   if (!hasFragment) { fail('Missing decryption key. Open the full link including the #sk= fragment.'); return; }
-  await SenditPow.syncServerTime();
+  await syncServerTime();
 
   let meta;
   const opening = SecretTransfer.showProgress('Opening secret');
@@ -20,10 +22,10 @@
     opening.setStatus('Performing proof-of-work…');
     opening.setProgress(null);
     if (kind === 'collect') {
-      const solution = await SenditPow.solveRefreshing(() => fetchPow('collects'), { onProgress: (_t, attempt) => opening.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+      const solution = await solveRefreshing(() => fetchPow('collects'), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
       meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/meta', solution);
     } else {
-      const solution = await SenditPow.solveRefreshing(() => fetchPow('sends'), { onProgress: (_t, attempt) => opening.setStatus(SenditPow.statusLabel('Performing proof-of-work…', attempt)) });
+      const solution = await solveRefreshing(() => fetchPow('sends'), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
       meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id) + '/meta', solution);
     }
   } catch (err) {
@@ -82,8 +84,7 @@
     setAlert('info', 'This ' + (kind === 'collect' ? 'collect' : 'send') + ' allows up to ' + meta.maxAccessCount + ' opens (' + left + ' remaining).');
   }
   confirmBox.classList.remove('hidden');
-  const revealResource = kind === 'collect' ? 'collects' : 'sends';
-  const revealPow = SenditPow.createKeeper(function () { return fetchPow(revealResource); });
+  const revealPow = createPowKeeper(() => fetchPow(kind === 'collect' ? 'collects' : 'sends'));
   revealPow.start();
   revealBtn.addEventListener('click', reveal);
   if (passwordEl) passwordEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); reveal(); } });
@@ -101,12 +102,18 @@
       let payload;
       let plain;
       try {
-        progress.setStatus(meta.passwordProtected ? 'Unlocking key…' : 'Performing proof-of-work…');
+        const solving = revealPow && !revealPow.ready();
+        progress.setStatus(meta.passwordProtected ? 'Unlocking key…' : (solving ? 'Performing proof-of-work…' : 'Downloading encrypted payload…'));
         progress.setProgress(null);
         key = await resolveKey();
-        progress.setStatus('Performing proof-of-work…');
-        progress.setProgress(null);
-        const solution = await revealPow.take();
+        let solution = null;
+        if (revealPow) {
+          if (!revealPow.ready()) {
+            progress.setStatus('Performing proof-of-work…');
+            progress.setProgress(null);
+          }
+          solution = await revealPow.take();
+        }
         progress.setStatus('Downloading encrypted payload…');
         progress.setProgress(0);
         const path = kind === 'collect'
@@ -124,11 +131,13 @@
         progress.close();
       }
       key.fill(0);
+      if (revealPow) revealPow.stop();
       confirmBox.classList.add('hidden');
       title.textContent = 'Secret';
       document.title = 'Secret';
       const burned = meta.oneTime || (meta.maxAccessCount != null && (meta.accessCount || 0) + 1 >= meta.maxAccessCount);
-      setAlert(burned ? 'warning' : 'success', burned ? 'Decrypted. This secret has been destroyed on the server.' : 'Decrypted successfully.');
+      if (burned) setAlert('warning', 'Decrypted. This secret has been destroyed on the server.');
+      else setAlert(null);
       const filename = payload.filename || meta.filename;
       const hide = !!(payload.hideTextByDefault || meta.hideTextByDefault);
       if (filename) {

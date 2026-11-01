@@ -19,6 +19,8 @@ public static class ShareEndpoints
         group.MapGet("/home", Home);
         group.MapGet("/notifications", GetNotifications);
         group.MapPut("/notifications", PutNotifications);
+        group.MapGet("/collect-retrieve-ips", GetCollectRetrieveIps).RequireAuthorization(Policies.Admin);
+        group.MapPut("/collect-retrieve-ips", PutCollectRetrieveIps).RequireAuthorization(Policies.Admin);
         group.MapPost("/sends", CreateSend);
         group.MapDelete("/sends/{id}", DeleteSend);
         group.MapPost("/collects", CreateCollect).RequireAuthorization(Policies.Analyst);
@@ -136,7 +138,7 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = "Filename is too long." });
         }
 
-        var error = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, 1);
+        var error = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey);
         if (error is not null) return Results.BadRequest(new { error = "validation", message = error });
         RememberEmail(http, store, user);
         var id = store.CreateSend(user, new SendInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), TrimOrNull(body.Filename), body.OneTime, minutes, TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), body.MaxAccessCount is > 0 and <= 100000 ? body.MaxAccessCount : null, body.PasswordProtected, body.HideTextByDefault, allowedCidr, TrimOrNull(body.RecipientLabel)));
@@ -204,12 +206,19 @@ public static class ShareEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> OpenCollect(string id, PowBody body, HttpContext http, ShareStore store, PowService pow, ShareScanGuard scan, IHostAuditLog audit)
+    private static async Task<IResult> OpenCollect(string id, PowBody? body, HttpContext http, ShareStore store, PowService pow, ShareScanGuard scan, IClientIpCapability ipCap, IHostAuditLog audit)
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
+        // Anonymous retrieval. Burn the proof before the lookup so a scraper cannot pull ciphertext for free.
+        var error = pow.TryConsume("collect", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http));
         if (error is not null) return Denied(scan, http, error);
+        if (!IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
+        {
+            await audit.RecordAsync("secret.collect.ip_denied", id, "Collect retrieval denied: IP not allowed.", actor: UserId(http) ?? "anonymous", cancellationToken: http.RequestAborted);
+            return Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
         var row = store.TakeCollect(id);
         if (row is null) return Miss(scan, http);
         var actor = UserId(http) ?? "anonymous";
@@ -263,18 +272,19 @@ public static class ShareEndpoints
         });
     }
 
-    private static async Task<IResult> SendPayload(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IClientIpCapability ipCap, IHostAuditLog audit, HttpContext http)
+    private static async Task<IResult> SendPayload(string id, PowBody? body, ShareStore store, PowService pow, ShareScanGuard scan, IClientIpCapability ipCap, IHostAuditLog audit, HttpContext http)
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
+        // Burn the proof before the lookup so a scraper cannot probe ids or pull ciphertext for free.
+        var error = pow.TryConsume("send", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http));
         if (error is not null) return Denied(scan, http, error);
         var peek = store.SendMeta(id);
         if (peek is null || peek.Status != "active") return Miss(scan, http);
         if (!ClientAllowed(http, store, id, ipCap)) return await IpDenied(http, audit, id);
         var row = store.TakeSend(id);
         if (row is null || row.Status != "active" || row.Ciphertext.Length == 0) return Miss(scan, http);
-        await audit.RecordAsync("secret.send.decrypted", id, "Payload released after proof of work.", actor: "anonymous", cancellationToken: http.RequestAborted);
+        await audit.RecordAsync("secret.send.decrypted", id, "Payload released.", actor: "anonymous", cancellationToken: http.RequestAborted);
         http.RequestServices.GetRequiredService<NotificationMail>().TrySendOpened(id);
         return Results.Json(new { row.Ciphertext, row.Iv, row.WrappedKey, row.EphemeralPublicKey, row.ContentType, row.Filename, row.HideTextByDefault });
     }
@@ -323,7 +333,7 @@ public static class ShareEndpoints
             var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
             if (error is not null) return Denied(scan, http, error);
         }
-        var payloadError = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, 1);
+        var payloadError = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey);
         if (payloadError is not null) return Results.BadRequest(new { error = "payload", message = payloadError });
         var saved = store.SaveUpload(id, new UploadInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), ClipOrNull(body.Filename, 200)));
         if (saved is not null) return Results.Conflict(new { error = "conflict", message = saved });
@@ -332,9 +342,8 @@ public static class ShareEndpoints
         return Results.NoContent();
     }
 
-    private static string? ValidatePayload(string? ciphertext, string? iv, string? wrappedKey, string? ephemeral, int hours)
+    private static string? ValidatePayload(string? ciphertext, string? iv, string? wrappedKey, string? ephemeral)
     {
-        if (hours is < 1 or > 720) return "Choose an expiry between 1 minute and 30 days.";
         if (string.IsNullOrEmpty(ciphertext)) return "Ciphertext is required.";
         if (ciphertext.Length > ShareStore.MaxCipherChars) return "Payload exceeds maximum size.";
         if (!Base64Url.IsExact(iv, 12) || !Base64Url.IsExact(ephemeral, 32) || !Base64Url.IsExact(wrappedKey, 60)) return "Payload is not valid.";
@@ -378,6 +387,28 @@ public static class ShareEndpoints
 
     private static IResult NotificationJson(string? email, bool collect, bool send, bool canCollect) =>
         Results.Json(new { email, notifyCollectReady = collect, notifySendOpened = send, canCollect });
+
+    private static IResult GetCollectRetrieveIps(ShareStore store, IClientIpCapability ipCap) =>
+        Results.Json(new { allowedIps = store.CollectRetrieveAllowedIps() ?? "", publicAddressVisible = ipCap.IpRestrictionsEnabled });
+
+    private static async Task<IResult> PutCollectRetrieveIps(CollectRetrieveIpsBody body, HttpContext http, ShareStore store, IClientIpCapability ipCap, IHostAuditLog audit)
+    {
+        if (!IpRestriction.TryNormalize(body.AllowedIps, out var canonical, out var error))
+        {
+            return Results.BadRequest(new { error = "validation", message = error });
+        }
+
+        if (!string.IsNullOrEmpty(canonical) && canonical != "*" && !ipCap.IpRestrictionsEnabled)
+        {
+            return Results.BadRequest(new { error = "validation", message = "IP restrictions are unavailable on this server because the client address is not a public visitor address. Leave Allowed IPs empty." });
+        }
+
+        store.SaveCollectRetrieveAllowedIps(canonical);
+        await audit.RecordAsync("secret.collect.retrieve_ips", "server", canonical ?? "(any)", cancellationToken: http.RequestAborted);
+        return Results.Json(new { allowedIps = canonical ?? "", publicAddressVisible = ipCap.IpRestrictionsEnabled });
+    }
+
+    private sealed record CollectRetrieveIpsBody(string? AllowedIps);
 
     private static void RememberEmail(HttpContext http, ShareStore store, string userId)
     {
@@ -426,7 +457,7 @@ public static class ShareEndpoints
     }
 
     private static bool ClientAllowed(HttpContext http, ShareStore store, string id, IClientIpCapability ipCap) =>
-        !ipCap.IpRestrictionsEnabled || IpRestriction.IsClientAllowed(store.AllowedCidr(id), http.Connection.RemoteIpAddress);
+        IpRestriction.AllowsClient(store.AllowedCidr(id), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled);
 
     private static string? UserId(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier);
 

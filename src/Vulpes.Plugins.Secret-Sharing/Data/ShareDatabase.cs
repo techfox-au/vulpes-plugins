@@ -41,6 +41,11 @@ public sealed class ShareDatabase
                 NotifySendOpened INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS server_settings (
+                Key TEXT PRIMARY KEY NOT NULL,
+                Value TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS notify_email_budget (
                 Email TEXT PRIMARY KEY NOT NULL,
                 SendCount INTEGER NOT NULL,

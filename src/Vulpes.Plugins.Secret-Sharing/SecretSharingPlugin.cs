@@ -34,7 +34,7 @@ public sealed class SecretSharingPlugin : IPlugin
 
     public Task InitializeAsync(IServiceProvider services, IPluginContext context, CancellationToken cancellationToken)
     {
-        services.GetRequiredService<ShareDatabase>();
+        services.GetRequiredService<ShareStore>().SealExistingKeyMaterial();
         return Task.CompletedTask;
     }
 }

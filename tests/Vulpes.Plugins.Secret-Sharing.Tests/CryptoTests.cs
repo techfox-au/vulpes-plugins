@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Vulpes.Host.Security;
 using Vulpes.Plugins.SecretSharing.Data;
 using Vulpes.Plugins.SecretSharing.Services;
 using Vulpes.Sdk;
@@ -405,6 +406,39 @@ public sealed class ShareBurnTests : IDisposable
         Assert.Equal("collect-note", collect.PrivateNoteCiphertext);
         Assert.True(collect.HasOwnerKey);
         Assert.False(collect.IpRestricted);
+    }
+
+    [Fact]
+    public void The_collect_owner_key_is_stored_under_the_data_key_seal()
+    {
+        var protector = new DataAtRestProtector(RandomNumberGenerator.GetBytes(32));
+        var store = new ShareStore(new ShareDatabase(Path.Combine(_dir, "sealed.db")), protector);
+        const string ownerKey = "owner-key-material-0123456789abcd";
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), ownerKey, null, null, true, 60, null, false, false, null));
+        store.UpsertWrap("owner", "password", "", "{\"v\":1}");
+
+        using var conn = new SqliteConnection("Data Source=" + Path.Combine(_dir, "sealed.db"));
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT OwnerPrivateKeyProtected FROM collects WHERE Id = @id";
+        cmd.Parameters.AddWithValue("@id", id);
+        var stored = (string)cmd.ExecuteScalar()!;
+        Assert.StartsWith(DataAtRestProtector.Prefix, stored, StringComparison.Ordinal);
+        Assert.DoesNotContain(ownerKey, stored, StringComparison.Ordinal);
+        Assert.Equal(ownerKey, store.OwnerKey("owner", id));
+        Assert.Equal("{\"v\":1}", Assert.Single(store.ListWraps("owner")).Wrapped);
+
+        using var legacy = conn.CreateCommand();
+        legacy.CommandText = "UPDATE collects SET OwnerPrivateKeyProtected = @value WHERE Id = @id";
+        legacy.Parameters.AddWithValue("@value", ownerKey);
+        legacy.Parameters.AddWithValue("@id", id);
+        legacy.ExecuteNonQuery();
+        store.SealExistingKeyMaterial();
+        Assert.Equal(ownerKey, store.OwnerKey("owner", id));
+        using var again = conn.CreateCommand();
+        again.CommandText = "SELECT OwnerPrivateKeyProtected FROM collects WHERE Id = @id";
+        again.Parameters.AddWithValue("@id", id);
+        Assert.StartsWith(DataAtRestProtector.Prefix, (string)again.ExecuteScalar()!, StringComparison.Ordinal);
     }
 
     private string? SendCiphertext(string id)

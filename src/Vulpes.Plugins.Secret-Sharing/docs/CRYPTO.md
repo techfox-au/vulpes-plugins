@@ -2,7 +2,7 @@
 
 The browser encrypts. The plugin stores ciphertext and wrapped keys. It never decrypts a secret.
 
-Read the source, not a minified copy served from an installed package. `wwwroot/public/crypto.js` is the Sendit payload implementation with two edits: `GET /api/plugins/secret-sharing/crypto/params`, and rejection of a link-password package whose iteration count is not 893241. `wwwroot/public/nacl-fast.js` and `wwwroot/public/pow.js` are byte-identical to Sendit. The user data key script matches the host file `wwwroot/assets/js/udk.js`. See [VENDOR.md](VENDOR.md).
+Read the source, not a minified copy served from an installed package. `wwwroot/public/crypto.js` is the Sendit payload implementation with two edits: `GET /api/plugins/secret-sharing/crypto/params`, and rejection of a link-password package whose iteration count is not 893241. `wwwroot/public/nacl-fast.js` is byte-identical to Sendit. Proof of work is the host file `/assets/js/pow.js`, shared with sign-in. The user data key script matches the host file `wwwroot/assets/js/udk.js`. See [VENDOR.md](VENDOR.md).
 
 The host user-data-key review is `vulpes/docs/CRYPTO.md`.
 
@@ -24,10 +24,10 @@ UI caps: file 40 MiB, secret text 1,000,000 characters. The server accepts a bas
 
 ## Owner fields
 
-Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The host holds that key. This plugin only stores the ciphertext.
+Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The host holds that key. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
 
 ## Proof of work
 
-HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 14 bits and 120 seconds for a send or collect challenge. The collect page mints a new ticket when half of that life has passed. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
+HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 18 bits and 120 seconds for a send or collect challenge. The collect page mints a new ticket when half of that life has passed. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
 
 Public pages are `/send`, `/upload`, and `/collect`.

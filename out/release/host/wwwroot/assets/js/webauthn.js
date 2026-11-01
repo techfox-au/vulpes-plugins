@@ -6,11 +6,6 @@ export function isSupported() {
   return typeof window.PublicKeyCredential !== 'undefined' && typeof navigator.credentials?.create === 'function';
 }
 
-export async function conditionalMediationAvailable() {
-  try { return isSupported() && typeof PublicKeyCredential.isConditionalMediationAvailable === 'function' && await PublicKeyCredential.isConditionalMediationAvailable(); }
-  catch { return false; }
-}
-
 function b64urlToBuf(s) {
   const pad = '='.repeat((4 - (s.length % 4)) % 4);
   const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));

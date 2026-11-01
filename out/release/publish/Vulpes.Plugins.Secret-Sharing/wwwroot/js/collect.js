@@ -17,7 +17,7 @@ const expiryChoices = [
 export async function mount(el, ctx) {
   const root = el.querySelector('#collect-root');
   await loadScript(`${pub}/nacl-fast.js`).then(() => loadScript(`${pub}/crypto.js?v=crypto2`)).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
-  const { h, dropdown } = ctx.ui;
+  const { h, dropdown, copyToClipboard } = ctx.ui;
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. Give me credentials', autocomplete: 'off' });
   const mode = dropdown([['true', 'One-time'], ['false', 'Multi-view until expiry']], { value: 'true', ariaLabel: 'Collect mode' });
   const expiry = dropdown(expiryChoices, { value: '1440', ariaLabel: 'Expires in' });
@@ -29,7 +29,10 @@ export async function mount(el, ctx) {
   const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password' });
   const confirmWrap = h('div', { class: 'field', hidden: true }, h('label', null, 'Confirm link password'), confirm);
   const button = h('button', { class: 'btn primary', type: 'button', onClick: () => create() }, 'Create collect links');
-  const out = h('div', { class: 'col' });
+  const errors = h('div');
+  const results = h('div', { class: 'col' });
+  let banner = null;
+  let linkCount = 0;
   mode.addEventListener('change', () => {
     const multi = mode.value === 'false';
     maxWrap.hidden = !multi;
@@ -41,6 +44,7 @@ export async function mount(el, ctx) {
     if (!password.value) confirm.value = '';
   });
   const field = (label, control) => h('div', { class: 'field' }, h('label', null, label), control);
+  root.classList.add('col');
   root.append(h('div', { class: 'card col gap-lg' },
     field('Collect name', name),
     h('div', { class: 'form-row' }, field('Collect mode', mode), maxWrap, field('Expires in', expiry)),
@@ -48,8 +52,9 @@ export async function mount(el, ctx) {
     field('Private note', note),
     field('Link password', password),
     confirmWrap,
-    button,
-    out));
+    button),
+    errors,
+    results);
 
   async function create() {
     button.disabled = true;
@@ -94,13 +99,32 @@ export async function mount(el, ctx) {
       });
       const upload = `${location.origin}/upload?id=${encodeURIComponent(created.id)}`;
       const owner = `${location.origin}/collect?id=${encodeURIComponent(created.id)}${fragment}`;
-      out.replaceChildren(
-        h('p', null, 'Upload link. It does not contain the decryption key.'),
-        h('code', { class: 'share-link' }, upload),
-        h('p', null, 'Collect link. Keep this private.'),
-        h('code', { class: 'share-link' }, owner));
+      errors.replaceChildren();
+      linkCount += 1;
+      if (!banner) {
+        banner = h('div', { class: 'alert warning' });
+        results.append(banner);
+      }
+      banner.textContent = linkCount > 1
+        ? 'Save the collect links now — they contain your private key in the # fragment. Send only the upload link to the other party.'
+        : 'Save the collect link now — it contains your private key in the # fragment. Send only the upload link to the other party.';
+      const copyUpload = h('button', { class: 'btn primary', type: 'button' }, 'Copy upload link');
+      const copyCollect = h('button', { class: 'btn primary', type: 'button' }, 'Copy collect link');
+      const download = h('button', { class: 'btn', type: 'button' }, 'Download .txt');
+      const panel = h('div', { class: 'card col' },
+        h('h2', null, 'Upload link (send this)'),
+        h('p', { class: 'share-link' }, upload),
+        h('div', { class: 'btn-group' }, copyUpload),
+        h('h2', null, 'Collect link (keep private)'),
+        h('p', { class: 'share-link' }, owner),
+        h('div', { class: 'btn-group' }, copyCollect, download));
+      copyUpload.addEventListener('click', () => copyToClipboard(upload, panel));
+      copyCollect.addEventListener('click', () => copyToClipboard(owner, panel));
+      download.addEventListener('click', () => downloadText('vulpes-collect-' + created.id + '.txt', 'Upload link\n' + upload + '\n\nCollect link\n' + owner + '\n'));
+      results.append(panel);
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (err) {
-      out.replaceChildren(h('div', { class: 'alert danger' }, err.message || 'Could not create the collect.'));
+      errors.replaceChildren(h('div', { class: 'alert danger' }, err.message || 'Could not create the collect.'));
     } finally {
       button.disabled = false;
     }
@@ -111,6 +135,17 @@ export function unmount() {}
 
 function ensureUdk() {
   return requireUserDataKey();
+}
+
+function downloadText(filename, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function loadScript(src) {

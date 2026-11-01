@@ -22,12 +22,8 @@ public sealed class CollectionScheduler(
     private readonly SemaphoreSlim _concurrency = new(Math.Clamp(options.MaxConcurrentJobs, 1, 32));
     private readonly HashSet<(Guid, string)> _running = [];
     private readonly Lock _lock = new();
-    private readonly SemaphoreSlim _wake = new(0, int.MaxValue);
 
     public IReadOnlyDictionary<string, ICollector> Collectors => _collectors;
-
-    /// <summary>Asks the loop to look for due jobs immediately (after "run now").</summary>
-    public void Wake() => _wake.Release();
 
     public bool IsRunning(Guid tenantId, string source)
     {
@@ -57,7 +53,7 @@ public sealed class CollectionScheduler(
 
             try
             {
-                await _wake.WaitAsync(TimeSpan.FromSeconds(Math.Clamp(options.SchedulerIntervalSeconds, 5, 600)), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(options.SchedulerIntervalSeconds, 5, 600)), stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -242,7 +238,6 @@ public sealed class CollectionScheduler(
     public override void Dispose()
     {
         _concurrency.Dispose();
-        _wake.Dispose();
         base.Dispose();
     }
 }

@@ -8,7 +8,7 @@ Review checklist for this plugin. The in-app trail is the Vulpes audit log. Filt
 |------|------|
 | Payload crypto | `wwwroot/public/crypto.js` |
 | X25519 | `wwwroot/public/nacl-fast.js` (TweetNaCl 1.0.3, [VENDOR.md](VENDOR.md)) |
-| Proof of work, browser | `wwwroot/public/pow.js` |
+| Proof of work, browser | Host `/assets/js/pow.js` |
 | Proof of work, server | `Services/PowService.cs` (difficulty from host `IPowPolicy`) |
 | Upload and download transport | `wwwroot/public/transfer.js` |
 | Field limits and burn | `Services/ShareStore.cs` |
@@ -19,7 +19,7 @@ Review checklist for this plugin. The in-app trail is the Vulpes audit log. Filt
 
 ## Checklist
 
-1. Confirm no server method decrypts `Ciphertext`, `WrappedKey`, a link-password package, or a user-data-key wrap.
+1. Confirm no server method decrypts `Ciphertext`, `WrappedKey`, a link-password package, or the inner user-data-key wrap. The server may remove the `vd1.` `VULPES_DATA_KEY` seal from a collect owner key or a stored wrap before returning it to the signed-in owner.
 2. Confirm `#sk=` is read only in the browser.
 3. Confirm SQL uses parameters. Table names are the literals `secrets` and `collects`, not request data.
 4. Confirm `crypto.js` still matches Sendit except the params URL and the 893241 iteration check. Confirm `nacl-fast.js` and `pow.js` are byte-identical to Sendit.

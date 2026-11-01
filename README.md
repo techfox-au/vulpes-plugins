@@ -18,7 +18,7 @@ Plugins compile against `Vulpes.Sdk` from the host checkout. The path defaults t
 | `src/Vulpes.Plugins.Microsoft-365-Audit` | Microsoft 365 audit collection (Graph, Purview, Defender, Identity Protection, Secure Score). |
 | `tests/Vulpes.Plugins.Microsoft-365-Audit.Tests` | Tests for that plugin. They also build the host, so the host checkout has to be present. |
 
-Add another plugin by adding a class library to this solution. Keep `EnableDynamicLoading` set, reference `$(VulpesRoot)src/Vulpes.Sdk/Vulpes.Sdk.csproj`, and ship a `plugin.json` plus `wwwroot`. Authoring details are in the host repo at `docs/plugins.md`.
+Add another plugin by following [AGENTS.md](AGENTS.md). That file is the authoring guide for people and for coding agents: project layout, `plugin.json`, the `IPlugin` contract, pages, tests, and how a release is packed.
 
 ## Build
 

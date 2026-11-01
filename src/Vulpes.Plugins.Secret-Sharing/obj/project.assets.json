@@ -168,7 +168,7 @@
           "lib/net6.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
         }
       },
-      "Vulpes.Sdk/0.1.0": {
+      "Vulpes.Sdk/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "compile": {
@@ -302,7 +302,7 @@
         "sqlitepclraw.provider.e_sqlite3.nuspec"
       ]
     },
-    "Vulpes.Sdk/0.1.0": {
+    "Vulpes.Sdk/1.0.0": {
       "type": "project",
       "path": "../../../vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
       "msbuildProject": "../../../vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj"
@@ -311,14 +311,14 @@
   "projectFileDependencyGroups": {
     "net10.0": [
       "Microsoft.Data.Sqlite >= 10.0.14",
-      "Vulpes.Sdk >= 0.1.0"
+      "Vulpes.Sdk >= 1.0.0"
     ]
   },
   "packageFolders": {
     "/Users/lappy/.nuget/packages/": {}
   },
   "project": {
-    "version": "0.1.0",
+    "version": "1.0.0",
     "restore": {
       "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj",
       "projectName": "Vulpes.Plugins.Secret-Sharing",

@@ -217,7 +217,7 @@ dotnet run --project ../vulpes/tools/Vulpes.PluginPacker -- \
   --output dist/Vulpes.Plugins.Example.7z
 ```
 
-`--sign-key signing.pem` adds `signature.p256`. Generate that key with `dotnet run --project ../vulpes/tools/Vulpes.PluginPacker -- keygen --out signing.pem` and put the printed public key in the host's `Plugins:TrustedSigningKeys` when signatures are required. The install gate that is always on is the HMAC in `latest/manifest`.
+The install gate is the HMAC in the clear-signed `latest/manifest`.
 
 ## Checklist
 

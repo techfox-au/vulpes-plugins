@@ -94,7 +94,7 @@ a:hover { text-decoration: underline; }
 code, pre, .mono { font-family: var(--mono); font-size: calc(12.5px + 2pt); }
 pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .console-log { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 14px; background: var(--ink); border: 1px solid color-mix(in srgb, var(--text-faint) 35%, var(--border)); border-radius: var(--radius); font-family: var(--mono); font-size: 13px; line-height: 1.45; }
-.console-line { white-space: pre-wrap; word-break: break-word; }
+.console-line { white-space: pre-wrap; word-break: break-word; min-height: 1.4em; }
 .console-line.err { color: var(--danger); }
 h1, h2, h3, h4 { margin: 0 0 8px; font-weight: 650; letter-spacing: -0.01em; }
 h1 { font-size: calc(22px + 2pt); }
@@ -263,7 +263,7 @@ body:has(.shell) { overflow: hidden; }
 .btn-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field[hidden] { display: none !important; }
+.field[hidden], .form-row[hidden] { display: none !important; }
 .choice { border: 0; margin: 0; padding: 0; display: flex; gap: 16px; align-items: center; }
 .choice input { accent-color: var(--primary); }
 fieldset.content-type { border: 1px solid var(--border-strong); border-radius: var(--radius); margin: 0; padding: 12px 16px 10px; background: var(--veil); }
@@ -311,6 +311,8 @@ textarea.chalkboard:focus { background: var(--ink-strong); }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .form-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar.nowrap { flex-wrap: nowrap; }
+.toolbar.nowrap .input { min-width: 0; }
 .toolbar .select { width: auto; min-width: 140px; }
 .toolbar .input { width: auto; flex: 1 1 220px; min-width: 180px; }
 

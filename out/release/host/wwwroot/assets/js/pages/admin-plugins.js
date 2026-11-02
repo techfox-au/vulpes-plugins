@@ -46,7 +46,7 @@ async function render(ctx) {
       ]),
 
       h('div', { class: 'btn-group mt' },
-        h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0]?.page || ''}` }, 'Open'),
+        h('a', { class: 'btn sm', href: `/p/${m.id}/${m.pages[0]?.page || ''}` }, 'Open'),
         h('button', { class: 'btn sm danger', dataset: { pluginAction: 'uninstall', pluginId: m.id }, onClick: () => uninstall(ctx, m.id) }, 'Uninstall'))));
   }
   if (data.plugins.length === 0) grid.append(h('div', { class: 'card muted' }, 'No plugins loaded.'));

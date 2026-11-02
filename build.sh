@@ -34,6 +34,11 @@ mkdir -p "$work/packages" "$latest"
 echo "Publishing host (assemblies the packages must not ship again)..."
 dotnet publish "${vulpes_root}src/Vulpes.Host/Vulpes.Host.csproj" -c Release -o "$work/host"
 
+packer="${vulpes_root}tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj"
+dotnet build "$packer" -c Release --nologo -v q
+
+built_names=()
+packed=0
 for project in "${plugins[@]}"; do
   dir="$(dirname "$project")"
   name="$(basename "$dir")"
@@ -51,23 +56,58 @@ entry = json.loads(manifest.read_text())["entryAssembly"]
 print(pathlib.Path(entry).with_suffix(".7z").name)
 PY
 )"
+  built_names+=("$archive")
+  prospective="$(mktemp)"
+  existing="$(mktemp)"
+  dotnet run --project "$packer" -c Release --no-build -- hash \
+    --plugin-dir "$work/publish/$name" \
+    --host-dir "$work/host" \
+    --rid-prefix linux > "$prospective"
+  unchanged=0
+  if [[ -f "$latest/$archive" ]] \
+    && dotnet run --project "$packer" -c Release --no-build -- hash --archive "$latest/$archive" > "$existing" \
+    && cmp -s "$prospective" "$existing"; then
+    unchanged=1
+  fi
+  rm -f "$prospective" "$existing"
+  if [[ "$unchanged" -eq 1 ]]; then
+    echo "Unchanged $archive"
+    continue
+  fi
   echo "Packing $archive..."
-  dotnet run --project "${vulpes_root}tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj" -c Release -- \
+  dotnet run --project "$packer" -c Release --no-build -- \
     --plugin-dir "$work/publish/$name" \
     --host-dir "$work/host" \
     --rid-prefix linux \
     --output "$work/packages/$archive"
+  packed=1
 done
 
 shopt -s nullglob
-built=("$work/packages"/*.7z)
-if [[ ${#built[@]} -eq 0 ]]; then
-  echo "No packages were produced." >&2
-  exit 1
-fi
+for archive in "$work/packages"/*.7z; do
+  mv -f "$archive" "$latest/"
+done
 
-rm -f "$latest"/*.7z
-mv "${built[@]}" "$latest/"
+for existing in "$latest"/*.7z; do
+  base="$(basename "$existing")"
+  found=0
+  for name in "${built_names[@]}"; do
+    if [[ "$name" == "$base" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ "$found" -eq 0 ]]; then
+    echo "Removing $base (no longer built)."
+    rm -f "$existing"
+    packed=1
+  fi
+done
+
+if [[ "$packed" -eq 0 ]]; then
+  echo "No plugin package changed. Left latest/manifest as it is."
+  exit 0
+fi
 
 body="$(mktemp)"
 {

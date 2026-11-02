@@ -53,7 +53,7 @@ $('form').addEventListener('submit', async (e) => {
     await establishWithPassword(values.password);
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }
-    location.assign('/#/account');
+    location.assign('/account');
   } catch (err) {
     showError(err.code === 'bad_setup_token' ? 'The setup token is incorrect.' : errorMessage(err));
   } finally { setBusy(btn, false); }
@@ -70,7 +70,7 @@ $('submit-passkey').addEventListener('click', async () => {
     await webauthn.register({ optionsUrl: '/auth/setup/passkey/options', finishUrl: '/auth/setup/passkey', optionsBody: values, extra: { ...values, passkeyName: 'Primary key' }, onCredential: (credential) => establishWithPasskey(credential) });
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }
-    location.assign('/#/account');
+    location.assign('/account');
   } catch (err) {
     showError(err.code === 'bad_setup_token' ? 'The setup token is incorrect.' : (webauthn.describeError(err) || errorMessage(err)));
   } finally { setBusy(btn, false); }

@@ -1,4 +1,4 @@
-// Application shell: session bootstrap, navigation, hash router, plugin page host.
+// Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell182';
 
@@ -8,37 +8,42 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell198'),
+  '/': () => import('./pages/home.js?v=shell218'),
   '/account': () => import('./pages/account.js?v=shell214'),
   '/alerts': () => import('./pages/alerts.js?v=shell101'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell214'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell179'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell217'),
   '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell161'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell204'),
-  '/admin/audit': () => import('./pages/admin-audit.js?v=shell144'),
+  '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell170'),
 };
 
-function parseHash() {
-  const raw = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
-  const [pathPart, queryPart] = raw.split('?');
-  const path = pathPart && pathPart.startsWith('/') ? pathPart : '/';
-  const query = Object.fromEntries(new URLSearchParams(queryPart || ''));
+function parseLocation() {
+  const path = location.pathname && location.pathname.startsWith('/') ? location.pathname : '/';
+  const query = Object.fromEntries(new URLSearchParams(location.search));
   return { path, query };
 }
 
 function isHomeLink(href, path) {
-  return path === '/' && (href === '/' || href === '#/' || href === '#');
+  return path === '/' && href === '/';
+}
+
+function isShellPath(path) {
+  return path === '/' || path === '/account' || path === '/alerts'
+    || path.startsWith('/admin/') || path.startsWith('/p/') || path === '/m' || path.startsWith('/m/');
 }
 
 export function navigate(path) {
-  const target = path.startsWith('#') ? path.slice(1) : path;
-  if (target === '' || target === '/') {
-    if (location.pathname !== '/' || location.hash) history.pushState(null, '', '/');
-    route();
-    return;
-  }
-  location.hash = target.startsWith('/') ? '#' + target : '#/' + target;
+  let target = path.startsWith('#') ? path.slice(1) : path;
+  if (target === '' || target === '/') target = '/';
+  else if (!target.startsWith('/')) target = '/' + target;
+  const next = new URL(target, location.origin);
+  if (next.origin !== location.origin) return;
+  const dest = next.pathname + next.search;
+  if (dest === location.pathname + location.search) { route(); return; }
+  history.pushState(null, '', dest);
+  route();
 }
 
 function hasRole(...roles) { return roles.some((r) => state.user?.roles?.includes(r)); }
@@ -80,7 +85,7 @@ function navSections() {
 
 function renderNav() {
   clear(navEl);
-  const { path } = parseHash();
+  const { path } = parseLocation();
   const open = openPlugin() || '';
   navSections().forEach((section, index) => {
     const plugin = pluginId(section);
@@ -109,7 +114,7 @@ function renderNav() {
     for (const item of section.items) {
       if (item.hidden) continue;
       const disabled = item.disabled === true;
-      const active = !disabled && (isHomeLink(item.href, path) || item.href === '#' + path);
+      const active = !disabled && (isHomeLink(item.href, path) || item.href === path);
       const label = [icon(item.icon || 'dot'), h('span', { class: 'truncate' }, item.title)];
       items.append(disabled
         ? h('span', { class: 'nav-link disabled', 'aria-disabled': 'true', title: 'Disabled in Microsoft 365 Business Premium mode' }, ...label)
@@ -124,7 +129,7 @@ function setActiveNav(path) {
   let activePlugin = '';
   for (const link of navEl.querySelectorAll('.nav-link')) {
     const href = link.getAttribute('href');
-    const active = isHomeLink(href, path) || href === '#' + path;
+    const active = isHomeLink(href, path) || href === path;
     link.classList.toggle('active', active);
     if (active) activePlugin = link.closest('.nav-section')?.dataset.plugin || '';
   }
@@ -217,26 +222,28 @@ async function mountPluginPage(pluginId, page, query) {
 async function route() {
   const token = ++routeToken;
   const stale = () => token !== routeToken;
-  const raw = location.hash.startsWith('#') ? location.hash.slice(1) : '';
-  if (raw === '' || raw === '/' || raw.startsWith('/?')) {
-    if (location.hash || location.pathname !== '/') history.replaceState(null, '', '/' + (raw.startsWith('/?') ? '?' + raw.slice(2) : ''));
+  // Old bookmarks used /#/alerts. The fragment never reached the server, so rewrite it here.
+  if (location.pathname === '/' && location.hash.startsWith('#/')) {
+    history.replaceState(null, '', location.hash.slice(1));
   }
-  if (raw === '/m/audit' || raw.startsWith('/m/audit/') || raw.startsWith('/m/audit?')) {
-    location.replace('#' + '/p/microsoft-365-audit' + raw.slice('/m/audit'.length));
+  let { path, query } = parseLocation();
+  if (path === '/m/audit' || path.startsWith('/m/audit/')) {
+    location.replace('/p/microsoft-365-audit' + path.slice('/m/audit'.length) + location.search);
     return;
   }
-  if (raw === '/m' || raw.startsWith('/m/') || raw.startsWith('/m?')) {
-    location.replace('#' + '/p' + raw.slice(2));
+  if (path === '/m' || path.startsWith('/m/')) {
+    location.replace('/p' + path.slice(2) + location.search);
     return;
   }
-  const { path, query } = parseHash();
-  if (state.nav?.sections?.some((section) => section.items.some((item) => item.disabled && item.href === '#' + path))) {
-    location.hash = '#/p/microsoft-365-audit/overview';
-    return;
+  if (state.nav?.sections?.some((section) => section.items.some((item) => item.disabled && item.href === path))) {
+    history.replaceState(null, '', '/p/microsoft-365-audit/overview');
+    path = '/p/microsoft-365-audit/overview';
+    query = {};
   }
   if (state.user?.mustChangePassword && path !== '/account') {
-    location.hash = '#/account?changePassword=1';
-    return;
+    history.replaceState(null, '', '/account?changePassword=1');
+    path = '/account';
+    query = { changePassword: '1' };
   }
   try {
     if (current?.unmount) { try { await current.unmount(); } catch { /* ignore */ } }
@@ -283,12 +290,21 @@ async function boot() {
   await applyBusinessPremiumNav();
   renderChrome();
   renderNav();
-  window.addEventListener('hashchange', route);
-  if (state.user.mustChangePassword && !location.hash.startsWith('#/account')) {
-    location.hash = '#/account?changePassword=1';
-  } else {
-    await route();
-  }
+  window.addEventListener('popstate', route);
+  await route();
 }
+
+document.addEventListener('click', (event) => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target instanceof Element ? event.target.closest('a') : null;
+  if (!link || link.target || link.hasAttribute('download')) return;
+  const href = link.getAttribute('href');
+  if (!href || href.startsWith('#')) return;
+  let url;
+  try { url = new URL(href, location.origin); } catch { return; }
+  if (url.origin !== location.origin || !isShellPath(url.pathname)) return;
+  event.preventDefault();
+  navigate(url.pathname + url.search);
+});
 
 boot().catch((err) => { clear(content).append(h('div', { class: 'alert danger' }, errorMessage(err))); });

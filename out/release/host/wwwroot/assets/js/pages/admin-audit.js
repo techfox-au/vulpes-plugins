@@ -5,7 +5,7 @@ export async function mount(el, ctx) { root = el; ctx.setTitle(['Audit trail']);
 export function unmount() { root = null; }
 
 function focusHref(id) {
-  return '#/?focus=' + encodeURIComponent(id);
+  return '/?focus=' + encodeURIComponent(id);
 }
 
 /** Ids still on this account's secret list. Anything else stays plain text. */
@@ -53,7 +53,7 @@ async function render(ctx, state) {
 
   // Host audit trail: admin and authentication events, not Microsoft 365 activity (docs/security.md).
   root.append(h('div', { class: 'page-header' }, h('h1', null, 'Audit trail'),
-    h('div', { class: 'toolbar' }, filterAction, filterActor, h('button', { class: 'btn', onClick: apply }, 'Filter'))));
+    h('div', { class: 'toolbar nowrap' }, filterAction, filterActor, h('button', { class: 'btn', onClick: apply }, 'Filter'))));
 
   try {
     const [data, owned] = await Promise.all([

@@ -17,7 +17,8 @@ Two plugins are already here. Microsoft 365 Audit collects logs into Elasticsear
 - Set `<Version>` in the plugin project to the same semantic version as `plugin.json`. `Directory.Build.props` would otherwise stamp the assembly `0.1.0`.
 - Warnings are errors, nullable is on, and NuGet audit fails the build on known-vulnerable packages. Fix the warning. Leave the `NoWarn` list in `Directory.Build.props` as it is.
 - Store secrets with the protectors below. Leave passwords, tokens, and key material out of logs, exceptions, and JSON responses.
-- `./build.sh` republishes every plugin, replaces `latest/*.7z`, and clear-signs `latest/manifest`. Run it only when cutting a release. It needs `gpg`, `python3`, and the release key.
+- `./build.sh` publishes every plugin. It replaces a `latest/*.7z` only when the files that would be packed differ from that archive's `files.sha256`, and clear-signs `latest/manifest` only then. Run it only when cutting a release. It needs `gpg`, `python3`, and the release key.
+- The dashboard image includes PowerShell 7 as `pwsh`. It is the Alpine community package for that image's architecture, both amd64 and arm64. `dotnet` on `PATH` remains the ASP.NET runtime.
 
 ## Create the project
 
@@ -157,7 +158,7 @@ A `SecurityEvent` sets `PluginId`, `Source`, `RecordId`, `TenantId`, and `Timest
 
 ## Pages
 
-For each `nav` entry, add `wwwroot/pages/<page>.html` and `wwwroot/js/<page>.js`. The shell fetches the HTML fragment and then imports the module. The page URL is `#/p/{id}/{page}`.
+For each `nav` entry, add `wwwroot/pages/<page>.html` and `wwwroot/js/<page>.js`. The shell fetches the HTML fragment and then imports the module. The page URL is `/p/{id}/{page}`.
 
 The HTML fragment contains markup only. The content security policy is `script-src 'self'`, so an inline script, an inline event handler, or a style attribute will not run. Put behaviour in the module. Import a sibling file with a relative URL.
 
@@ -202,7 +203,7 @@ The host checkout has to be present. Tests that boot the host also build it.
 
 ## Release package
 
-`./build.sh` publishes each project under `src/` that has a `plugin.json`, packs a `.7z` named after the entry assembly (`Vulpes.Plugins.Example.dll` becomes `Vulpes.Plugins.Example.7z`), writes `latest/manifest`, and clear-signs it. The manifest's first line is `hmac_key:`. Each later line is `name.7z:<hmac-sha512>:<version>`. The dashboard installs only a package whose HMAC is on that signed manifest.
+`./build.sh` publishes each project under `src/` that has a `plugin.json`. A `.7z` is named after the entry assembly (`Vulpes.Plugins.Example.dll` becomes `Vulpes.Plugins.Example.7z`). If `latest/` already has that archive and its `files.sha256` matches the files that would be packed, the archive is left in place. Otherwise it is packed again. `latest/manifest` is rewritten and clear-signed only when a package was packed or removed. The manifest's first line is `hmac_key:`. Each later line is `name.7z:<hmac-sha512>:<version>`. The dashboard installs only a package whose HMAC is on that signed manifest.
 
 The host records the SHA-256 of the entry DLL at install and checks it on every load. Replacing the DLL in an installed `pkg/` directory makes the plugin fail to load. Ship the change as a new package from the signed manifest, then restart the dashboard.
 

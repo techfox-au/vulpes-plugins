@@ -14,9 +14,9 @@ export async function mount(el, ctx) {
   ctx.setTitle(['Home']);
   const greeting = h('div', { class: 'page-header' },
     h('h1', null, 'Home'));
-  const statusGrid = h('div', { class: 'grid cols-4' });
+  const statusGrid = h('div', { class: 'grid cols-3' });
   const pluginsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), h('div', { class: 'muted' }, 'Loading…'));
-  const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '#/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
+  const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
   const sharesCard = h('div', { class: 'card share-panel', hidden: true });
   el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), sharesCard);
 
@@ -24,7 +24,6 @@ export async function mount(el, ctx) {
     status = await ctx.api.get('/api/status');
     statusGrid.append(
       kpi('Search backend', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'Healthy' : 'Unreachable') : 'Not configured', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'success' : 'danger') : 'warning', esDetail(status.elasticsearch)),
-      kpi('Plugins loaded', String(status.plugins?.loaded ?? 0), status.plugins?.failed ? 'warning' : '', status.plugins?.failed ? `${status.plugins.failed} failed to load` : ''),
       kpi('Alert rules', String(status.alerts?.enabledRules ?? 0), '', `${fmt.number(status.alerts?.alertsLast24h ?? 0)} alerts in 24h`),
       kpi('Notifications', status.notifications?.smtpConfigured ? 'Email ready' : 'Email not set', status.notifications?.smtpConfigured ? 'success' : 'warning', status.notifications?.pending ? `${status.notifications.pending} pending` : ''),
     );
@@ -49,7 +48,7 @@ export async function mount(el, ctx) {
     const rows = [
       ...plugins.map((m) => h('div', { class: 'flex between' },
         h('div', null, h('div', null, h('strong', null, m.name), ' ', badge('v' + m.version), ' ', pluginHealth(m.id, updateIds))),
-        h('a', { class: 'btn sm', href: `#/p/${m.id}/${m.pages[0] || ''}` }, 'Open'))),
+        h('a', { class: 'btn sm', href: `/p/${m.id}/${m.pages[0] || ''}` }, 'Open'))),
       ...failures.map((f) => h('div', { class: 'flex between' },
         h('div', null, h('div', null, h('strong', null, f.id), ' ', badge(f.unhealthy ? 'unhealthy' : 'failed', 'danger', true))))),
     ];
@@ -122,8 +121,8 @@ function applyFocus(card) {
 }
 
 function shareHeader(ctx) {
-  const actions = [h('a', { class: 'btn sm', href: '#/p/secret-sharing/send' }, 'Send secret')];
-  if (ctx.hasRole('Admin', 'Analyst')) actions.push(h('a', { class: 'btn sm', href: '#/p/secret-sharing/collect' }, 'Collect secret'));
+  const actions = [h('a', { class: 'btn sm', href: '/p/secret-sharing/send' }, 'Send secret')];
+  if (ctx.hasRole('Admin', 'Analyst')) actions.push(h('a', { class: 'btn sm', href: '/p/secret-sharing/collect' }, 'Collect secret'));
   return h('div', { class: 'card-header' }, h('h2', null, 'Secret sharing'), h('div', { class: 'btn-group' }, actions));
 }
 

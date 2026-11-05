@@ -1,4 +1,4 @@
-import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell211';
+import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell249';
 
 (async function () {
   const FILE_LIMIT = 40 * 1024 * 1024;
@@ -127,6 +127,7 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
       progress.setProgress(1);
       progress.setStatus('Done');
       panel.hidden = true;
+      uploadPow.stop();
       setAlert('ok', 'Encrypted secret uploaded. You can close this page.');
       } finally {
         progress.close();

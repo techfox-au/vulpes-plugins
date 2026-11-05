@@ -1,4 +1,4 @@
-import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell211';
+import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell249';
 
 (async function () {
   const params = new URLSearchParams(location.search);
@@ -56,8 +56,8 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     const when = meta.expiresAt ? new Date(meta.expiresAt).toLocaleString() : '';
     const mode = meta.oneTime ? 'One-time (destroyed after reveal)' : meta.maxAccessCount ? 'Multi-view (max ' + meta.maxAccessCount + ' opens)' : 'Multi-view until expiry';
     const bits = [];
-    if (displayName) bits.push('<p><strong>' + escapeHtml(displayName) + '</strong></p>');
-    else if (meta.passwordProtected && (meta.encryptedLabel || meta.publicLabel)) bits.push('<p><strong>Hidden</strong> <span class="muted">(enter the link password to reveal)</span></p>');
+    if (displayName) bits.push('<p class="upload-name">' + escapeHtml(displayName) + '</p>');
+    else if (meta.passwordProtected && (meta.encryptedLabel || meta.publicLabel)) bits.push('<p><span class="upload-name">Hidden</span> <span class="muted">(enter the link password to reveal)</span></p>');
     if (kind === 'collect' && !meta.hasPayload) bits.push('<p><strong>Status:</strong> ' + (meta.status === 'waiting' ? 'Waiting for upload' : 'Unavailable') + '</p>');
     if (!(meta.oneTime && extra)) bits.push('<p><strong>Expires:</strong> ' + escapeHtml(when) + '</p>');
     bits.push('<p><strong>Mode:</strong> ' + escapeHtml(mode) + '</p>');
@@ -179,6 +179,12 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     if (!message) { alertEl.className = 'alert hidden'; alertEl.textContent = ''; return; }
     alertEl.className = 'alert ' + (kind || 'info');
     alertEl.textContent = message;
+    if (String(message).indexOf('not available from your IP') !== -1) {
+      metaBox.classList.add('hidden');
+      confirmBox.classList.add('hidden');
+      metaBox.hidden = true;
+      confirmBox.hidden = true;
+    }
   }
   function fail(message) {
     metaBox.classList.add('hidden');

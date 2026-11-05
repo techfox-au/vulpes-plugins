@@ -156,7 +156,8 @@ export { solvePow as solveRefreshing };
 
 /**
  * Keeps a solved ticket ready. Starts immediately, and when half the ticket's
- * life has passed it solves the next ticket. take() returns the newest finished solution.
+ * life has passed it solves the next ticket. take() returns the newest finished
+ * solution and does not start a replacement; the half-life timer does that.
  */
 export function createPowKeeper(fetchChallenge, deps = {}) {
   const now = deps.now ?? powNow;
@@ -269,7 +270,6 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
         if (usable(held)) {
           const solution = held;
           held = null;
-          if (!pending) begin(generation);
           return solution;
         }
         lastError = null;

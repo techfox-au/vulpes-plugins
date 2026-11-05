@@ -136,7 +136,7 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
       title.textContent = 'Secret';
       document.title = 'Secret';
       const burned = meta.oneTime || (meta.maxAccessCount != null && (meta.accessCount || 0) + 1 >= meta.maxAccessCount);
-      if (burned) setAlert('warning', 'Decrypted. This secret has been destroyed on the server.');
+      if (burned) setAlert('warning', 'This secret has been destroyed on the server.');
       else setAlert(null);
       const filename = payload.filename || meta.filename;
       const hide = !!(payload.hideTextByDefault || meta.hideTextByDefault);
@@ -148,13 +148,16 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
       } else {
         const text = await SenditCrypto.plainToText(plain);
         plain = null;
-        const shown = hide ? '••••••••' : escapeHtml(text);
-        renderMeta('<pre class="secret-reveal" id="secret-text">' + shown + '</pre>' + (hide ? '<div class="show-secret"><button type="button" class="btn" id="show-secret">Show</button></div>' : ''));
-        const show = document.getElementById('show-secret');
-        if (show) show.addEventListener('click', () => { document.getElementById('secret-text').textContent = text; show.remove(); });
+        renderMeta(null);
+        metaBox.append(secretBox(text, hide));
       }
     } catch (err) {
-      setAlert('danger', err.message || 'Could not decrypt the secret.');
+      const message = err.message || 'Could not decrypt the secret.';
+      if (message.indexOf('not available from your IP') !== -1) {
+        fail(message);
+        return;
+      }
+      setAlert('danger', message);
       revealBtn.disabled = meta.passwordProtected && !passwordEl.value;
     }
   }
@@ -181,6 +184,61 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     metaBox.classList.add('hidden');
     confirmBox.classList.add('hidden');
     setAlert('danger', message);
+  }
+  function secretBox(text, mask) {
+    const wrap = document.createElement('div');
+    wrap.className = 'secret-box';
+    const tools = document.createElement('div');
+    tools.className = 'secret-box-tools';
+    const pre = document.createElement('pre');
+    pre.className = 'secret-reveal';
+    let visible = !mask;
+    const eye = document.createElement('button');
+    eye.type = 'button';
+    eye.className = 'secret-tool';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'secret-tool';
+    copy.title = 'Copy secret';
+    copy.setAttribute('aria-label', 'Copy secret');
+    copy.append(svgIcon(['M9 9h11a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2z', 'M5 15V6a2 2 0 0 1 2-2h9']));
+    function paint() {
+      pre.textContent = visible ? text : '\u2022'.repeat(Math.max(text.length, 8));
+      pre.classList.toggle('is-hidden', !visible);
+      if (!mask) return;
+      eye.replaceChildren(svgIcon(visible
+        ? ['M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94', 'M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19', 'M14.12 14.12a3 3 0 1 1-4.24-4.24', 'M1 1l22 22']
+        : ['M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z']));
+      eye.title = visible ? 'Hide secret' : 'Show secret';
+      eye.setAttribute('aria-label', eye.title);
+      eye.setAttribute('aria-pressed', visible ? 'true' : 'false');
+    }
+    if (mask) {
+      eye.addEventListener('click', () => { visible = !visible; paint(); });
+      tools.append(eye);
+    }
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        copy.title = 'Copied';
+        setTimeout(() => { copy.title = 'Copy secret'; }, 1500);
+      } catch { copy.title = 'Could not copy'; }
+    });
+    tools.append(copy);
+    paint();
+    wrap.append(tools, pre);
+    return wrap;
+  }
+  function svgIcon(paths) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    for (const d of paths) {
+      const path = document.createElementNS(svg.namespaceURI, 'path');
+      path.setAttribute('d', d);
+      svg.append(path);
+    }
+    return svg;
   }
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

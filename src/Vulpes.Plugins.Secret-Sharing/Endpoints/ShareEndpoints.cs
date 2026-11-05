@@ -303,7 +303,7 @@ public static class ShareEndpoints
         return Results.Json(challenge);
     }
 
-    private static IResult CollectMeta(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, HttpContext http)
+    private static async Task<IResult> CollectMeta(string id, PowBody body, ShareStore store, PowService pow, ShareScanGuard scan, IClientIpCapability ipCap, IHostAuditLog audit, HttpContext http)
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
@@ -311,6 +311,13 @@ public static class ShareEndpoints
         if (error is not null) return Denied(scan, http, error);
         var meta = store.CollectMeta(id);
         if (meta is null || meta.Status is "expired" or "consumed") return Miss(scan, http);
+        // A submitted collect is a retrieval. Do not describe it unless this address may open it.
+        if (meta.Status == "ready" && !IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
+        {
+            await audit.RecordAsync("secret.collect.ip_denied", id, "Collect retrieval denied: IP not allowed.", actor: UserId(http) ?? "anonymous", cancellationToken: http.RequestAborted);
+            return Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
         return Results.Json(new { meta.PublicKey, meta.Status, meta.OneTime, meta.PasswordProtected, meta.HideTextByDefault, meta.ExpiresAt, meta.Filename, accessCount = meta.AccessCount, maxAccessCount = meta.MaxAccessCount, hasPayload = meta.Status == "ready", publicLabel = meta.PublicLabel });
     }
 

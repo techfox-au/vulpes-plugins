@@ -2,6 +2,7 @@ import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
 import * as webauthn from '../webauthn.js?v=shell127';
 import { preparePasswordWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell213';
+import { confirmIdentity as reauth } from '../reauth.js?v=shell258';
 
 let root;
 let flash;
@@ -187,7 +188,7 @@ async function render(ctx) {
   const passwordCard = h('div', { class: 'card' });
   passwordCard.dataset.panel = 'password';
   passwordCard.append(h('div', { class: 'card-header' }, h('h2', null, 'Password')));
-  // A disabled password means passkey-only (docs/security.md).
+  // Password controls stay available when the person turned password sign-in off. An administrator locking the account to passkeys removes them.
   if (me.passwordLoginAvailable) {
     const form = h('form', { class: 'col', novalidate: true });
     if (me.passwordSet) form.append(field('Current password', 'currentPassword', 'current-password'));
@@ -226,43 +227,20 @@ function field(label, name, autocomplete) {
   return h('div', { class: 'field' }, h('label', null, label), h('input', { class: 'input', type: 'password', name, autocomplete }));
 }
 
-async function reauth(ctx, me, { passkeyOnly = false } = {}) {
-  const hasPassword = !passkeyOnly && me.passwordSet && me.passwordLoginEnabled;
-  const container = h('div', { class: 'col' });
-  let done = false;
-  const modalError = h('div', { class: 'alert danger hidden', role: 'alert' });
-  const showModalError = (message) => { modalError.textContent = message; modalError.classList.remove('hidden'); };
-  const passwordInput = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', placeholder: 'Current password' });
-  if (hasPassword) container.append(h('div', { class: 'field' }, h('label', null, 'Password'), passwordInput));
-  container.append(modalError);
-  const passkeyBtn = h('button', { class: 'btn', type: 'button' }, passkeyOnly ? 'Use a passkey' : 'Use a passkey instead');
-  if (me.passkeyCount > 0 && webauthn.isSupported()) container.append(passkeyBtn);
-  const result = await new Promise((resolve) => {
-    passkeyBtn.addEventListener('click', async () => {
-      setBusy(passkeyBtn, true, 'Waiting for your key…');
-      try { await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) }); done = true; document.querySelector('.modal-card')?.closeModal(true); }
-      catch (err) { showModalError(webauthn.describeError(err) || errorMessage(err)); }
-      finally { setBusy(passkeyBtn, false); }
-    });
-    modal.show({ title: 'Confirm it is you', content: container, actions: [
-      { label: 'Cancel', value: false },
-      ...(hasPassword ? [{ label: 'Confirm', kind: 'primary', onClick: async () => { try { await ctx.api.post('/api/account/reauth/password', { password: passwordInput.value }); done = true; return true; } catch (err) { showModalError(err.status === 401 ? 'Incorrect password.' : errorMessage(err)); return false; } } }] : []),
-    ] }).then(resolve);
-  });
-  return done || result === true;
+async function setPasswordLogin(ctx, me, box) {
+  await applyPasswordLogin(ctx, me, box, !box.checked);
 }
 
-async function setPasswordLogin(ctx, me, box) {
-  const enabled = !box.checked;
+async function applyPasswordLogin(ctx, me, box, enabled) {
   try {
     if (!enabled) {
       if (!webauthn.isSupported()) {
-        box.checked = false;
+        box.checked = enabled;
         panelNote(document.querySelector('[data-panel="passkeys"]'), 'Passkeys are not supported in this browser.');
         return;
       }
       if (!(await reauth(ctx, me, { passkeyOnly: true }))) {
-        box.checked = false;
+        box.checked = enabled;
         return;
       }
     }
@@ -270,30 +248,36 @@ async function setPasswordLogin(ctx, me, box) {
     flash = { panel: 'passkeys', message: enabled ? 'Password sign-in enabled.' : 'Password sign-in disabled.', kind: 'success' };
     await render(ctx);
   } catch (err) {
-    box.checked = !box.checked;
+    // The checkbox means "disable password sign-in", so put it back to the state before this attempt.
+    box.checked = enabled;
     if (enabled && err.code === 'reauth_required') {
-      if (await reauth(ctx, me)) return setPasswordLogin(ctx, me, box);
-    } else {
-      panelNote(document.querySelector('[data-panel="passkeys"]'), webauthn.describeError(err) || errorMessage(err));
+      if (await reauth(ctx, me)) return applyPasswordLogin(ctx, me, box, enabled);
+      return;
     }
+    panelNote(document.querySelector('[data-panel="passkeys"]'), webauthn.describeError(err) || errorMessage(err));
   }
 }
 
 async function addPasskey(ctx, btn) {
   const values = await modal.form('Add a passkey', [{ name: 'name', label: 'Name (e.g. "YubiKey 5C NFC")', value: 'Passkey', required: true }], { submitLabel: 'Continue' });
   if (!values) return;
+  await registerPasskey(ctx, btn, values.name);
+}
+
+async function registerPasskey(ctx, btn, name) {
   setBusy(btn, true, 'Waiting for your passkey…');
   try {
-    await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name: values.name }, onCredential: (credential) => unlockWithPasskey(credential) });
+    await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name }, onCredential: (credential) => unlockWithPasskey(credential) });
     flash = { panel: 'passkeys', message: 'Passkey added.', kind: 'success' };
     await render(ctx);
   } catch (err) {
     if (err.code === 'reauth_required') {
       const me = await ctx.api.get('/api/account');
-      if (await reauth(ctx, me)) { setBusy(btn, false); return addPasskey(ctx, btn); }
-    } else {
-      panelNote(document.querySelector('[data-panel="passkeys"]'), webauthn.describeError(err) || errorMessage(err));
+      setBusy(btn, false);
+      if (await reauth(ctx, me)) return registerPasskey(ctx, btn, name);
+      return;
     }
+    panelNote(document.querySelector('[data-panel="passkeys"]'), webauthn.describeError(err) || errorMessage(err));
   } finally { setBusy(btn, false); }
 }
 
@@ -309,13 +293,21 @@ async function rename(ctx, passkey) {
 
 async function remove(ctx, passkey) {
   if (!(await modal.confirm('Remove passkey', `Remove "${passkey.name}"? You will no longer be able to sign in with it.`, { danger: true, confirmLabel: 'Remove' }))) return;
+  await deletePasskey(ctx, passkey);
+}
+
+async function deletePasskey(ctx, passkey) {
   try {
     await ctx.api.delete(`/api/account/passkeys/${encodeURIComponent(passkey.id)}`);
     await dropPasskey(passkey.id);
     flash = { panel: 'passkeys', message: 'Passkey removed.', kind: 'success' };
     await render(ctx);
   } catch (err) {
-    if (err.code === 'reauth_required') { const me = await ctx.api.get('/api/account'); if (await reauth(ctx, me)) return remove(ctx, passkey); }
-    else panelNote(document.querySelector('[data-panel="passkeys"]'), errorMessage(err));
+    if (err.code === 'reauth_required') {
+      const me = await ctx.api.get('/api/account');
+      if (await reauth(ctx, me)) return deletePasskey(ctx, passkey);
+      return;
+    }
+    panelNote(document.querySelector('[data-panel="passkeys"]'), errorMessage(err));
   }
 }

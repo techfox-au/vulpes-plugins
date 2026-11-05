@@ -23,14 +23,14 @@ $('tab-password').addEventListener('click', () => switchTab('password'));
 $('tab-passkey').addEventListener('click', () => switchTab('passkey'));
 
 function common() {
-  return { token: $('token').value.trim(), username: $('username').value.trim(), displayName: $('displayName').value.trim() || null, email: $('email').value.trim() };
+  return { token: $('token').value.trim(), username: $('username').value.trim(), displayName: $('displayName').value.trim(), email: $('email').value.trim() };
 }
 
 function validateCommon(values) {
   if (!values.token) return 'The setup token is required.';
   if (!values.username) return 'A username is required.';
-  if (!values.email) return 'Email is required.';
-  if (!$('email').checkValidity()) return 'Email is not a valid address.';
+  if (!values.displayName) return 'A display name is required.';
+  if (values.email && !$('email').checkValidity()) return 'Email is not a valid address.';
   return null;
 }
 

@@ -323,6 +323,13 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
             var saved = await admin.SendAsync(HttpMethod.Put, "/api/plugins/secret-sharing/collect-retrieve-ips", new { allowedIps = "203.0.113.10" });
             Assert.True(saved.IsSuccessStatusCode, await saved.Content.ReadAsStringAsync());
 
+            var metaDenied = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id + "/meta", (await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id)).Body);
+            var metaText = await metaDenied.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Forbidden, metaDenied.StatusCode);
+            Assert.Contains("not available from your IP address", metaText, StringComparison.Ordinal);
+            Assert.DoesNotContain("publicKey", metaText, StringComparison.Ordinal);
+            Assert.DoesNotContain("expiresAt", metaText, StringComparison.Ordinal);
+
             var openProof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id);
             var denied = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id + "/open", openProof.Body);
             var deniedText = await denied.Content.ReadAsStringAsync();

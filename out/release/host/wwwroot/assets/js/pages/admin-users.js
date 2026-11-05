@@ -37,7 +37,7 @@ async function createUser(ctx) {
     { name: 'displayName', label: 'Display name' },
     { name: 'email', label: 'Email (for notifications)', type: 'email' },
     { name: 'role', label: 'Role', type: 'select', options: roleOptions, value: 'Viewer' },
-    { name: 'passwordLoginEnabled', label: 'Allow password sign-in (otherwise passkey only)', type: 'checkbox', value: true },
+    { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: true },
   ], {
     submitLabel: 'Create',
     onSubmit: (values) => ctx.api.post('/api/admin/users', { ...values, email: values.email || null }),
@@ -134,7 +134,7 @@ async function editUser(ctx, user) {
     { name: 'displayName', label: 'Display name', value: user.displayName || '' },
     { name: 'email', label: 'Email', type: 'email', value: user.email || '' },
     { name: 'role', label: 'Role', type: 'select', options: roleOptions, value: user.role },
-    { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: user.passwordLoginEnabled },
+    { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: user.passwordPermitted },
   ];
   const values = await modal.form('Edit user', fields, {
     onSubmit: (v) => ctx.api.patch(`/api/admin/users/${encodeURIComponent(user.id)}`, { displayName: v.displayName, email: v.email || '', role: v.role, passwordLoginEnabled: v.passwordLoginEnabled }),

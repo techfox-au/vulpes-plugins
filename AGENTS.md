@@ -135,6 +135,7 @@ Inject these. They are registered before `ConfigureServices`.
 | `IHttpClientFactory` | Outbound HTTP. |
 | `TimeProvider` | Clocks and delays. |
 | `IPowPolicy` | Live proof-of-work difficulty (1–28) and ticket lifetime in seconds (30–600). Difficulty is never zero. |
+| `IRecentAuthentication` | `IsRecent` is true when this request's session authenticated inside the host's recent-authentication window. |
 | `IClientIpCapability` | `IpRestrictionsEnabled` is false when the server cannot see a public visitor address. A restrictive allow-list then denies access. |
 | `IUserRoles` | Roles of a user who is not the caller. An unknown or inactive user has none. |
 | `ITenantDirectory` | The shared list of consented Entra directories. |
@@ -185,7 +186,7 @@ Files under `wwwroot/` other than `public/` require a signed-in user. They are s
 
 Put browser files that must load with no session under `wwwroot/public/`. They are served at `/plugins/{id}/public/...` and are cached as private static files. Those files contain no secrets.
 
-The host rewrites `/send`, `/upload`, `/collect`, and `/plugins/secret-sharing/send` for Secret Sharing only. A new plugin does not get those aliases.
+The host rewrites `/send`, `/upload`, and `/collect` for Secret Sharing only. A new plugin does not get those aliases.
 
 A route that must answer without a session calls `.AllowAnonymous()` on that route. Keep the handler safe for an anonymous caller: prove possession of a link secret before returning ciphertext, and return the same response for a missing record and a destroyed one when revealing the difference would help a scan.
 

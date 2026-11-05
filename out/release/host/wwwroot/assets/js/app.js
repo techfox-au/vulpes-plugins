@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell182';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell231';
 
 const content = document.getElementById('content');
 const navEl = document.getElementById('nav');
@@ -9,12 +9,12 @@ let current = null; // { unmount, key }
 
 const corePages = {
   '/': () => import('./pages/home.js?v=shell218'),
-  '/account': () => import('./pages/account.js?v=shell214'),
+  '/account': () => import('./pages/account.js?v=shell258'),
   '/alerts': () => import('./pages/alerts.js?v=shell101'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell214'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell217'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell235'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell275'),
   '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell161'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell204'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell269'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell170'),
 };
@@ -31,7 +31,7 @@ function isHomeLink(href, path) {
 
 function isShellPath(path) {
   return path === '/' || path === '/account' || path === '/alerts'
-    || path.startsWith('/admin/') || path.startsWith('/p/') || path === '/m' || path.startsWith('/m/');
+    || path.startsWith('/admin/') || path.startsWith('/p/');
 }
 
 export function navigate(path) {
@@ -95,18 +95,24 @@ function renderNav() {
       dataset: plugin ? { section: section.title, plugin } : { section: section.title },
     });
     if (plugin) {
-      sec.append(h('button', {
-        class: 'title', type: 'button',
+      const title = h('button', {
+        class: 'title draggable', type: 'button',
         'aria-expanded': isCollapsed ? 'false' : 'true',
         'aria-controls': `nav-items-${index}`,
-        onClick: () => {
+        onClick: (event) => {
+          if (event.currentTarget.dataset.dragged === '1') {
+            delete event.currentTarget.dataset.dragged;
+            return;
+          }
           const stored = openPlugin();
           const effective = stored == null ? open : stored;
           const next = effective === plugin ? '' : plugin;
           saveOpenPlugin(next);
           applyOpenPlugin(next);
         },
-      }, section.title));
+      }, section.title);
+      bindPluginDrag(title);
+      sec.append(title);
     } else {
       sec.append(h('div', { class: 'title' }, section.title));
     }
@@ -123,6 +129,101 @@ function renderNav() {
     sec.append(items);
     navEl.append(sec);
   });
+}
+
+const DRAG_THRESHOLD = 8;
+
+function bindPluginDrag(button) {
+  let startY = 0;
+  let pointerId = null;
+  let dragging = false;
+
+  function clearDragStyle() {
+    for (const section of navEl.querySelectorAll('.nav-section.dragging')) section.classList.remove('dragging');
+  }
+
+  function onPointerMove(event) {
+    if (pointerId === null || event.pointerId !== pointerId) return;
+    if (!dragging && Math.abs(event.clientY - startY) < DRAG_THRESHOLD) return;
+    const section = button.closest('.nav-section');
+    if (!section) return;
+    if (!dragging) {
+      dragging = true;
+      section.dataset.restoreExpanded = section.classList.contains('collapsed') ? '' : '1';
+      section.classList.add('dragging', 'collapsed');
+    }
+    movePluginSection(section, event.clientY);
+  }
+
+  function onPointerEnd(event) {
+    if (pointerId === null || event.pointerId !== pointerId) return;
+    const moved = dragging;
+    const section = button.closest('.nav-section');
+    pointerId = null;
+    dragging = false;
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerEnd);
+    window.removeEventListener('pointercancel', onPointerEnd);
+    clearDragStyle();
+    if (section?.dataset.restoreExpanded === '1') section.classList.remove('collapsed');
+    if (section) delete section.dataset.restoreExpanded;
+    try {
+      if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId);
+    } catch { /* the pointer is already inactive once it is released */ }
+    if (!moved) return;
+    button.dataset.dragged = '1';
+    const order = [...navEl.querySelectorAll('.nav-section[data-plugin]')].map((section) => section.dataset.plugin);
+    const current = (state.nav?.sections || []).map(pluginId).filter(Boolean);
+    if (order.length === current.length && order.every((id, index) => id === current[index])) return;
+    void savePluginOrder(order);
+  }
+
+  button.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || pointerId !== null) return;
+    startY = event.clientY;
+    pointerId = event.pointerId;
+    dragging = false;
+    clearDragStyle();
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+  });
+}
+
+function movePluginSection(section, clientY) {
+  const plugins = [...navEl.querySelectorAll(':scope > .nav-section[data-plugin]')].filter((item) => item !== section);
+  let before = null;
+  for (const item of plugins) {
+    const title = item.querySelector(':scope > button.title');
+    if (!title) continue;
+    const box = title.getBoundingClientRect();
+    if (clientY < box.top + box.height / 2) {
+      before = item;
+      break;
+    }
+  }
+  if (before) {
+    if (before.previousElementSibling !== section) navEl.insertBefore(section, before);
+    return;
+  }
+  if (navEl.lastElementChild !== section) navEl.append(section);
+}
+
+async function savePluginOrder(order) {
+  try {
+    await api.put('/api/nav/plugin-order', { pluginIds: order });
+    const sections = state.nav?.sections || [];
+    const fixed = sections.filter((section) => !pluginId(section));
+    const byId = new Map(sections.filter((section) => pluginId(section)).map((section) => [pluginId(section), section]));
+    const ordered = order.map((id) => byId.get(id)).filter(Boolean);
+    for (const section of sections) {
+      const id = pluginId(section);
+      if (id && !order.includes(id)) ordered.push(section);
+    }
+    state.nav = { ...state.nav, sections: [...fixed, ...ordered] };
+  } catch {
+    renderNav();
+  }
 }
 
 function setActiveNav(path) {
@@ -143,6 +244,9 @@ function setCrumbs(parts) {
 }
 
 async function applyBusinessPremiumNav() {
+  const loaded = (state.nav?.sections || []).some((section) =>
+    section.items.some((item) => item.pluginId === 'microsoft-365-audit'));
+  if (!loaded) return;
   let riskOff = false;
   let hideRisk = false;
   try {
@@ -206,7 +310,7 @@ async function mountPluginPage(pluginId, page, query) {
     return;
   }
 
-  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell48`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell277`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Page not found (${res.status})`);
   const html = await res.text();
   // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
@@ -214,7 +318,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell212`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell277`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }
@@ -227,14 +331,6 @@ async function route() {
     history.replaceState(null, '', location.hash.slice(1));
   }
   let { path, query } = parseLocation();
-  if (path === '/m/audit' || path.startsWith('/m/audit/')) {
-    location.replace('/p/microsoft-365-audit' + path.slice('/m/audit'.length) + location.search);
-    return;
-  }
-  if (path === '/m' || path.startsWith('/m/')) {
-    location.replace('/p' + path.slice(2) + location.search);
-    return;
-  }
   if (state.nav?.sections?.some((section) => section.items.some((item) => item.disabled && item.href === path))) {
     history.replaceState(null, '', '/p/microsoft-365-audit/overview');
     path = '/p/microsoft-365-audit/overview';

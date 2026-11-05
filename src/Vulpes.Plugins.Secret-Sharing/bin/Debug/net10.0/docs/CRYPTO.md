@@ -24,7 +24,7 @@ UI caps: file 40 MiB, secret text 1,000,000 characters. The server accepts a bas
 
 ## Owner fields
 
-Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The host holds that key. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
+Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The raw user data key stays in the browser. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
 
 ## Proof of work
 

@@ -1,9 +1,40 @@
-import { h, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote } from '../ui.js?v=shell84';
+import { h, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell84';
 
 let root;
+let pageCtx;
 let emailNotice = null;
-export async function mount(el, ctx) { root = el; ctx.setTitle(['Settings']); await render(ctx); }
-export function unmount() { root = null; }
+export async function mount(el, ctx) {
+  root = el;
+  pageCtx = ctx;
+  ctx.setTitle(['Settings']);
+  document.addEventListener('keydown', onPrivatePluginShortcut);
+  await render(ctx);
+}
+export function unmount() {
+  document.removeEventListener('keydown', onPrivatePluginShortcut);
+  root = null;
+  pageCtx = null;
+}
+
+function onPrivatePluginShortcut(event) {
+  if (!event.ctrlKey || event.metaKey || event.altKey || !event.shiftKey) return;
+  if (event.key !== 'p' && event.key !== 'P') return;
+  if (document.querySelector('.modal-card')) return;
+  event.preventDefault();
+  void openPrivatePlugins();
+}
+
+async function openPrivatePlugins() {
+  if (!pageCtx) return;
+  await modal.form('Private plugins', [
+    { name: 'privateKey', label: 'SSH private key', type: 'textarea', required: true, help: 'Paste the ASCII armor, the same text that is in the key file.' },
+    { name: 'passphrase', label: 'Passphrase', type: 'password', help: 'Leave this blank when the key has none.' },
+  ], {
+    submitLabel: 'Use key',
+    wide: true,
+    onSubmit: (values) => pageCtx.api.post('/api/admin/settings/private-plugins', { privateKey: values.privateKey, passphrase: values.passphrase || null }),
+  });
+}
 
 function emailFieldName(message) {
   if (/graph directory/i.test(message)) return 'graphTenantId';
@@ -16,6 +47,13 @@ function emailFieldName(message) {
   if (/domain/i.test(message)) return 'mailgunDomain';
   if (/host/i.test(message)) return 'host';
   if (/port/i.test(message)) return 'port';
+  return null;
+}
+
+function powError(v) {
+  if (!Number.isInteger(v.difficultyBits) || v.difficultyBits < 1 || v.difficultyBits > 28) return 'Difficulty must be from 1 to 28 bits.';
+  if (!Number.isInteger(v.challengeTtlSeconds) || v.challengeTtlSeconds < 30 || v.challengeTtlSeconds > 600) return 'Ticket duration must be from 30 to 600 seconds.';
+  if (!Number.isInteger(v.scanBudgetWindowSeconds) || v.scanBudgetWindowSeconds < 30 || v.scanBudgetWindowSeconds > 3600) return 'Scan window must be from 30 to 3600 seconds.';
   return null;
 }
 
@@ -117,6 +155,8 @@ async function render(ctx) {
       e.preventDefault();
       panelNote(powCard, '');
       const v = formValues(form);
+      const invalid = powError(v);
+      if (invalid) { panelNote(powCard, invalid); return; }
       setBusy(save, true, 'Saving…');
       try {
         await ctx.api.put('/api/admin/settings/pow', v);

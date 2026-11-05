@@ -24,10 +24,10 @@ UI caps: file 40 MiB, secret text 1,000,000 characters. The server accepts a bas
 
 ## Owner fields
 
-Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The host holds that key. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
+Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The raw user data key stays in the browser. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
 
 ## Proof of work
 
-HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 18 bits and 120 seconds for a send or collect challenge. The collect page mints a new ticket when half of that life has passed. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
+HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 14 bits and 120 seconds for a send or collect challenge. The collect page mints a new ticket when half of that life has passed. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
 
 Public pages are `/send`, `/upload`, and `/collect`.

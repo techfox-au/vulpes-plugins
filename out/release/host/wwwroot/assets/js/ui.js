@@ -266,6 +266,7 @@ export const modal = {
         } else {
           input = h('input', { class: 'input', type: f.type || 'text', name: f.name, value: f.value ?? '', placeholder: f.placeholder || '', autocomplete: f.autocomplete || 'off', required: !!f.required });
         }
+        if ((f.type === 'textarea' || f.type === 'select') && f.required) input.required = true;
         input.addEventListener('input', () => input.classList.remove('invalid'));
         inputs[f.name] = input;
         if (f.type === 'checkbox') form.append(h('label', { class: 'checkbox' }, input, h('span', null, f.label)));
@@ -353,12 +354,35 @@ export function errorMessage(err) {
   return String(err);
 }
 
+const copyBanners = new WeakMap();
+
 export async function copyToClipboard(text, host) {
   const panel = host || document.activeElement?.closest('.col, .card, .drawer-body, .modal-body');
+  if (!panel) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const previous = copyBanners.get(panel);
+  const gen = (previous?.gen || 0) + 1;
+  if (previous) clearTimeout(previous.timer);
+  copyBanners.set(panel, { gen, timer: 0 });
+  panelNote(panel, '');
   try {
     await navigator.clipboard.writeText(text);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const current = copyBanners.get(panel);
+    if (!current || current.gen !== gen) return;
     panelNote(panel, 'Copied to clipboard.', 'success');
+    current.timer = setTimeout(() => {
+      const latest = copyBanners.get(panel);
+      if (!latest || latest.gen !== gen) return;
+      copyBanners.delete(panel);
+      panelNote(panel, '');
+    }, 5000);
   } catch {
+    const current = copyBanners.get(panel);
+    if (!current || current.gen !== gen) return;
     panelNote(panel, 'Could not copy; select and copy manually.');
   }
 }

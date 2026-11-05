@@ -13,7 +13,7 @@ export async function mount(el, ctx) {
   await loadCrypto();
   await loadScript(`${pub}/transfer.js?v=crypto6`);
   await loadScript(`${pub}/cidr.js?v=crypto3`);
-  const { h, dropdown, filePicker } = ctx.ui;
+  const { h, dropdown, filePicker, copyToClipboard } = ctx.ui;
   const field = (label, control) => h('div', { class: 'field' }, h('label', null, label), control);
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. VPN credentials', autocomplete: 'off' });
   const textRadio = h('input', { type: 'radio', name: 'content-kind', value: 'text', checked: true });
@@ -37,7 +37,11 @@ export async function mount(el, ctx) {
   const cidr = h('input', { class: 'input', maxlength: '5000000', placeholder: 'e.g. 203.0.113.10, 192.168.1.0/24, 2001:db8::/32', autocomplete: 'off', spellcheck: 'false' });
   const cidrField = field('Allowed IPs / CIDRs', cidr);
   const button = h('button', { class: 'btn primary', type: 'button' }, 'Encrypt & create link');
-  const out = h('div', { class: 'col' });
+  const errors = h('div');
+  const results = h('div', { class: 'col' });
+  let banner = null;
+  let linkCount = 0;
+  let anyPassword = false;
   const syncKind = () => {
     const isFile = fileRadio.checked;
     textPanel.hidden = isFile;
@@ -58,6 +62,7 @@ export async function mount(el, ctx) {
     if (!password.value) confirm.value = '';
   });
   button.addEventListener('click', () => create());
+  root.classList.add('col');
   root.append(h('div', { class: 'card col gap-lg' },
     field('Send name', name),
     h('fieldset', { class: 'choice' }, h('legend', null, 'Content type'), h('label', null, textRadio, ' Text'), h('label', null, fileRadio, ' File')),
@@ -69,8 +74,9 @@ export async function mount(el, ctx) {
     field('Link password', password),
     confirmWrap,
     cidrField,
-    h('div', null, button),
-    out));
+    h('div', null, button)),
+    errors,
+    results);
 
   async function refreshIpRestrictions() {
     try {
@@ -157,9 +163,32 @@ export async function mount(el, ctx) {
       progress.setProgress(1);
       progress.setStatus('Done');
       const link = `${location.origin}/send?id=${encodeURIComponent(created.id)}${fragment}`;
-      out.replaceChildren(h('p', null, 'Your link. The decryption key is only in the # fragment.'), h('code', { class: 'share-link' }, link));
+      errors.replaceChildren();
+      linkCount += 1;
+      anyPassword = anyPassword || passwordProtected;
+      if (!banner) {
+        banner = h('div', { class: 'alert warning' });
+        results.append(banner);
+      }
+      banner.textContent = anyPassword
+        ? (linkCount > 1
+          ? 'Save these links and share the password separately. Vulpes never sees the password or the unwrapped key.'
+          : 'Save this link and share the password separately. Vulpes never sees the password or the unwrapped key.')
+        : (linkCount > 1
+          ? 'Save these links now. The links include the decryption key in the # fragment. Vulpes cannot show the key again.'
+          : 'Save this link now. The link includes the decryption key in the # fragment. Vulpes cannot show the key again.');
+      const copy = h('button', { class: 'btn primary', type: 'button' }, 'Copy link');
+      const download = h('button', { class: 'btn', type: 'button' }, 'Download .txt');
+      const panel = h('div', { class: 'card col' },
+        h('h2', null, 'Your link'),
+        h('p', { class: 'share-link' }, link),
+        h('div', { class: 'btn-group' }, copy, download));
+      copy.addEventListener('click', () => copyToClipboard(link, panel));
+      download.addEventListener('click', () => downloadText('vulpes-link-' + created.id + '.txt', link));
+      results.append(panel);
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (err) {
-      out.replaceChildren(h('div', { class: 'alert danger' }, err.message || 'Could not create the send.'));
+      errors.replaceChildren(h('div', { class: 'alert danger' }, err.message || 'Could not create the send.'));
     } finally {
       if (progress) progress.close();
       button.disabled = false;
@@ -176,6 +205,17 @@ function ensureUdk() {
 function loadCrypto() {
   return loadScript(`${pub}/nacl-fast.js`).then(() => loadScript(`${pub}/crypto.js?v=crypto2`)).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
 }
+function downloadText(filename, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function loadScript(src) {
   if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
   return new Promise((resolve, reject) => {

@@ -104,7 +104,7 @@ async function mountRetrieveIps(root, ctx) {
     try {
       const next = await ctx.api.put(`${ctx.plugin.apiBase}/collect-retrieve-ips`, { allowedIps: list.value });
       list.value = next.allowedIps || '';
-      panelNote(note, 'Saved.');
+      panelNote(note, 'Saved.', 'success');
     } catch (err) {
       panelNote(note, err.message || 'Could not save the address list.');
     } finally {

@@ -6,7 +6,7 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "Vulpes.Host/0.1.0": {
+      "Vulpes.Host/1.0.0": {
         "dependencies": {
           "BouncyCastle.Cryptography": "2.7.0",
           "Elastic.Clients.Elasticsearch": "9.5.3",
@@ -15,7 +15,7 @@
           "Microsoft.EntityFrameworkCore.Design": "10.0.14",
           "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
           "SharpCompress": "0.50.7",
-          "Vulpes.Sdk": "0.1.0"
+          "Vulpes.Sdk": "1.0.0"
         },
         "runtime": {
           "Vulpes.Host.dll": {}
@@ -511,18 +511,18 @@
           }
         }
       },
-      "Vulpes.Sdk/0.1.0": {
+      "Vulpes.Sdk/1.0.0": {
         "runtime": {
           "Vulpes.Sdk.dll": {
-            "assemblyVersion": "0.1.0.0",
-            "fileVersion": "0.1.0.0"
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
           }
         }
       }
     }
   },
   "libraries": {
-    "Vulpes.Host/0.1.0": {
+    "Vulpes.Host/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -786,7 +786,7 @@
       "path": "system.composition.typedparts/9.0.0",
       "hashPath": "system.composition.typedparts.9.0.0.nupkg.sha512"
     },
-    "Vulpes.Sdk/0.1.0": {
+    "Vulpes.Sdk/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

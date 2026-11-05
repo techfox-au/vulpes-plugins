@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Upload secret</title>
-  <link rel="stylesheet" href="/assets/css/app.css?v=shell168">
+  <link rel="stylesheet" href="/assets/css/app.css?v=shell237">
 </head>
 <body class="share-public-page">
   <main class="share-public">
@@ -22,13 +22,13 @@
           <label><input type="radio" name="content-kind" value="file"> File</label>
         </fieldset>
         <div id="panel-text" class="field">
-          <label for="secret-text">Secret text *</label>
-          <textarea id="secret-text" class="input chalkboard" rows="6" maxlength="1000000" placeholder="Paste token, note, or other secret…" autocomplete="off" spellcheck="false"></textarea>
+          <label for="secret-text">Secret text</label>
+          <textarea id="secret-text" class="input chalkboard" rows="6" maxlength="1000000" placeholder="Paste token, note, or other secret…" autocomplete="off" spellcheck="false" required></textarea>
         </div>
         <div id="panel-file" class="field" hidden>
-          <label>File (max 40 MB) *</label>
+          <label>File (max 40 MB)</label>
           <div class="file-picker">
-            <input id="secret-file" class="file-input-native" type="file">
+            <input id="secret-file" class="file-input-native" type="file" required>
             <label for="secret-file" class="btn file-picker-btn">Choose file</label>
             <span id="secret-file-name" class="file-picker-name">No file chosen</span>
           </div>
@@ -42,6 +42,6 @@
   <script src="/plugins/secret-sharing/public/nacl-fast.js"></script>
   <script src="/plugins/secret-sharing/public/crypto.js?v=crypto2"></script>
   <script src="/plugins/secret-sharing/public/transfer.js?v=crypto6"></script>
-  <script type="module" src="/plugins/secret-sharing/public/upload.js?v=crypto16"></script>
+  <script type="module" src="/plugins/secret-sharing/public/upload.js?v=crypto19"></script>
 </body>
 </html>

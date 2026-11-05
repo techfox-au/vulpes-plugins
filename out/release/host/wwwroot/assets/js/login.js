@@ -2,7 +2,7 @@ import { api, session, invalidateSession, setRedirectOnUnauthorized } from './ap
 import { setBusy, errorMessage } from './ui.js?v=shell195';
 import * as webauthn from './webauthn.js?v=shell160';
 import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell133';
-import { powBody, createPowKeeper, syncServerTime } from './pow.js?v=shell211';
+import { powBody, createPowKeeper, syncServerTime } from './pow.js?v=shell249';
 
 setRedirectOnUnauthorized(false);
 
@@ -41,7 +41,7 @@ async function init() {
   const passwordShown = !$('password-form').classList.contains('hidden');
   const moreWays = !passkeyBtn.classList.contains('hidden');
   $('or-1').classList.toggle('hidden', !(passwordShown && moreWays));
-  return true;
+  return !s.setupRequired;
 }
 
 function closePluginMenus() {
@@ -49,6 +49,7 @@ function closePluginMenus() {
 }
 
 function onSignedIn() {
+  powKeeper.stop();
   invalidateSession();
   closePluginMenus();
   location.assign(returnUrl);
@@ -69,7 +70,7 @@ $('password-form').addEventListener('submit', async (e) => {
     if (solving) setBusy(btn, true, 'Signing in…');
     const res = await api.post('/auth/login/password', { username, password, ...powBody(pow) }, { noRedirect: true });
     try { await unlockWithPassword(password); } catch { /* encryption unlock can wait until the next sign-in */ }
-    if (res?.mustChangePassword) { invalidateSession(); closePluginMenus(); location.assign('/account?changePassword=1'); return; }
+    if (res?.mustChangePassword) { powKeeper.stop(); invalidateSession(); closePluginMenus(); location.assign('/account?changePassword=1'); return; }
     onSignedIn();
   } catch (err) {
     showError(err.status === 401 ? 'Invalid username or password.' : err.status === 429 ? 'Too many attempts. Please wait a minute and try again.' : errorMessage(err));

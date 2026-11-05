@@ -61,6 +61,7 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
   metaEl.textContent = 'Expires ' + when + (meta.oneTime ? ' · one-time collect' : '');
 
   if (meta.status !== 'waiting') {
+    panel.hidden = true;
     setAlert('info', meta.status === 'ready' ? 'This collect already has an upload.' : 'This collect is not open.');
     return;
   }

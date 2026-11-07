@@ -20,8 +20,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Shared with the host; stripped from the .7z by the PluginPacker so the host's copy is used at runtime. -->
-    <ProjectReference Include="$(VulpesRoot)src/Vulpes.Sdk/Vulpes.Sdk.csproj" />
+    <!-- Compile against the host SDK. Do not copy the assembly; the host loads its own copy. -->
+    <ProjectReference Include="$(VulpesRoot)src/Vulpes.Sdk/Vulpes.Sdk.csproj">
+      <Private>false</Private>
+    </ProjectReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <!-- Private to this plugin. -->
     <PackageReference Include="Azure.Identity" />

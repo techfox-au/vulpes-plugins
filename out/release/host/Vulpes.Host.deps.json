@@ -14,7 +14,7 @@
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "10.0.14",
           "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
           "SharpCompress": "0.50.7",
-          "Vulpes.Sdk": "1.0.0"
+          "Vulpes.Sdk": "1.0.1"
         },
         "runtime": {
           "Vulpes.Host.dll": {}
@@ -313,11 +313,11 @@
           }
         }
       },
-      "Vulpes.Sdk/1.0.0": {
+      "Vulpes.Sdk/1.0.1": {
         "runtime": {
           "Vulpes.Sdk.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
+            "assemblyVersion": "1.0.1.0",
+            "fileVersion": "1.0.1.0"
           }
         }
       }
@@ -462,7 +462,7 @@
       "path": "sqlitepclraw.provider.e_sqlite3/2.1.13",
       "hashPath": "sqlitepclraw.provider.e_sqlite3.2.1.13.nupkg.sha512"
     },
-    "Vulpes.Sdk/1.0.0": {
+    "Vulpes.Sdk/1.0.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

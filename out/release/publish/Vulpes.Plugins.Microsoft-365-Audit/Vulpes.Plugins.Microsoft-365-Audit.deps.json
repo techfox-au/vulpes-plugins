@@ -10,7 +10,7 @@
         "dependencies": {
           "Azure.Identity": "1.21.0",
           "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
-          "Vulpes.Sdk": "1.0.0"
+          "Vulpes.Sdk": "1.0.1"
         },
         "runtime": {
           "Vulpes.Plugins.Microsoft-365-Audit.dll": {}
@@ -332,11 +332,11 @@
           }
         }
       },
-      "Vulpes.Sdk/1.0.0": {
+      "Vulpes.Sdk/1.0.1": {
         "runtime": {
           "Vulpes.Sdk.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
+            "assemblyVersion": "1.0.1.0",
+            "fileVersion": "1.0.1.0"
           }
         }
       }
@@ -488,7 +488,7 @@
       "path": "system.security.cryptography.protecteddata/4.5.0",
       "hashPath": "system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
     },
-    "Vulpes.Sdk/1.0.0": {
+    "Vulpes.Sdk/1.0.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

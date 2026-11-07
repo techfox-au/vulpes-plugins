@@ -135,4 +135,4 @@ echo "GPG will ask for the passphrase for ${gpg_key}."
 gpg --local-user "$gpg_key" --clearsign --digest-algo SHA512 --output "$latest/manifest" --yes "$body"
 rm -f "$body"
 
-echo "Signed manifest and packages are in $latest"
+echo "Clear-signed manifest and packages are in $latest"

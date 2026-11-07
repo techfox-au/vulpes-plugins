@@ -1,4 +1,5 @@
-import { h, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell84';
+import { confirmIdentity } from '../reauth.js?v=shell258';
+import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell84';
 
 let root;
 let pageCtx;
@@ -81,19 +82,85 @@ async function render(ctx) {
   try {
     const smtp = await ctx.api.get('/api/admin/settings/smtp');
     const form = h('form', { class: 'col', novalidate: true });
-    // Blank password, client secret, or API key keeps the stored secret. Order is Graph, SMTP, then Mailgun. See EmailTransports.
-    const input = (name, label, value, type = 'text') => h('div', { class: 'field' }, h('label', null, label), h('input', { class: 'input', name, type, value: value ?? '', autocomplete: 'off', placeholder: (name === 'password' && smtp.passwordSet) || (name === 'graphClientSecret' && smtp.graphClientSecretSet) || (name === 'mailgunApiKey' && smtp.mailgunApiKeySet) ? 'Leave blank to keep' : '' }));
+    // A stored secret stays masked. The eye asks for a fresh sign-in, then shows it. A blank field that was not revealed keeps the stored secret.
+    const input = (name, label, value, type = 'text') => h('div', { class: 'field' }, h('label', null, label), h('input', { class: 'input', name, type, value: value ?? '', autocomplete: 'off' }));
+    const mask = '••••••••';
+    let revealedSecrets = null;
+    const secretField = (key, configured) => {
+      const field = h('input', {
+        class: 'input',
+        type: 'password',
+        value: configured ? mask : '',
+        autocomplete: 'off',
+        spellcheck: false,
+        readOnly: configured,
+      });
+      const button = h('button', {
+        class: 'secret-tool secret-eye',
+        type: 'button',
+        title: 'Show secret',
+        'aria-label': 'Show secret',
+      }, icon('eye'));
+      button.hidden = !configured;
+      let revealed = false;
+      const label = (showing) => {
+        const text = showing ? 'Hide secret' : 'Show secret';
+        button.title = text;
+        button.setAttribute('aria-label', text);
+      };
+      button.addEventListener('click', async () => {
+        if (!revealed) {
+          if (!revealedSecrets) {
+            const me = await ctx.api.get('/api/account');
+            if (!(await confirmIdentity(ctx, me))) return;
+            try {
+              revealedSecrets = await ctx.api.get('/api/admin/settings/smtp/secrets');
+            } catch (err) {
+              if (err.code !== 'reauth_required') {
+                panelNote(smtpCard, errorMessage(err));
+                return;
+              }
+              if (!(await confirmIdentity(ctx, me))) return;
+              revealedSecrets = await ctx.api.get('/api/admin/settings/smtp/secrets');
+            }
+          }
+          field.value = revealedSecrets[key] || '';
+          field.readOnly = false;
+          field.type = 'text';
+          revealed = true;
+          button.hidden = false;
+          label(true);
+          return;
+        }
+        const hidden = field.type === 'text';
+        field.type = hidden ? 'password' : 'text';
+        label(hidden);
+      });
+      const payload = () => {
+        if (field.readOnly) return { secret: '', remove: false };
+        const text = field.value.trim();
+        if (text === mask) return { secret: '', remove: false };
+        return { secret: text, remove: revealed && text.length === 0 };
+      };
+      return {
+        line: h('div', { class: 'secret-box secret-line' }, field, h('div', { class: 'secret-box-tools' }, button)),
+        payload,
+      };
+    };
+    const graphSecret = secretField('graphClientSecret', smtp.graphClientSecretSet === true);
+    const smtpPassword = secretField('password', smtp.passwordSet === true);
+    const mailgunKey = secretField('mailgunApiKey', smtp.mailgunApiKeySet === true);
     form.append(
       h('h3', null, 'Microsoft Graph'),
       h('div', { class: 'form-row' }, input('graphTenantId', 'Directory id', smtp.graphTenantId), input('graphClientId', 'Application id', smtp.graphClientId)),
-      h('div', { class: 'form-row' }, input('graphSender', 'Sender mailbox', smtp.graphSender, 'email'), input('graphClientSecret', 'Client secret', '', 'password')),
+      h('div', { class: 'form-row' }, input('graphSender', 'Sender mailbox', smtp.graphSender, 'email'), h('div', { class: 'field' }, h('label', null, 'Client secret'), graphSecret.line)),
       h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'graphEnabled', checked: smtp.graphEnabled === true }), h('span', null, 'Graph enabled')),
       h('h3', { class: 'mt' }, 'SMTP'),
       h('div', { class: 'form-row' }, input('host', 'SMTP host', smtp.host), input('port', 'Port', smtp.port ?? 587, 'number')),
       h('div', { class: 'field' }, h('label', null, 'Security'), dropdown(
         [['StartTls', 'STARTTLS'], ['SslOnConnect', 'Implicit TLS'], ['None', 'None']],
         { value: smtp.security || 'StartTls', name: 'security', ariaLabel: 'Security' })),
-      h('div', { class: 'form-row' }, input('username', 'Username', smtp.username), input('password', 'Password', '', 'password')),
+      h('div', { class: 'form-row' }, input('username', 'Username', smtp.username), h('div', { class: 'field' }, h('label', null, 'Password'), smtpPassword.line)),
       h('div', { class: 'form-row' }, input('fromAddress', 'From address', smtp.fromAddress, 'email'), input('fromName', 'From name', smtp.fromName)),
       input('defaultRecipients', 'Default recipients', (smtp.defaultRecipients || []).join(', ')),
       h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'enabled', checked: smtp.enabled === true }), h('span', null, 'SMTP enabled')),
@@ -103,7 +170,7 @@ async function render(ctx) {
         h('div', { class: 'field' }, h('label', null, 'API region'), dropdown(
           [['https://api.mailgun.net', 'United States'], ['https://api.eu.mailgun.net', 'Europe']],
           { value: smtp.mailgunBaseUrl || 'https://api.mailgun.net', name: 'mailgunBaseUrl', ariaLabel: 'API region' })),
-        input('mailgunApiKey', 'API key', '', 'password')),
+        h('div', { class: 'field' }, h('label', null, 'API key'), mailgunKey.line)),
       h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'mailgunEnabled', checked: smtp.mailgunEnabled === true }), h('span', null, 'Mailgun enabled')),
     );
     const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
@@ -115,9 +182,21 @@ async function render(ctx) {
       panelNote(smtpCard, '');
       form.querySelectorAll('.invalid').forEach((el) => el.classList.remove('invalid'));
       const v = formValues(form);
+      const password = smtpPassword.payload();
+      const graph = graphSecret.payload();
+      const mailgun = mailgunKey.payload();
       setBusy(save, true, 'Saving…');
       try {
-        await ctx.api.put('/api/admin/settings/smtp', { ...v, password: v.password || null, graphClientSecret: v.graphClientSecret || null, mailgunApiKey: v.mailgunApiKey || null, defaultRecipients: v.defaultRecipients.split(',').map((s) => s.trim()).filter(Boolean) });
+        await ctx.api.put('/api/admin/settings/smtp', {
+          ...v,
+          password: password.secret || null,
+          removePassword: password.remove,
+          graphClientSecret: graph.secret || null,
+          removeGraphClientSecret: graph.remove,
+          mailgunApiKey: mailgun.secret || null,
+          removeMailgunApiKey: mailgun.remove,
+          defaultRecipients: v.defaultRecipients.split(',').map((s) => s.trim()).filter(Boolean),
+        });
         emailNotice = { message: 'Email settings saved.', kind: 'success' };
         await render(ctx);
       } catch (err) { showEmailError(smtpCard, form, errorMessage(err)); } finally { setBusy(save, false); }

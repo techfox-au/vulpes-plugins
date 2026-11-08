@@ -25,7 +25,7 @@ public sealed class ShareFlowFixture : IDisposable
         var client = NewClient();
         var proof = await client.JsonAsync(HttpMethod.Get, "/auth/login/pow");
         var (nonce, hash) = FlowClient.Solve(proof.GetProperty("hmacKey").GetString()!, proof.GetProperty("difficultyBits").GetInt32());
-        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash });
+        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash, powClientTime = proof.GetProperty("serverTime").GetString() });
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         client.Reset();
         return client;
@@ -410,7 +410,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         var challenge = await client.JsonAsync(HttpMethod.Get, resourcePath + "/pow");
         var (nonce, hash) = FlowClient.Solve(challenge.GetProperty("hmacKey").GetString()!, challenge.GetProperty("difficultyBits").GetInt32());
         var challengeId = challenge.GetProperty("challengeId").GetString()!;
-        return new Proof(challengeId, nonce, hash);
+        return new Proof(challengeId, nonce, hash, challenge.GetProperty("serverTime").GetString()!);
     }
 
     private static Dictionary<string, object?> Payload(string ciphertext = Cipher, bool oneTime = true, bool passwordProtected = false, string? cidr = null, Dictionary<string, object?>? extra = null)
@@ -438,13 +438,14 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         return body;
     }
 
-    private sealed record Proof(string ChallengeId, string Nonce, string Hash)
+    private sealed record Proof(string ChallengeId, string Nonce, string Hash, string ClientTime)
     {
         public object Body => new
         {
             challengeId = ChallengeId,
             nonce = Nonce,
             hash = Hash,
+            clientTime = ClientTime,
             ciphertext = Cipher,
             iv = FlowClient.B64(12),
             wrappedKey = FlowClient.B64(60),
@@ -457,6 +458,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
             ["X-Sendit-Pow-Challenge"] = ChallengeId,
             ["X-Sendit-Pow-Nonce"] = Nonce,
             ["X-Sendit-Pow-Hash"] = Hash,
+            ["X-Sendit-Pow-Time"] = ClientTime,
         };
     }
 }

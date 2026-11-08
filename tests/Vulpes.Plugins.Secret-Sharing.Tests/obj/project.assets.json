@@ -831,7 +831,7 @@
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "10.0.14",
           "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
           "SharpCompress": "0.50.7",
-          "Vulpes.Sdk": "1.0.0"
+          "Vulpes.Sdk": "1.0.1"
         },
         "compile": {
           "bin/placeholder/Vulpes.Host.dll": {}
@@ -848,7 +848,7 @@
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
           "SharpCompress": "0.50.7",
-          "Vulpes.Sdk": "1.0.0"
+          "Vulpes.Sdk": "1.0.1"
         },
         "compile": {
           "bin/placeholder/Vulpes.PluginPacker.dll": {}
@@ -857,12 +857,12 @@
           "bin/placeholder/Vulpes.PluginPacker.dll": {}
         }
       },
-      "Vulpes.Plugins.Secret-Sharing/1.0.0": {
+      "Vulpes.Plugins.Secret-Sharing/1.0.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
           "Microsoft.Data.Sqlite": "10.0.14",
-          "Vulpes.Sdk": "1.0.0"
+          "Vulpes.Sdk": "1.0.1"
         },
         "compile": {
           "bin/placeholder/Vulpes.Plugins.Secret-Sharing.dll": {}
@@ -874,7 +874,7 @@
           "Microsoft.AspNetCore.App"
         ]
       },
-      "Vulpes.Sdk/1.0.0": {
+      "Vulpes.Sdk/1.0.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "compile": {
@@ -1853,12 +1853,12 @@
       "path": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
       "msbuildProject": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj"
     },
-    "Vulpes.Plugins.Secret-Sharing/1.0.0": {
+    "Vulpes.Plugins.Secret-Sharing/1.0.1": {
       "type": "project",
       "path": "../../src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj",
       "msbuildProject": "../../src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj"
     },
-    "Vulpes.Sdk/1.0.0": {
+    "Vulpes.Sdk/1.0.1": {
       "type": "project",
       "path": "../../../vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
       "msbuildProject": "../../../vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj"
@@ -1870,13 +1870,13 @@
       "Microsoft.NET.Test.Sdk >= 18.11.0",
       "Vulpes.Host >= 1.0.0",
       "Vulpes.PluginPacker >= 1.0.0",
-      "Vulpes.Plugins.Secret-Sharing >= 1.0.0",
+      "Vulpes.Plugins.Secret-Sharing >= 1.0.1",
       "xunit >= 2.9.3",
       "xunit.runner.visualstudio >= 4.0.1"
     ]
   },
   "packageFolders": {
-    "/var/folders/tk/mw6kzcw50yzch7f2_8r1gqw00000gn/T/cursor-sandbox-cache/3ed0e7b4fd3df2a079f8bc9b0bd12f56/nuget": {}
+    "/Users/lappy/.nuget/packages/": {}
   },
   "project": {
     "version": "0.1.0",
@@ -1884,7 +1884,7 @@
       "projectUniqueName": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Secret-Sharing.Tests/Vulpes.Plugins.Secret-Sharing.Tests.csproj",
       "projectName": "Vulpes.Plugins.Secret-Sharing.Tests",
       "projectPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Secret-Sharing.Tests/Vulpes.Plugins.Secret-Sharing.Tests.csproj",
-      "packagesPath": "/var/folders/tk/mw6kzcw50yzch7f2_8r1gqw00000gn/T/cursor-sandbox-cache/3ed0e7b4fd3df2a079f8bc9b0bd12f56/nuget",
+      "packagesPath": "/Users/lappy/.nuget/packages/",
       "outputPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Secret-Sharing.Tests/obj/",
       "projectStyle": "PackageReference",
       "centralPackageVersionsManagementEnabled": true,
@@ -1895,7 +1895,6 @@
         "net10.0"
       ],
       "sources": {
-        "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -1991,7 +1990,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.AspNetCore": "(,10.0.32767]",
           "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",

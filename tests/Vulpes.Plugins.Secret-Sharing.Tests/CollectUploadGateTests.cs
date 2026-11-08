@@ -30,14 +30,15 @@ public sealed class CollectUploadGateTests : IDisposable
         Assert.Equal(PowService.SmallBodyBytes, unproven.MaxRequestBodySize);
         Assert.False(unproven.Consumed);
 
-        var permit = pow.TryValidate("collect", id, challenge.ChallengeId, nonce, hash, browser);
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        var permit = pow.TryValidate("collect", id, challenge.ChallengeId, nonce, hash, browser, clock);
         Assert.Null(permit);
-        Assert.Null(pow.TryValidate("collect", id, challenge.ChallengeId, nonce, hash, browser));
+        Assert.Null(pow.TryValidate("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
 
         var proven = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash);
         Assert.Equal(PowService.LargeBodyBytes, proven.MaxRequestBodySize);
         Assert.True(proven.Consumed);
-        Assert.NotNull(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser));
+        Assert.NotNull(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
     }
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
@@ -58,6 +59,7 @@ public sealed class CollectUploadGateTests : IDisposable
             context.Request.Headers[PowService.HeaderChallenge] = challenge;
             context.Request.Headers[PowService.HeaderNonce] = nonce;
             context.Request.Headers[PowService.HeaderHash] = hash;
+            context.Request.Headers[PowService.HeaderTime] = PowClock.Stamp(DateTimeOffset.UtcNow);
         }
 
         var cap = new BodyCap();

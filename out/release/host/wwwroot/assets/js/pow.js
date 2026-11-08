@@ -11,8 +11,25 @@ const ABANDON_BEFORE_MS = 5000;
 // Page-load offset so ticket expiry uses the server clock. Zero means local time.
 let clockOffsetMs = 0;
 
+export const MAX_SKEW_MS = 7000;
+
 export function powNow() {
   return Date.now() + clockOffsetMs;
+}
+
+/** Set the page clock from a proof-of-work ticket's serverTime. */
+export function noteServerTime(serverTime, clientNow = Date.now()) {
+  const server = parseServerTime(serverTime);
+  if (Number.isNaN(server)) return false;
+  clockOffsetMs = powClockOffset(server, clientNow, clientNow);
+  return true;
+}
+
+/** Local clock corrected by a ticket's serverTime. The margin is at most a couple of seconds. */
+export function syncedNow(serverTime, clientNow) {
+  const server = parseServerTime(serverTime);
+  if (Number.isNaN(server)) return clientNow;
+  return clientNow + powClockOffset(server, clientNow, clientNow);
 }
 
 /** Extra milliseconds added so a ticket is treated as expired slightly before the server rejects it. */
@@ -101,6 +118,7 @@ export function statusLabel(base, attempt) {
 }
 
 async function solve(challenge, opts = {}) {
+  if (challenge && challenge.serverTime) noteServerTime(challenge.serverTime);
   const bits = Math.max(1, challenge.difficultyBits | 0);
   const deadline = abandonDeadlineMs(challenge);
   if (opts.onProgress) {
@@ -123,6 +141,7 @@ async function solve(challenge, opts = {}) {
     challengeId: challenge.challengeId,
     nonce: String(found.nonce),
     hash: b64urlEncode(found.hash),
+    clientTime: new Date(powNow()).toISOString(),
     tries: found.tries,
   };
   logPow('found', { challengeId: solution.challengeId, nonce: solution.nonce, hash: hexEncode(found.hash), tries: solution.tries, difficultyBits: bits, expiresAt: challenge.expiresAt });
@@ -214,6 +233,7 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
     refreshQueued = false;
     const run = (async () => {
       const challenge = await fetchChallenge();
+      if (challenge && challenge.serverTime) noteServerTime(challenge.serverTime);
       const receivedAt = now();
       if (gen !== generation || id !== solveId) return;
       if (!challenge?.challengeId || !challenge.hmacKey) throw new Error('Invalid proof-of-work challenge from server.');
@@ -284,5 +304,5 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
 
 export function powBody(pow) {
   if (!pow || !pow.challengeId) return {};
-  return { powChallengeId: pow.challengeId, powNonce: pow.nonce, powHash: pow.hash || null };
+  return { powChallengeId: pow.challengeId, powNonce: pow.nonce, powHash: pow.hash || null, powClientTime: pow.clientTime };
 }

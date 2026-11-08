@@ -185,7 +185,7 @@ public sealed class AuditApiTests : IDisposable
         var client = NewClient();
         var proof = await client.JsonAsync(HttpMethod.Get, "/auth/login/pow");
         var (nonce, hash) = Solve(proof.GetProperty("hmacKey").GetString()!, proof.GetProperty("difficultyBits").GetInt32());
-        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash });
+        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash, powClientTime = proof.GetProperty("serverTime").GetString() });
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         client.Reset();
         return client;

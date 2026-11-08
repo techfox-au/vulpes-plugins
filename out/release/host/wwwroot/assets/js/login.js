@@ -2,7 +2,7 @@ import { api, session, invalidateSession, setRedirectOnUnauthorized } from './ap
 import { setBusy, errorMessage } from './ui.js?v=shell195';
 import * as webauthn from './webauthn.js?v=shell160';
 import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell133';
-import { powBody, createPowKeeper, syncServerTime } from './pow.js?v=shell249';
+import { powBody, createPowKeeper, syncServerTime } from './pow.js?v=shell292';
 
 setRedirectOnUnauthorized(false);
 

@@ -73,7 +73,7 @@ public sealed class RoleAccessTests : IDisposable
 
         var challenge = await anon.JsonAsync(HttpMethod.Get, path + "/pow");
         var (nonce, hash) = Solve(challenge.GetProperty("hmacKey").GetString()!, challenge.GetProperty("difficultyBits").GetInt32());
-        var proof = new { challengeId = challenge.GetProperty("challengeId").GetString(), nonce, hash };
+        var proof = new { challengeId = challenge.GetProperty("challengeId").GetString(), nonce, hash, clientTime = challenge.GetProperty("serverTime").GetString() };
         var missed = await anon.SendAsync(HttpMethod.Post, path, proof);
         Assert.Equal(HttpStatusCode.NotFound, missed.StatusCode);
 
@@ -95,7 +95,7 @@ public sealed class RoleAccessTests : IDisposable
 
         var challenge = await anon.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/public/collects/" + id + "/pow");
         var (nonce, hash) = Solve(challenge.GetProperty("hmacKey").GetString()!, challenge.GetProperty("difficultyBits").GetInt32());
-        var proof = new { challengeId = challenge.GetProperty("challengeId").GetString(), nonce, hash };
+        var proof = new { challengeId = challenge.GetProperty("challengeId").GetString(), nonce, hash, clientTime = challenge.GetProperty("serverTime").GetString() };
         var missed = await anon.SendAsync(HttpMethod.Post, path, proof);
         Assert.Equal(HttpStatusCode.NotFound, missed.StatusCode);
 
@@ -129,7 +129,7 @@ public sealed class RoleAccessTests : IDisposable
         var client = NewClient();
         var proof = await client.JsonAsync(HttpMethod.Get, "/auth/login/pow");
         var (nonce, hash) = Solve(proof.GetProperty("hmacKey").GetString()!, proof.GetProperty("difficultyBits").GetInt32());
-        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash });
+        var login = await client.SendAsync(HttpMethod.Post, "/auth/login/password", new { username, password, powChallengeId = proof.GetProperty("challengeId").GetString(), powNonce = nonce, powHash = hash, powClientTime = proof.GetProperty("serverTime").GetString() });
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         client.Reset();
         return client;

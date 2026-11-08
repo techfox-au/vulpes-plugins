@@ -12,6 +12,8 @@ namespace Vulpes.Plugins.SecretSharing.Tests;
 
 public sealed class ProofOfWorkTests : IDisposable
 {
+    private static string Clock() => PowClock.Stamp(DateTimeOffset.UtcNow);
+
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "ss-pow-" + Guid.NewGuid().ToString("N"));
     private readonly ShareDatabase _db;
     private readonly PowService _pow;
@@ -29,8 +31,8 @@ public sealed class ProofOfWorkTests : IDisposable
         var challenge = _pow.Issue("collect", "collect-1");
         var (nonce, hash) = Solve(challenge);
         var issued = DateTimeOffset.Parse(challenge.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture);
-        Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash));
-        Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash));
+        Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash, clientTime: Clock()));
+        Assert.Null(_pow.TryValidate("collect", "collect-1", challenge.ChallengeId, nonce, hash, clientTime: Clock()));
         using (var conn = _db.Open())
         using (var cmd = conn.CreateCommand())
         {
@@ -40,8 +42,8 @@ public sealed class ProofOfWorkTests : IDisposable
             Assert.Equal(issued, stored);
         }
 
-        Assert.Null(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash));
-        Assert.NotNull(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash));
+        Assert.Null(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash, clientTime: Clock()));
+        Assert.NotNull(_pow.TryConsume("collect", "collect-1", challenge.ChallengeId, nonce, hash, clientTime: Clock()));
     }
 
     [Fact]
@@ -104,19 +106,19 @@ public sealed class ProofOfWorkTests : IDisposable
     {
         var challenge = _pow.Issue("send", "secret-1");
         var (nonce, hash) = Solve(challenge);
-        Assert.Null(_pow.TryConsume("send", "secret-1", challenge.ChallengeId, nonce, hash));
-        Assert.Equal("Unknown or expired proof-of-work challenge.", _pow.TryConsume("send", "secret-1", challenge.ChallengeId, nonce, hash));
+        Assert.Null(_pow.TryConsume("send", "secret-1", challenge.ChallengeId, nonce, hash, clientTime: Clock()));
+        Assert.Equal("Unknown or expired proof-of-work challenge.", _pow.TryConsume("send", "secret-1", challenge.ChallengeId, nonce, hash, clientTime: Clock()));
 
         var other = _pow.Issue("send", "secret-1");
         var solved = Solve(other);
-        Assert.Equal("Proof-of-work challenge does not match this secret.", _pow.TryConsume("collect", "secret-1", other.ChallengeId, solved.Nonce, solved.Hash));
+        Assert.Equal("Proof-of-work challenge does not match this secret.", _pow.TryConsume("collect", "secret-1", other.ChallengeId, solved.Nonce, solved.Hash, clientTime: Clock()));
         var bound = _pow.Issue("send", "secret-1", clientId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var boundSolved = Solve(bound);
-        Assert.Equal("Proof-of-work challenge does not match this browser.", _pow.TryConsume("send", "secret-1", bound.ChallengeId, boundSolved.Nonce, boundSolved.Hash, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
-        Assert.Null(_pow.TryConsume("send", "secret-1", bound.ChallengeId, boundSolved.Nonce, boundSolved.Hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-        Assert.Equal("Invalid proof-of-work nonce.", _pow.TryConsume("send", "secret-1", other.ChallengeId, "01", solved.Hash));
-        Assert.Equal("Proof-of-work hash does not match.", _pow.TryConsume("send", "secret-1", other.ChallengeId, solved.Nonce, Base64Url.Encode([1, 2, 3, 4])));
-        Assert.Null(_pow.TryConsume("send", "secret-1", other.ChallengeId, solved.Nonce, solved.Hash));
+        Assert.Equal("Proof-of-work challenge does not match this browser.", _pow.TryConsume("send", "secret-1", bound.ChallengeId, boundSolved.Nonce, boundSolved.Hash, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Clock()));
+        Assert.Null(_pow.TryConsume("send", "secret-1", bound.ChallengeId, boundSolved.Nonce, boundSolved.Hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Clock()));
+        Assert.Equal("Invalid proof-of-work nonce.", _pow.TryConsume("send", "secret-1", other.ChallengeId, "01", solved.Hash, clientTime: Clock()));
+        Assert.Equal("Proof-of-work hash does not match.", _pow.TryConsume("send", "secret-1", other.ChallengeId, solved.Nonce, Base64Url.Encode([1, 2, 3, 4]), clientTime: Clock()));
+        Assert.Null(_pow.TryConsume("send", "secret-1", other.ChallengeId, solved.Nonce, solved.Hash, clientTime: Clock()));
     }
 
     [Fact]
@@ -130,7 +132,7 @@ public sealed class ProofOfWorkTests : IDisposable
         cmd.Parameters.AddWithValue("@id", challenge.ChallengeId);
         cmd.ExecuteNonQuery();
         var solved = Solve(challenge);
-        Assert.Equal("Proof-of-work challenge expired.", _pow.TryConsume("send", "secret-1", challenge.ChallengeId, solved.Nonce, solved.Hash));
+        Assert.Equal("Proof-of-work challenge expired.", _pow.TryConsume("send", "secret-1", challenge.ChallengeId, solved.Nonce, solved.Hash, clientTime: Clock()));
     }
 
     private static (string Nonce, string Hash) Solve(PowService.Challenge challenge)

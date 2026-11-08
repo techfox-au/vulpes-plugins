@@ -211,7 +211,7 @@ public static class ShareEndpoints
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
         // Anonymous retrieval. Burn the proof before the lookup so a scraper cannot pull ciphertext for free.
-        var error = pow.TryConsume("collect", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http));
+        var error = pow.TryConsume("collect", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http), body?.ClientTime);
         if (error is not null) return Denied(scan, http, error);
         if (!IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
         {
@@ -252,7 +252,7 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
+        var error = pow.TryConsume("send", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http), body.ClientTime);
         if (error is not null) return Denied(scan, http, error);
         var meta = store.SendMeta(id);
         if (meta is null || meta.Status != "active") return Miss(scan, http);
@@ -277,7 +277,7 @@ public static class ShareEndpoints
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
         // Burn the proof before the lookup so a scraper cannot probe ids or pull ciphertext for free.
-        var error = pow.TryConsume("send", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http));
+        var error = pow.TryConsume("send", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http), body?.ClientTime);
         if (error is not null) return Denied(scan, http, error);
         var peek = store.SendMeta(id);
         if (peek is null || peek.Status != "active") return Miss(scan, http);
@@ -307,7 +307,7 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
+        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http), body.ClientTime);
         if (error is not null) return Denied(scan, http, error);
         var meta = store.CollectMeta(id);
         if (meta is null || meta.Status is "expired" or "consumed") return Miss(scan, http);
@@ -327,7 +327,7 @@ public static class ShareEndpoints
         PowService.ReadFromHeaders(http.Request.Headers, out var challenge, out var nonce, out var hash);
         var meta = store.CollectMeta(id);
         if (meta is null || meta.Status != "waiting") return Results.StatusCode(StatusCodes.Status403Forbidden);
-        var error = pow.TryValidate("collect", id, challenge, nonce, hash, PowBrowser.Current(http));
+        var error = pow.TryValidate("collect", id, challenge, nonce, hash, PowBrowser.Current(http), http.Request.Headers[PowService.HeaderTime].ToString());
         return error is null ? Results.NoContent() : Results.StatusCode(StatusCodes.Status403Forbidden);
     }
 
@@ -337,7 +337,7 @@ public static class ShareEndpoints
         if (!Plausible(id)) return Miss(scan, http);
         if (!http.Items.ContainsKey(PowService.HttpContextPowConsumed))
         {
-            var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http));
+            var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http), body.ClientTime);
             if (error is not null) return Denied(scan, http, error);
         }
         var payloadError = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey);
@@ -515,6 +515,6 @@ public static class ShareEndpoints
     private sealed record SendBody(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string? ContentType, string? Filename, bool OneTime, int ExpiresInHours, int ExpiresInMinutes, string? EncryptedLabel, string? PrivateNoteCiphertext, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, string? AllowedCidr, string? RecipientLabel);
     private sealed record CollectBody(string PublicKey, string? OwnerPrivateKeyProtected, string? EncryptedLabel, string? PrivateNoteCiphertext, bool OneTime, int ExpiresInHours, int? ExpiresInMinutes, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, PublicLabelBody? PublicLabel);
     private sealed record PublicLabelBody(int? V, string? Bound, string? Ciphertext, string? Iv);
-    private sealed record UploadBody(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string? ContentType, string? Filename, string? ChallengeId, string? Nonce, string? Hash);
-    private sealed record PowBody(string? ChallengeId, string? Nonce, string? Hash);
+    private sealed record UploadBody(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string? ContentType, string? Filename, string? ChallengeId, string? Nonce, string? Hash, string? ClientTime);
+    private sealed record PowBody(string? ChallengeId, string? Nonce, string? Hash, string? ClientTime);
 }

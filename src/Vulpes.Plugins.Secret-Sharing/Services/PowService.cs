@@ -18,12 +18,13 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
     public const string HeaderChallenge = "X-Sendit-Pow-Challenge";
     public const string HeaderNonce = "X-Sendit-Pow-Nonce";
     public const string HeaderHash = "X-Sendit-Pow-Hash";
+    public const string HeaderTime = "X-Sendit-Pow-Time";
     public const string HttpContextPowConsumed = "vulpes.secret.pow.consumed";
     /// <summary>Anonymous uploads stay at this size until the header proof is burned.</summary>
     public const long SmallBodyBytes = 275_251;
     public const long LargeBodyBytes = 100L * 1024 * 1024;
 
-    public sealed record Challenge(string ChallengeId, string HmacKey, int DifficultyBits, string ExpiresAt);
+    public sealed record Challenge(string ChallengeId, string HmacKey, int DifficultyBits, string ExpiresAt, string ServerTime);
 
     public static void ReadFromHeaders(IHeaderDictionary headers, out string? challengeId, out string? nonce, out string? hash)
     {
@@ -52,7 +53,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         LogExpired(PurgeExpired(conn, now));
         InsertChallenge(conn, id, resourceKind, resourceId, clientId, key, bits, exp);
         logger?.LogInformation("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
-        return new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"));
+        return new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"), PowClock.Stamp(now));
     }
 
     /// <summary>
@@ -106,7 +107,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
             done.ExecuteNonQuery();
             LogExpired(expired);
             logger?.LogInformation("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
-            challenge = new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"));
+            challenge = new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"), PowClock.Stamp(now));
             return true;
         }
         catch
@@ -128,19 +129,25 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
     /// <summary>
     /// Validate without consuming and without moving the expiry. nginx <c>auth_request</c> uses this so the following POST can still <see cref="TryConsume"/>.
     /// </summary>
-    public string? TryValidate(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64, string? clientId = null)
-        => TryConsume(resourceKind, resourceId, challengeId, nonce, hashB64, consume: false, clientId);
+    public string? TryValidate(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64, string? clientId = null, string? clientTime = null)
+        => TryConsume(resourceKind, resourceId, challengeId, nonce, hashB64, consume: false, clientId, clientTime);
 
     /// <summary>Returns null when the proof is valid and the challenge has been consumed.</summary>
-    public string? TryConsume(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64, string? clientId = null)
-        => TryConsume(resourceKind, resourceId, challengeId, nonce, hashB64, consume: true, clientId);
+    public string? TryConsume(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64, string? clientId = null, string? clientTime = null)
+        => TryConsume(resourceKind, resourceId, challengeId, nonce, hashB64, consume: true, clientId, clientTime);
 
-    private string? TryConsume(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64, bool consume, string? clientId)
+    private string? TryConsume(string resourceKind, string resourceId, string? challengeId, string? nonce, string? hashB64, bool consume, string? clientId, string? clientTime)
     {
         if (string.IsNullOrWhiteSpace(challengeId) || string.IsNullOrWhiteSpace(nonce))
         {
             LogInvalid(resourceKind, challengeId, "missing challenge or nonce");
             return "Proof of work is required (challengeId and nonce).";
+        }
+
+        if (PowClock.Reject(clientTime, DateTimeOffset.UtcNow) is { } clock)
+        {
+            LogInvalid(resourceKind, challengeId, "clock");
+            return clock;
         }
 
         using var conn = database.Open();

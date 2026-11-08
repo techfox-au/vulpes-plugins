@@ -53,7 +53,7 @@ function emailFieldName(message) {
 
 function powError(v) {
   if (!Number.isInteger(v.difficultyBits) || v.difficultyBits < 1 || v.difficultyBits > 28) return 'Difficulty must be from 1 to 28 bits.';
-  if (!Number.isInteger(v.challengeTtlSeconds) || v.challengeTtlSeconds < 30 || v.challengeTtlSeconds > 600) return 'Ticket duration must be from 30 to 600 seconds.';
+  if (!Number.isInteger(v.challengeTtlSeconds) || v.challengeTtlSeconds < 30 || v.challengeTtlSeconds > 240) return 'Ticket duration must be from 30 to 240 seconds.';
   if (!Number.isInteger(v.scanBudgetWindowSeconds) || v.scanBudgetWindowSeconds < 30 || v.scanBudgetWindowSeconds > 3600) return 'Scan window must be from 30 to 3600 seconds.';
   return null;
 }
@@ -225,7 +225,7 @@ async function render(ctx) {
       h('input', { class: 'input', name, type: 'number', min: String(min), max: String(max), step: '1', value: value ?? '', required: true, autocomplete: 'off' }));
     form.append(
       number('difficultyBits', 'Difficulty (bits)', pow.difficultyBits, 1, 28),
-      number('challengeTtlSeconds', 'Ticket duration', pow.challengeTtlSeconds, 30, 600),
+      number('challengeTtlSeconds', 'Ticket duration', pow.challengeTtlSeconds, 30, 240),
       number('scanBudgetWindowSeconds', 'Scan window (seconds)', pow.scanBudgetWindowSeconds, 30, 3600),
     );
     const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');

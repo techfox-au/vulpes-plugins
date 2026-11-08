@@ -20,12 +20,13 @@ public sealed class CollectUploadGate : IStartupFilter
                     var pow = context.RequestServices.GetRequiredService<PowService>();
                     var store = context.RequestServices.GetRequiredService<ShareStore>();
                     PowService.ReadFromHeaders(context.Request.Headers, out var challenge, out var nonce, out var hash);
+                    var clientTime = context.Request.Headers[PowService.HeaderTime].ToString();
                     var id = UploadId(context.Request.Path);
                     var meta = id is null ? null : store.CollectMeta(id);
                     var open = meta is not null && meta.Status == "waiting";
                     var browser = Vulpes.Sdk.PowBrowser.Current(context);
                     var proven = challenge is not null && nonce is not null && id is not null && open
-                        && pow.TryConsume("collect", id, challenge, nonce, hash, browser) is null;
+                        && pow.TryConsume("collect", id, challenge, nonce, hash, browser, clientTime) is null;
                     var feature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
                     if (feature is { IsReadOnly: false })
                     {

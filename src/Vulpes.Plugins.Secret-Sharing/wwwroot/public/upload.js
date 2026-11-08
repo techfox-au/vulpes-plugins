@@ -1,4 +1,4 @@
-import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell249';
+import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell292';
 
 (async function () {
   const FILE_LIMIT = 40 * 1024 * 1024;

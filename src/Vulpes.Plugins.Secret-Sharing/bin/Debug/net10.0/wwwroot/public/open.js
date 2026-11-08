@@ -1,4 +1,4 @@
-import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell249';
+import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell292';
 
 (async function () {
   const params = new URLSearchParams(location.search);

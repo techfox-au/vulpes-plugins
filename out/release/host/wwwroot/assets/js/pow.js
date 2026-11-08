@@ -308,7 +308,7 @@ export function powBody(pow) {
 }
 
 export const VulpesPow = {
-  solve: solveRefreshing,
+  solve: solvePow,
   keeper: createPowKeeper,
   sync: syncServerTime,
   body: powBody,

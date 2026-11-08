@@ -1,4 +1,4 @@
-import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow1';
+import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow2';
 
 (async function () {
   const FILE_LIMIT = 40 * 1024 * 1024;

@@ -1,7 +1,7 @@
 /**
- * Browser proof-of-work. HMAC-SHA256(serverKey, ascii(nonce)) must have difficultyBits leading zero bits.
- * Same check as Sendit and the secret-sharing pages. A challenge is one-time on the server.
- * Solving abandons work 5 seconds before expiresAt and fetches a fresh challenge.
+ * Host proof-of-work framework. Plugins use VulpesPow or these exports.
+ * HMAC-SHA256(serverKey, ascii(nonce)) must have difficultyBits leading zero bits.
+ * A challenge is one-time on the server. Solving abandons work 5 seconds before expiresAt.
  */
 
 import { solveParallel } from './pow-engine.js';
@@ -306,3 +306,14 @@ export function powBody(pow) {
   if (!pow || !pow.challengeId) return {};
   return { powChallengeId: pow.challengeId, powNonce: pow.nonce, powHash: pow.hash || null, powClientTime: pow.clientTime };
 }
+
+export const VulpesPow = {
+  solve: solveRefreshing,
+  keeper: createPowKeeper,
+  sync: syncServerTime,
+  body: powBody,
+  noteServerTime,
+  syncedNow,
+};
+
+if (typeof window !== 'undefined') window.VulpesPow = VulpesPow;

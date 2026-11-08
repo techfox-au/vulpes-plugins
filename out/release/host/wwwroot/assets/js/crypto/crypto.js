@@ -1309,6 +1309,31 @@
     return new Blob([plain], { type: t });
   }
 
+
+  function canonicalPaymentMethod(method) {
+    const text = String(method || "").trim().toLowerCase();
+    if (text === "paypal-qr" || text === "paypalqr") return "paypal";
+    if (text === "bank" || text === "payid" || text === "card" || text === "paypal") return text;
+    return "";
+  }
+
+  /** HMAC-SHA256(secretKey, invoice id + method + open nonce). The key stays in the browser. */
+  async function invoicePendingProof(secretKey, publicId, method, nonce) {
+    if (!(secretKey instanceof Uint8Array) || secretKey.length !== 32) {
+      throw new Error("Secret key must be 32 bytes.");
+    }
+    if (typeof nonce !== "string" || nonce.length === 0) {
+      throw new Error("Open the invoice from the original link and try again.");
+    }
+    const canonical = canonicalPaymentMethod(method);
+    const message = new TextEncoder().encode(
+      "vulpes-invoice-pending-v1\n" + publicId + "\n" + canonical + "\n" + nonce + "\n"
+    );
+    const key = await crypto.subtle.importKey("raw", secretKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, message));
+    return { method: canonical, proof: b64urlEncode(mac) };
+  }
+
   // Public API (page scripts + dashboard). Internal helpers stay private.
   global.SenditCrypto = {
     b64urlEncode,
@@ -1327,6 +1352,7 @@
     secretKeyPackageFromLocationHash,
     buildFragment,
     buildPasswordProtectedFragment,
+    invoicePendingProof,
     wrapSecretKeyWithPassword,
     unwrapSecretKeyWithPassword,
   };

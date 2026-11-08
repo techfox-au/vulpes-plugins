@@ -2,7 +2,7 @@ import { api, session, invalidateSession, setRedirectOnUnauthorized } from './ap
 import { setBusy, errorMessage } from './ui.js?v=shell195';
 import * as webauthn from './webauthn.js?v=shell160';
 import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell133';
-import { powBody, createPowKeeper, syncServerTime } from './pow.js?v=shell292';
+import { VulpesPow } from './pow.js?v=pow1';
 
 setRedirectOnUnauthorized(false);
 
@@ -55,7 +55,7 @@ function onSignedIn() {
   location.assign(returnUrl);
 }
 
-const powKeeper = createPowKeeper(() => api.get('/auth/login/pow', { noRedirect: true }));
+const powKeeper = VulpesPow.keeper(() => api.get('/auth/login/pow', { noRedirect: true }));
 
 $('password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -68,7 +68,7 @@ $('password-form').addEventListener('submit', async (e) => {
     const password = $('password').value;
     const pow = await powKeeper.take();
     if (solving) setBusy(btn, true, 'Signing in…');
-    const res = await api.post('/auth/login/password', { username, password, ...powBody(pow) }, { noRedirect: true });
+    const res = await api.post('/auth/login/password', { username, password, ...VulpesPow.body(pow) }, { noRedirect: true });
     try { await unlockWithPassword(password); } catch { /* encryption unlock can wait until the next sign-in */ }
     if (res?.mustChangePassword) { powKeeper.stop(); invalidateSession(); closePluginMenus(); location.assign('/account?changePassword=1'); return; }
     onSignedIn();
@@ -93,7 +93,7 @@ $('passkey-btn').addEventListener('click', async () => {
   const solving = !powKeeper.ready();
   setBusy(btn, true, solving ? 'Performing proof-of-work…' : 'Waiting for your passkey…');
   try {
-    const optionsPow = powBody(await powKeeper.take());
+    const optionsPow = VulpesPow.body(await powKeeper.take());
     setBusy(btn, true, 'Waiting for your passkey…');
     await webauthn.authenticate({
       optionsUrl: '/auth/login/passkey/options',
@@ -101,7 +101,7 @@ $('passkey-btn').addEventListener('click', async () => {
       optionsBody: { username, ...optionsPow },
       extra: async () => {
         if (!powKeeper.ready()) setBusy(btn, true, 'Performing proof-of-work…');
-        const proof = { username, ...powBody(await powKeeper.take()) };
+        const proof = { username, ...VulpesPow.body(await powKeeper.take()) };
         setBusy(btn, true, 'Signing in…');
         return proof;
       },
@@ -118,6 +118,6 @@ $('passkey-btn').addEventListener('click', async () => {
 
 init().then(async (stay) => {
   if (!stay) return;
-  await syncServerTime();
+  await VulpesPow.sync();
   powKeeper.start();
 }).catch((err) => showError(errorMessage(err)));

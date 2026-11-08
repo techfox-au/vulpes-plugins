@@ -1,4 +1,4 @@
-import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell292';
+import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow1';
 
 (async function () {
   const FILE_LIMIT = 40 * 1024 * 1024;
@@ -40,14 +40,14 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
   applyKind();
 
   if (!id) { setAlert('error', 'Missing collect id.'); return; }
-  await syncServerTime();
+  await VulpesPow.sync();
 
   let meta;
   const opening = SecretTransfer.showProgress('Opening upload');
   try {
     opening.setStatus('Performing proof-of-work…');
     opening.setProgress(null);
-    const solved = await solveRefreshing(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
+    const solved = await VulpesPow.solve(() => fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
     meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/meta', solved);
   } catch (err) {
     setAlert('error', err.message || 'This collect is not open.');
@@ -75,7 +75,7 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     } catch { /* name stays hidden */ }
   }
   panel.hidden = false;
-  const uploadPow = createPowKeeper(function () {
+  const uploadPow = VulpesPow.keeper(function () {
     return fetch('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/pow').then(readJson);
   });
   uploadPow.start();

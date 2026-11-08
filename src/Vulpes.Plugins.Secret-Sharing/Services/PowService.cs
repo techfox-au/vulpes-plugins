@@ -144,7 +144,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
             return "Proof of work is required (challengeId and nonce).";
         }
 
-        if (PowClock.Reject(clientTime, DateTimeOffset.UtcNow) is { } clock)
+        if (PowClock.Reject(clientTime) is { } clock)
         {
             LogInvalid(resourceKind, challengeId, "clock");
             return clock;
@@ -172,7 +172,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         var storedClient = reader.IsDBNull(5) ? "" : reader.GetString(5);
         reader.Close();
 
-        if (exp < DateTimeOffset.UtcNow)
+        if (PowClock.PastExpiry(exp, DateTimeOffset.UtcNow))
         {
             Delete(conn, tx, challengeId);
             tx.Commit();
@@ -342,7 +342,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         using (var sel = conn.CreateCommand())
         {
             sel.CommandText = "SELECT Id, ResourceKind FROM pow_challenges WHERE ExpiresAt < @now";
-            sel.Parameters.AddWithValue("@now", now.ToString("O"));
+            sel.Parameters.AddWithValue("@now", PowClock.Stamp(PowClock.PurgeBefore(now)));
             using var reader = sel.ExecuteReader();
             while (reader.Read()) rows.Add((reader.GetString(0), reader.GetString(1)));
         }
@@ -350,7 +350,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         if (rows.Count == 0) return rows;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM pow_challenges WHERE ExpiresAt < @now";
-        cmd.Parameters.AddWithValue("@now", now.ToString("O"));
+        cmd.Parameters.AddWithValue("@now", PowClock.Stamp(PowClock.PurgeBefore(now)));
         cmd.ExecuteNonQuery();
         return rows;
     }

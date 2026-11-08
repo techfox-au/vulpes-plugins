@@ -857,7 +857,7 @@
           "bin/placeholder/Vulpes.PluginPacker.dll": {}
         }
       },
-      "Vulpes.Plugins.Secret-Sharing/1.0.1": {
+      "Vulpes.Plugins.Secret-Sharing/1.0.5": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
@@ -1853,7 +1853,7 @@
       "path": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
       "msbuildProject": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj"
     },
-    "Vulpes.Plugins.Secret-Sharing/1.0.1": {
+    "Vulpes.Plugins.Secret-Sharing/1.0.5": {
       "type": "project",
       "path": "../../src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj",
       "msbuildProject": "../../src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj"
@@ -1870,7 +1870,7 @@
       "Microsoft.NET.Test.Sdk >= 18.11.0",
       "Vulpes.Host >= 1.0.0",
       "Vulpes.PluginPacker >= 1.0.0",
-      "Vulpes.Plugins.Secret-Sharing >= 1.0.1",
+      "Vulpes.Plugins.Secret-Sharing >= 1.0.5",
       "xunit >= 2.9.3",
       "xunit.runner.visualstudio >= 4.0.1"
     ]

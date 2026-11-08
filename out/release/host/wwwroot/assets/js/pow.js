@@ -1,12 +1,11 @@
 /**
  * Host proof-of-work framework. Plugins use VulpesPow or these exports.
  * HMAC-SHA256(serverKey, ascii(nonce)) must have difficultyBits leading zero bits.
- * A challenge is one-time on the server. Solving abandons work 5 seconds before expiresAt.
+ * A challenge is one-time on the server. The client uses expiresAt as issued.
+ * The server accepts the ticket for 7 seconds after that.
  */
 
 import { solveParallel } from './pow-engine.js';
-
-const ABANDON_BEFORE_MS = 5000;
 
 // Page-load offset so ticket expiry uses the server clock. Zero means local time.
 let clockOffsetMs = 0;
@@ -25,15 +24,15 @@ export function noteServerTime(serverTime, clientNow = Date.now()) {
   return true;
 }
 
-/** Local clock corrected by a ticket's serverTime. The margin is at most a couple of seconds. */
+/** Local clock corrected by a ticket's serverTime. */
 export function syncedNow(serverTime, clientNow) {
   const server = parseServerTime(serverTime);
   if (Number.isNaN(server)) return clientNow;
   return clientNow + powClockOffset(server, clientNow, clientNow);
 }
 
-/** Extra milliseconds added so a ticket is treated as expired slightly before the server rejects it. */
-export const CLOCK_MARGIN_MS = 2000;
+/** The client follows the server clock. Ticket life is expiresAt, not expiresAt plus the server's 7 second grace. */
+export const CLOCK_MARGIN_MS = 0;
 
 /** Server time minus the midpoint of the request. Positive when the client clock is behind. */
 export function clockOffset(serverUtcMs, clientBeforeMs, clientAfterMs) {
@@ -99,7 +98,7 @@ function abandonDeadlineMs(challenge) {
   if (!challenge || !challenge.expiresAt) return null;
   const exp = Date.parse(challenge.expiresAt);
   if (Number.isNaN(exp)) return null;
-  return exp - ABANDON_BEFORE_MS;
+  return exp;
 }
 
 function abortedError() {
@@ -203,7 +202,7 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
   function usable(solution) {
     if (!solution) return false;
     const exp = expiresMs(solution.expiresAt);
-    return !Number.isNaN(exp) && exp - now() > ABANDON_BEFORE_MS;
+    return !Number.isNaN(exp) && exp > now();
   }
 
   function schedule(receivedAt, challenge, gen) {
@@ -290,6 +289,7 @@ export function createPowKeeper(fetchChallenge, deps = {}) {
         if (usable(held)) {
           const solution = held;
           held = null;
+          solution.clientTime = new Date(now()).toISOString();
           return solution;
         }
         lastError = null;

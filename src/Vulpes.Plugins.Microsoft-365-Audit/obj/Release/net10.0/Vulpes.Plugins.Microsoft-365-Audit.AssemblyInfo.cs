@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Vulpes audit plugin: Microsoft 365 / Entra security log ingestion.")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9996556a4442e8babd3855b5c3e74a104d73c6b3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7ea3e7ec32add6dbc7924044c90aa05f7cac818c")]
 [assembly: System.Reflection.AssemblyProductAttribute("Vulpes")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Vulpes.Plugins.Microsoft-365-Audit")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

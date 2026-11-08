@@ -204,7 +204,7 @@ function ensureUdk() {
 }
 
 function loadCrypto() {
-  return loadScript(`${pub}/nacl-fast.js`).then(() => loadScript(`${pub}/crypto.js?v=crypto2`)).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
+  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
 }
 function downloadText(filename, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));

@@ -237,10 +237,13 @@ async function ownerText(cipher) {
 
 function ensureCrypto() {
   if (!cryptoReady) {
-    cryptoReady = loadScript('/assets/js/udk.js?v=shell133').then(() => loadScript('/plugins/secret-sharing/public/crypto.js?v=crypto2')).catch((err) => {
-      cryptoReady = null;
-      throw err;
-    });
+    cryptoReady = loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1')
+      .then(() => window.VulpesCrypto.ready())
+      .then(() => loadScript('/assets/js/udk.js?v=shell133'))
+      .catch((err) => {
+        cryptoReady = null;
+        throw err;
+      });
   }
   return cryptoReady;
 }
@@ -259,8 +262,9 @@ async function openCollect(ctx, card, item) {
   const note = card.querySelector('.share-error') || h('div', { class: 'alert danger share-error' });
   note.textContent = '';
   try {
+    await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1');
+    await window.VulpesCrypto.ready();
     await loadScript('/assets/js/udk.js?v=shell133');
-    await loadScript('/plugins/secret-sharing/public/crypto.js?v=crypto2');
     const udk = await requireUserDataKey();
     const pack = await ctx.api.get(`/api/plugins/secret-sharing/collects/${encodeURIComponent(item.id)}/owner-key`);
     const plain = await window.SecretUdk.decryptWithUserDataKey(pack.ownerPrivateKeyProtected, udk);
@@ -283,7 +287,10 @@ function loadScript(src) {
     const s = document.createElement('script');
     s.src = src;
     s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Could not load encryption.'));
+    s.onerror = () => {
+      s.remove();
+      reject(new Error('Could not load encryption.'));
+    };
     document.head.append(s);
   });
 }

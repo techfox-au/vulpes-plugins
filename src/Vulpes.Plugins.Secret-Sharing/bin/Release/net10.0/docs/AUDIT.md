@@ -6,10 +6,10 @@ Review checklist for this plugin. The in-app trail is the Vulpes audit log. Filt
 
 | Area | Path |
 |------|------|
-| Payload crypto | `wwwroot/public/crypto.js` |
-| X25519 | `wwwroot/public/nacl-fast.js` (TweetNaCl 1.0.3, [VENDOR.md](VENDOR.md)) |
-| Proof of work, browser | Host `/assets/js/pow.js` |
-| Proof of work, server | `Services/PowService.cs` (difficulty from host `IPowPolicy`) |
+| Payload crypto | Host `/assets/js/crypto/crypto.js` via `VulpesCrypto.ready()` |
+| X25519 | Host `/assets/js/crypto/nacl-fast.js` (TweetNaCl 1.0.3, [VENDOR.md](VENDOR.md)) |
+| Proof of work, browser | Host `/assets/js/pow.js` (`VulpesPow`) and `/assets/js/pow-engine.js` |
+| Proof of work, server | `Services/PowService.cs` (host `IPowPolicy` and `PowClock`) |
 | Upload and download transport | `wwwroot/public/transfer.js` |
 | Field limits and burn | `Services/ShareStore.cs` |
 | IP allow-list | `Services/IpRestriction.cs` |
@@ -22,7 +22,7 @@ Review checklist for this plugin. The in-app trail is the Vulpes audit log. Filt
 1. Confirm no server method decrypts `Ciphertext`, `WrappedKey`, a link-password package, or the inner user-data-key wrap. The server may remove the `vd1.` `VULPES_DATA_KEY` seal from a collect owner key or a stored wrap before returning it to the signed-in owner.
 2. Confirm `#sk=` is read only in the browser.
 3. Confirm SQL uses parameters. Table names are the literals `secrets` and `collects`, not request data.
-4. Confirm `crypto.js` still matches Sendit except the params URL and the 893241 iteration check. Confirm `nacl-fast.js` and `pow.js` are byte-identical to Sendit.
+4. Confirm this plugin does not ship `crypto.js`, `nacl-fast.js`, or `pow.js`. Confirm the host cipher still calls `GET /api/plugins/secret-sharing/crypto/params` and rejects a wrap whose iteration count is not 893241. Confirm pages import `VulpesPow` from `/assets/js/pow.js`.
 5. Confirm HKDF info remains `sendit-v1-wrap`.
 6. Confirm proof of work is HMAC-SHA256, one-time, and uses the host difficulty on the next challenge. There is no path that sets difficulty to 0.
 7. Confirm a missing, expired, or consumed secret returns the same "no longer available" response, and that the lookup happens only after the proof is burned.

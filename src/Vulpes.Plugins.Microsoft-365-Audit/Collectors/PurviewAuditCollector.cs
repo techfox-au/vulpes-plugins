@@ -77,7 +77,7 @@ public sealed class PurviewAuditCollector : ICollector
             [PendingCreatedKey] = now.ToString("O", CultureInfo.InvariantCulture),
         });
         context.Logger.LogInformation("Purview audit query {QueryId} created for {Tenant}: {Start} .. {End}", id, context.Tenant.DisplayName, start, end);
-        return CollectorResult.Empty($"query {id} submitted for {start:O}..{end:O}");
+        return CollectorResult.Waiting($"query {id} submitted for {start:O}..{end:O}");
     }
 
     private static async Task<CollectorResult> ContinuePendingAsync(CollectorContext context, string queryId, Dictionary<string, JsonElement> state, CancellationToken cancellationToken)
@@ -91,24 +91,37 @@ public sealed class PurviewAuditCollector : ICollector
         var windowEnd = state.TryGetValue(PendingEndKey, out var endEl) && DateTimeOffset.TryParse(endEl.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var e) ? e : (DateTimeOffset?)null;
         var createdAt = state.TryGetValue(PendingCreatedKey, out var cEl) && DateTimeOffset.TryParse(cEl.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var c) ? c : context.Now;
 
-        using var query = await context.Graph.GetAsync($"security/auditLog/queries/{Uri.EscapeDataString(queryId)}", cancellationToken);
-        var status = query.RootElement.Str("status") ?? "unknown";
-        switch (status)
+        JsonDocument query;
+        try
         {
-            case "succeeded":
-                return await DrainAsync(context, queryId, windowEnd, cancellationToken);
-            case "failed":
-            case "cancelled":
-                context.SaveState([]);
-                throw new GraphException($"Purview query {queryId} ended with status '{status}'; it will be retried next run.");
-            default:
-                if (context.Now - createdAt > PendingTimeout)
-                {
-                    context.SaveState([]);
-                    throw new GraphException($"Purview query {queryId} did not complete within {PendingTimeout.TotalHours} hours; a new query will be submitted.");
-                }
+            query = await context.Graph.GetAsync($"security/auditLog/queries/{Uri.EscapeDataString(queryId)}", cancellationToken);
+        }
+        catch (GraphException ex)
+        {
+            context.SaveState([]);
+            throw new GraphException($"Purview query {queryId} could not be read ({ex.Message}); a new query will be submitted.", ex);
+        }
 
-                return new CollectorResult(0, 0, 0, 0, true, $"query {queryId} is {status}");
+        using (query)
+        {
+            var status = query.RootElement.Str("status") ?? "unknown";
+            switch (status)
+            {
+                case "succeeded":
+                    return await DrainAsync(context, queryId, windowEnd, cancellationToken);
+                case "failed":
+                case "cancelled":
+                    context.SaveState([]);
+                    throw new GraphException($"Purview query {queryId} ended with status '{status}'; it will be retried next run.");
+                default:
+                    if (context.Now - createdAt > PendingTimeout)
+                    {
+                        context.SaveState([]);
+                        throw new GraphException($"Purview query {queryId} did not complete within {PendingTimeout.TotalHours} hours; a new query will be submitted.");
+                    }
+
+                    return CollectorResult.Waiting($"query {queryId} is {status}");
+            }
         }
     }
 
@@ -163,6 +176,11 @@ public sealed class PurviewAuditCollector : ICollector
                 [PendingNextKey] = resume,
             });
             return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run");
+        }
+
+        if (totals.Failed > 0)
+        {
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} index rejected records; the watermark was not moved");
         }
 
         context.SaveState([]);

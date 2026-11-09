@@ -29,6 +29,7 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
             db.Tenants.Remove(gone);
         }
 
+        var directoryChanged = new List<Guid>();
         foreach (var remote in tenants)
         {
             var row = local.FirstOrDefault(t => t.Id == remote.Id);
@@ -45,6 +46,10 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
                 };
                 db.Tenants.Add(row);
             }
+            else if (!string.Equals(row.TenantId, remote.DirectoryId, StringComparison.Ordinal))
+            {
+                directoryChanged.Add(row.Id);
+            }
 
             row.DisplayName = remote.DisplayName;
             row.TenantId = remote.DirectoryId;
@@ -54,7 +59,13 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
                 row.DiscoveredName = remote.DiscoveredName;
             }
 
-            if (application is not null)
+            if (application is null)
+            {
+                row.ProtectedSecret = null;
+                row.ProtectedCertificate = null;
+                row.ProtectedCertificatePassword = null;
+            }
+            else
             {
                 row.ClientId = application.ClientId;
                 row.CredentialType = application.CredentialType;
@@ -72,6 +83,19 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
             }
 
             row.UpdatedAt = timeProvider.GetUtcNow();
+        }
+
+        if (directoryChanged.Count > 0)
+        {
+            var checkpoints = await db.Checkpoints.Where(c => directoryChanged.Contains(c.TenantId)).ToListAsync(ct);
+            foreach (var checkpoint in checkpoints)
+            {
+                checkpoint.Watermark = null;
+                checkpoint.StateJson = null;
+                checkpoint.NextRunAt = null;
+                checkpoint.ConsecutiveFailures = 0;
+                checkpoint.LastError = "Directory id changed; collection starts again from the lookback window.";
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -140,7 +164,7 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
         ArgumentNullException.ThrowIfNull(tenant);
         var probes = new List<ProbeResult>();
         var testedAt = timeProvider.GetUtcNow();
-        GraphClient graph;
+        GraphClient? graph = null;
         string? organization = null;
         try
         {
@@ -153,6 +177,7 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
         }
         catch (Exception ex) when (ex is GraphException or Azure.Identity.AuthenticationFailedException or Azure.RequestFailedException or InvalidOperationException or HttpRequestException or System.Security.Cryptography.CryptographicException or FormatException)
         {
+            graph?.Dispose();
             logger.LogWarning(ex, "Connection test failed for tenant {Tenant}", tenant.DisplayName);
             var failed = new ConnectionTestResult(false, null, Sanitize(ex.Message), probes, testedAt);
             await StoreTestResultAsync(tenant, failed, ct);
@@ -193,6 +218,7 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
 
         var result = new ConnectionTestResult(true, organization, null, probes, testedAt);
         await StoreTestResultAsync(tenant, result, ct);
+        graph?.Dispose();
         return result;
     }
 

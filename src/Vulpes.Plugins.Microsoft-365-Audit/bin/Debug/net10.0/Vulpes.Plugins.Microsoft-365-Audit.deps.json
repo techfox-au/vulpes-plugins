@@ -6,12 +6,11 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "Vulpes.Plugins.Microsoft-365-Audit/0.1.0": {
+      "Vulpes.Plugins.Microsoft-365-Audit/1.0.1": {
         "dependencies": {
           "Azure.Identity": "1.21.0",
           "Microsoft.EntityFrameworkCore.Design": "10.0.14",
-          "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
-          "Vulpes.Sdk": "0.1.0"
+          "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14"
         },
         "runtime": {
           "Vulpes.Plugins.Microsoft-365-Audit.dll": {}
@@ -529,19 +528,11 @@
             "fileVersion": "4.6.26515.6"
           }
         }
-      },
-      "Vulpes.Sdk/0.1.0": {
-        "runtime": {
-          "Vulpes.Sdk.dll": {
-            "assemblyVersion": "0.1.0.0",
-            "fileVersion": "0.1.0.0"
-          }
-        }
       }
     }
   },
   "libraries": {
-    "Vulpes.Plugins.Microsoft-365-Audit/0.1.0": {
+    "Vulpes.Plugins.Microsoft-365-Audit/1.0.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -811,11 +802,6 @@
       "sha512": "sha512-wLBKzFnDCxP12VL9ANydSYhk59fC4cvOr9ypYQLPnAj48NQIhqnjdD2yhP8yEKyBJEjERWS9DisKL7rX5eU25Q==",
       "path": "system.security.cryptography.protecteddata/4.5.0",
       "hashPath": "system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
-    },
-    "Vulpes.Sdk/0.1.0": {
-      "type": "project",
-      "serviceable": false,
-      "sha512": ""
     }
   }
 }

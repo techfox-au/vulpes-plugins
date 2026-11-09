@@ -9,6 +9,9 @@ namespace Vulpes.Plugins.Microsoft365Audit.Collectors;
 public sealed record CollectorResult(int Published, int Duplicates, int Failed, int Alerts, bool Complete, string? Note = null)
 {
     public static CollectorResult Empty(string? note = null) => new(0, 0, 0, 0, true, note);
+
+    /// <summary>The run is not finished. The scheduler polls again shortly instead of waiting the full interval.</summary>
+    public static CollectorResult Waiting(string? note = null) => new(0, 0, 0, 0, false, note);
 }
 
 /// <summary>Everything a collector needs for one run against one tenant.</summary>
@@ -129,6 +132,13 @@ public abstract class WatermarkCollector : ICollector
 
         var last = await context.PublishAsync(buffer, cancellationToken);
         totals = Add(totals, last);
+
+        // A rejected index is retried from the same watermark. Moving it forward would drop those events
+        // once they fall outside the overlap.
+        if (totals.Failed > 0)
+        {
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, "Elasticsearch rejected records; the watermark was not moved");
+        }
 
         // Oldest-first: a partial run has ingested everything from the window start through max.
         // The next run continues after max. An empty finished run moves the watermark to now.

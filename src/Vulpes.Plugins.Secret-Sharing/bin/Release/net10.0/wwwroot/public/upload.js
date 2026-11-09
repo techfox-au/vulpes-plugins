@@ -122,6 +122,7 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
         challengeId: solved.challengeId,
         nonce: solved.nonce,
         hash: solved.hash,
+        clientTime: solved.clientTime,
       }, (fraction) => progress.setProgress(fraction));
       payload.ciphertext = null;
       progress.setProgress(1);

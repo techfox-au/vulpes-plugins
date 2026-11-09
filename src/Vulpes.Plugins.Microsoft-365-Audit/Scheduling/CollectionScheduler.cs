@@ -152,11 +152,12 @@ public sealed class CollectionScheduler(
             var interval = settings.IntervalMinutes is { } custom ? TimeSpan.FromMinutes(Math.Clamp(custom, 1, 24 * 60 * 7)) : options.IntervalFor(source);
             try
             {
+                using var graph = graphFactory.Create(tenant);
                 var context = new CollectorContext
                 {
                     Tenant = tenant,
                     Settings = settings,
-                    Graph = graphFactory.Create(tenant),
+                    Graph = graph,
                     Checkpoint = checkpoint,
                     Pipeline = pipeline,
                     Options = options,
@@ -166,14 +167,36 @@ public sealed class CollectionScheduler(
                 };
                 var result = await collector.CollectAsync(context, cancellationToken);
                 var finished = timeProvider.GetUtcNow();
-                checkpoint.LastStatus = result.Complete ? RunStatuses.Succeeded : RunStatuses.Pending;
-                checkpoint.LastSuccessAt = finished;
+                var indexedCleanly = result.Failed == 0;
+                checkpoint.LastStatus = result.Failed > 0
+                    ? RunStatuses.Failed
+                    : result.Complete ? RunStatuses.Succeeded : RunStatuses.Pending;
+                if (result.Complete && indexedCleanly)
+                {
+                    checkpoint.LastSuccessAt = finished;
+                }
+
                 checkpoint.LastError = result.Note;
                 checkpoint.LastCount = result.Published;
                 checkpoint.TotalCount += result.Published;
-                checkpoint.ConsecutiveFailures = 0;
-                checkpoint.NextRunAt = result.Complete ? finished + Jitter(interval) : finished.AddSeconds(5);
-                entry.Status = RunStatuses.Succeeded;
+                checkpoint.ConsecutiveFailures = result.Failed > 0 ? checkpoint.ConsecutiveFailures + 1 : 0;
+                TimeSpan wait;
+                if (result.Failed > 0)
+                {
+                    var backoff = TimeSpan.FromMinutes(Math.Min(Math.Pow(2, checkpoint.ConsecutiveFailures), interval.TotalMinutes * 4));
+                    wait = backoff > interval ? backoff : interval;
+                }
+                else if (!result.Complete)
+                {
+                    wait = TimeSpan.FromSeconds(5);
+                }
+                else
+                {
+                    wait = Jitter(interval);
+                }
+
+                checkpoint.NextRunAt = finished + wait;
+                entry.Status = result.Failed > 0 ? RunStatuses.Failed : RunStatuses.Succeeded;
                 entry.Count = result.Published;
                 entry.Duplicates = result.Duplicates;
                 entry.Failed = result.Failed;

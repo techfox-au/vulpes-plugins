@@ -31,21 +31,35 @@ public interface IGraphTokenProvider
     void Invalidate();
 }
 
-public sealed class AzureIdentityTokenProvider : IGraphTokenProvider
+public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposable
 {
     private readonly Func<TokenCredential> _createCredential;
     private readonly string _scope;
+    private readonly IDisposable? _owned;
     private readonly Lock _gate = new();
     private TokenCredential _credential;
     private AccessToken _cached;
 
     public AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope)
+        : this(createCredential, scope, null)
+    {
+    }
+
+    public AzureIdentityTokenProvider(CertificateCredential certificate, string scope)
+        : this(certificate.Create, scope, certificate)
+    {
+    }
+
+    private AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope, IDisposable? owned)
     {
         ArgumentNullException.ThrowIfNull(createCredential);
         _createCredential = createCredential;
+        _owned = owned;
         _credential = createCredential();
         _scope = scope;
     }
+
+    public void Dispose() => _owned?.Dispose();
 
     public void Invalidate()
     {
@@ -97,15 +111,7 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
 
             var pfx = Convert.FromBase64String(protector.Unprotect(tenant.ProtectedCertificate));
             var password = tenant.ProtectedCertificatePassword is null ? null : protector.Unprotect(tenant.ProtectedCertificatePassword);
-            return new AzureIdentityTokenProvider(() =>
-            {
-                var certificate = X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.DefaultKeySet);
-                return new ClientCertificateCredential(tenant.TenantId, tenant.ClientId, certificate, new ClientCertificateCredentialOptions
-                {
-                    AuthorityHost = cloud.AuthorityHost,
-                    SendCertificateChain = true,
-                });
-            }, cloud.Scope);
+            return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), tenant.TenantId, tenant.ClientId, cloud), cloud.Scope);
         }
 
         if (string.IsNullOrEmpty(tenant.ProtectedSecret))
@@ -133,15 +139,7 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
 
             var pfx = Convert.FromBase64String(application.CertificatePfxBase64);
             var password = application.CertificatePassword;
-            return new AzureIdentityTokenProvider(() =>
-            {
-                var certificate = X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.DefaultKeySet);
-                return new ClientCertificateCredential(directoryId, application.ClientId, certificate, new ClientCertificateCredentialOptions
-                {
-                    AuthorityHost = cloud.AuthorityHost,
-                    SendCertificateChain = true,
-                });
-            }, cloud.Scope);
+            return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), directoryId, application.ClientId, cloud), cloud.Scope);
         }
 
         if (string.IsNullOrEmpty(application.Secret))
@@ -154,6 +152,45 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
             () => new ClientSecretCredential(directoryId, application.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
             cloud.Scope);
     }
+
+    private static X509Certificate2 LoadCertificate(byte[] pfx, string? password)
+    {
+        // EphemeralKeySet keeps the private key out of the Windows user store. macOS cannot load with that flag.
+        var flags = OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet;
+        return X509CertificateLoader.LoadPkcs12(pfx, password, flags);
+    }
+}
+
+/// <summary>Loads the tenant certificate into memory only. A replaced certificate is disposed.</summary>
+public sealed class CertificateCredential : IDisposable
+{
+    private readonly Func<X509Certificate2> _load;
+    private readonly string _directoryId;
+    private readonly string _clientId;
+    private readonly GraphCloud _cloud;
+    private X509Certificate2? _certificate;
+
+    public CertificateCredential(Func<X509Certificate2> load, string directoryId, string clientId, GraphCloud cloud)
+    {
+        _load = load;
+        _directoryId = directoryId;
+        _clientId = clientId;
+        _cloud = cloud;
+    }
+
+    public TokenCredential Create()
+    {
+        var next = _load();
+        var previous = Interlocked.Exchange(ref _certificate, next);
+        previous?.Dispose();
+        return new ClientCertificateCredential(_directoryId, _clientId, next, new ClientCertificateCredentialOptions
+        {
+            AuthorityHost = _cloud.AuthorityHost,
+            SendCertificateChain = true,
+        });
+    }
+
+    public void Dispose() => Interlocked.Exchange(ref _certificate, null)?.Dispose();
 }
 
 public sealed class EntraTokenSource(IEntraApplication application) : IEntraTokenSource
@@ -191,7 +228,7 @@ public sealed class GraphException : Exception
 /// (429/503/504 with Retry-After, exponential backoff with jitter). Paths are built by the collectors from
 /// constant templates and <see cref="Uri.EscapeDataString"/>-encoded values.
 /// </summary>
-public sealed class GraphClient
+public sealed class GraphClient : IDisposable
 {
     private const int MaxRetries = 6;
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(5);
@@ -208,6 +245,14 @@ public sealed class GraphClient
         Cloud = cloud;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
+    }
+
+    public void Dispose()
+    {
+        if (_tokens is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 
     public GraphCloud Cloud { get; }

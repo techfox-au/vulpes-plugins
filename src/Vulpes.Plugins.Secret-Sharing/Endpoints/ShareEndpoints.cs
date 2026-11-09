@@ -210,14 +210,16 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        // Anonymous retrieval. Burn the proof before the lookup so a scraper cannot pull ciphertext for free.
-        var error = pow.TryConsume("collect", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http), body?.ClientTime);
-        if (error is not null) return Denied(scan, http, error);
+        // The allow-list does not depend on the collect, so a blocked address is refused
+        // before the proof is burned.
         if (!IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
         {
             await audit.RecordAsync("secret.collect.ip_denied", id, "Collect retrieval denied: IP not allowed.", actor: UserId(http) ?? "anonymous", cancellationToken: http.RequestAborted);
             return Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
         }
+
+        var error = pow.TryConsume("collect", id, body?.ChallengeId, body?.Nonce, body?.Hash, PowBrowser.Current(http), body?.ClientTime);
+        if (error is not null) return Denied(scan, http, error);
 
         var row = store.TakeCollect(id);
         if (row is null) return Miss(scan, http);
@@ -307,16 +309,19 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http), body.ClientTime);
-        if (error is not null) return Denied(scan, http, error);
-        var meta = store.CollectMeta(id);
-        if (meta is null || meta.Status is "expired" or "consumed") return Miss(scan, http);
-        // A submitted collect is a retrieval. Do not describe it unless this address may open it.
-        if (meta.Status == "ready" && !IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
+        // A submitted collect is a retrieval. Refuse a blocked address before burning the proof.
+        // An upload that is still waiting is not a retrieval, so that address may continue.
+        var peeked = store.CollectMeta(id);
+        if (peeked is { Status: "ready" } && !IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
         {
             await audit.RecordAsync("secret.collect.ip_denied", id, "Collect retrieval denied: IP not allowed.", actor: UserId(http) ?? "anonymous", cancellationToken: http.RequestAborted);
             return Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
         }
+
+        var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http), body.ClientTime);
+        if (error is not null) return Denied(scan, http, error);
+        var meta = store.CollectMeta(id);
+        if (meta is null || meta.Status is "expired" or "consumed") return Miss(scan, http);
 
         return Results.Json(new { meta.PublicKey, meta.Status, meta.OneTime, meta.PasswordProtected, meta.HideTextByDefault, meta.ExpiresAt, meta.Filename, accessCount = meta.AccessCount, maxAccessCount = meta.MaxAccessCount, hasPayload = meta.Status == "ready", publicLabel = meta.PublicLabel });
     }

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Description>Vulpes audit plugin: Microsoft 365 / Entra security log ingestion.</Description>
     <!-- Produce a self-contained plugin folder (deps.json + copied dependencies) suitable for AssemblyDependencyResolver. -->
     <EnableDynamicLoading>true</EnableDynamicLoading>

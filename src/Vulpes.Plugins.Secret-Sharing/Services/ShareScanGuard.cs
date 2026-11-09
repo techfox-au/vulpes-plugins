@@ -75,7 +75,7 @@ public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = 
         cmd.CommandText = "DELETE FROM scan_events WHERE AtMs < @cut";
         cmd.Parameters.AddWithValue("@cut", cutoff);
         cmd.ExecuteNonQuery();
-        var now = DateTimeOffset.UtcNow.ToString("O");
+        var now = PowClock.PurgeBefore(DateTimeOffset.UtcNow).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         var expired = new List<(string Id, string Kind)>();
         using (var sel = conn.CreateCommand())
         {

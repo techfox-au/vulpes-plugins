@@ -545,16 +545,19 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
 
         var row = new SendPublic(reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6), oneTime, reader.GetInt32(10) == 1, reader.GetInt32(11) == 1, "ready", expires);
         reader.Close();
-        var burn = oneTime || (max is int cap && access + 1 >= cap);
         using var upd = conn.CreateCommand();
-        if (burn)
-        {
-            upd.CommandText = "UPDATE collects SET AccessCount = AccessCount + 1, ConsumedAt = @now, Ciphertext = NULL, Iv = NULL, WrappedKey = NULL, EphemeralPublicKey = NULL WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
-        }
-        else
-        {
-            upd.CommandText = "UPDATE collects SET AccessCount = AccessCount + 1 WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
-        }
+        // The cap is decided from the row SQLite updates, not from the count read above, so two
+        // overlapping opens cannot both leave the payload in place when one of them reaches the cap.
+        upd.CommandText = """
+            UPDATE collects SET
+                AccessCount = AccessCount + 1,
+                ConsumedAt = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN @now ELSE ConsumedAt END,
+                Ciphertext = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN NULL ELSE Ciphertext END,
+                Iv = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN NULL ELSE Iv END,
+                WrappedKey = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN NULL ELSE WrappedKey END,
+                EphemeralPublicKey = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN NULL ELSE EphemeralPublicKey END
+            WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)
+            """;
 
         upd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
         upd.Parameters.AddWithValue("@id", id);

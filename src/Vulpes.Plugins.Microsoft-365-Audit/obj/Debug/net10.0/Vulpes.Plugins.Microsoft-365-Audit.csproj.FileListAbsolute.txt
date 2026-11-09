@@ -79,8 +79,6 @@
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/runtimes/win-x64/native/e_sqlite3.dll
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/runtimes/win-x86/native/e_sqlite3.dll
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/runtimes/win/lib/netstandard2.0/System.Security.Cryptography.ProtectedData.dll
-/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/Vulpes.Sdk.dll
-/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/Vulpes.Sdk.pdb
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Debug/net10.0/Vulpes.Plugins.Microsoft-365-Audit.csproj.AssemblyReference.cache
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Debug/net10.0/Vulpes.Plugins.Microsoft-365-Audit.GeneratedMSBuildEditorConfig.editorconfig
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Debug/net10.0/Vulpes.Plugins.Microsoft-365-Audit.AssemblyInfoInputs.cache

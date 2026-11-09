@@ -12,6 +12,23 @@ namespace Vulpes.Plugins.Microsoft365Audit.Tests;
 
 public sealed class CollectorTests
 {
+    [Fact]
+    public void Recent_runs_keep_only_the_latest_row_for_a_purview_query()
+    {
+        var tenant = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        var query = "a1b64e95-a58a-46c1-8b37-9ffd8b4b57db";
+        var runs = new[]
+        {
+            new RunLogEntry { Id = 5, TenantId = tenant, Source = "activity", Error = $"query {query} is running" },
+            new RunLogEntry { Id = 4, TenantId = tenant, Source = "activity", Error = $"query {query} is notStarted" },
+            new RunLogEntry { Id = 3, TenantId = other, Source = "activity", Error = $"query {query} is running" },
+            new RunLogEntry { Id = 2, TenantId = tenant, Source = "signins", Error = null },
+        };
+        var kept = RunQueries.LatestPerQuery(runs);
+        Assert.Equal([5L, 3L, 2L], kept.Select(r => r.Id));
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
 
     private static object SignIn(string id, DateTimeOffset at, string upn = "jane@contoso.com", int errorCode = 0) => new

@@ -77,7 +77,7 @@ public sealed class PurviewAuditCollector : ICollector
             [PendingCreatedKey] = now.ToString("O", CultureInfo.InvariantCulture),
         });
         context.Logger.LogInformation("Purview audit query {QueryId} created for {Tenant}: {Start} .. {End}", id, context.Tenant.DisplayName, start, end);
-        return CollectorResult.Waiting($"query {id} submitted for {start:O}..{end:O}");
+        return CollectorResult.Waiting($"query {id} submitted for {start:O}..{end:O}", id);
     }
 
     private static async Task<CollectorResult> ContinuePendingAsync(CollectorContext context, string queryId, Dictionary<string, JsonElement> state, CancellationToken cancellationToken)
@@ -120,7 +120,7 @@ public sealed class PurviewAuditCollector : ICollector
                         throw new GraphException($"Purview query {queryId} did not complete within {PendingTimeout.TotalHours} hours; a new query will be submitted.");
                     }
 
-                    return CollectorResult.Waiting($"query {queryId} is {status}");
+                    return CollectorResult.Waiting($"query {queryId} is {status}", queryId);
             }
         }
     }
@@ -175,12 +175,12 @@ public sealed class PurviewAuditCollector : ICollector
                 [PendingCreatedKey] = StateString(prior, PendingCreatedKey),
                 [PendingNextKey] = resume,
             });
-            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run");
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run") { QueryId = queryId };
         }
 
         if (totals.Failed > 0)
         {
-            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} index rejected records; the watermark was not moved");
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} index rejected records; the watermark was not moved") { QueryId = queryId };
         }
 
         context.SaveState([]);
@@ -190,7 +190,7 @@ public sealed class PurviewAuditCollector : ICollector
             context.Checkpoint.Watermark = w;
         }
 
-        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true);
+        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true) { QueryId = queryId };
     }
 
     private static string? StateString(Dictionary<string, JsonElement> state, string key) =>

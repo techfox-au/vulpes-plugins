@@ -197,7 +197,7 @@ public static class AuditEndpoints
     {
         var tenants = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
         var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
-        var runs = await db.RunLog.AsNoTracking().OrderByDescending(r => r.Id).Take(100).ToListAsync(ct);
+        var runs = RunQueries.LatestPerQuery(await db.RunLog.AsNoTracking().OrderByDescending(r => r.Id).Take(500).ToListAsync(ct)).Take(100).ToList();
         var tenantNames = tenants.ToDictionary(t => t.Id, t => t.DisplayName);
         return Results.Json(new
         {

@@ -1,5 +1,5 @@
 // Interactive and non-interactive Entra ID sign-ins (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get, locationCell } from './common.js?v=shell327';
+import { createExplorer, outcomeBadge, severityBadge, get, locationCell } from './common.js?v=shell331';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -16,6 +16,19 @@ export async function mount(el, ctx) {
     source: 'signins',
     defaultRange: q.range || '24h',
     initialFilters,
+    selects: [{
+      key: 'type',
+      field: 'labels.signInType',
+      ariaLabel: 'Type',
+      allLabel: 'All types',
+      value: q.type || '',
+      options: [
+        ['interactive', 'Interactive'],
+        ['nonInteractive', 'Non-interactive'],
+        ['servicePrincipal', 'Service principal'],
+        ['managedIdentity', 'Managed identity'],
+      ],
+    }],
     columns: [
       { title: 'Time', render: (d) => h('span', { class: 'nowrap' }, fmt.dateTime(d['@timestamp'])) },
       { title: 'User', path: 'user.name', filterField: 'user.name' },

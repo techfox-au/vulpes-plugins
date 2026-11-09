@@ -16,7 +16,7 @@ public sealed class AuditSchema : IIndexSchemaContributor
             Title = "Sign-ins",
             Fields =
             [
-                F("labels.signInType", "Sign-in type"), F("labels.errorCode", "Error code"), F("labels.conditionalAccessStatus", "Conditional Access"),
+                F("labels.signInType", "Type"), F("labels.errorCode", "Error code"), F("labels.conditionalAccessStatus", "Conditional Access"),
                 F("labels.clientAppUsed", "Client app used"), F("labels.riskLevel", "Risk level"), F("labels.riskState", "Risk state"),
                 F("labels.os", "Operating system"), F("labels.browser", "Browser"), F("labels.resource", "Resource"),
                 F("data.status.failureReason", "Failure reason"), F("data.deviceDetail.isCompliant", "Device compliant"), F("data.deviceDetail.trustType", "Device trust type"),

@@ -31,30 +31,81 @@ public interface IGraphTokenProvider
     void Invalidate();
 }
 
+/// <summary>Access tokens kept across collection runs. A new token is requested only inside the last five minutes of its life.</summary>
+public sealed class GraphTokenCache
+{
+    private readonly Lock _gate = new();
+    private readonly Dictionary<string, AccessToken> _tokens = new(StringComparer.Ordinal);
+
+    public bool TryGet(string key, DateTimeOffset now, out AccessToken token)
+    {
+        lock (_gate)
+        {
+            if (_tokens.TryGetValue(key, out token) && !string.IsNullOrEmpty(token.Token) && token.ExpiresOn > now.AddMinutes(5))
+            {
+                return true;
+            }
+        }
+
+        token = default;
+        return false;
+    }
+
+    public void Set(string key, AccessToken token)
+    {
+        lock (_gate)
+        {
+            _tokens[key] = token;
+        }
+    }
+
+    public void Invalidate(string key)
+    {
+        lock (_gate)
+        {
+            _tokens.Remove(key);
+        }
+    }
+}
+
 public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposable
 {
     private readonly Func<TokenCredential> _createCredential;
     private readonly string _scope;
     private readonly IDisposable? _owned;
+    private readonly GraphTokenCache? _shared;
+    private readonly string? _cacheKey;
     private readonly Lock _gate = new();
     private TokenCredential _credential;
     private AccessToken _cached;
 
     public AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope)
-        : this(createCredential, scope, null)
+        : this(createCredential, scope, null, null, null)
     {
     }
 
     public AzureIdentityTokenProvider(CertificateCredential certificate, string scope)
-        : this(certificate.Create, scope, certificate)
+        : this(certificate.Create, scope, certificate, null, null)
     {
     }
 
-    private AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope, IDisposable? owned)
+    public AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope, GraphTokenCache shared, string cacheKey)
+        : this(createCredential, scope, null, shared, cacheKey)
+    {
+    }
+
+    public AzureIdentityTokenProvider(CertificateCredential certificate, string scope, GraphTokenCache shared, string cacheKey)
+        : this(certificate.Create, scope, certificate, shared, cacheKey)
+    {
+    }
+
+    private AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope, IDisposable? owned, GraphTokenCache? shared, string? cacheKey)
     {
         ArgumentNullException.ThrowIfNull(createCredential);
         _createCredential = createCredential;
         _owned = owned;
+        _shared = shared;
+        _cacheKey = cacheKey;
         _credential = createCredential();
         _scope = scope;
     }
@@ -63,6 +114,11 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 
     public void Invalidate()
     {
+        if (_shared is not null && _cacheKey is not null)
+        {
+            _shared.Invalidate(_cacheKey);
+        }
+
         lock (_gate)
         {
             _cached = default;
@@ -74,10 +130,16 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 
     public async Task<string> GetTokenAsync(CancellationToken cancellationToken)
     {
+        var now = DateTimeOffset.UtcNow;
+        if (_shared is not null && _cacheKey is not null && _shared.TryGet(_cacheKey, now, out var shared))
+        {
+            return shared.Token;
+        }
+
         TokenCredential credential;
         lock (_gate)
         {
-            if (!string.IsNullOrEmpty(_cached.Token) && _cached.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(5))
+            if (!string.IsNullOrEmpty(_cached.Token) && _cached.ExpiresOn > now.AddMinutes(5))
             {
                 return _cached.Token;
             }
@@ -91,6 +153,11 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
             _cached = token;
         }
 
+        if (_shared is not null && _cacheKey is not null)
+        {
+            _shared.Set(_cacheKey, token);
+        }
+
         return token.Token;
     }
 }
@@ -98,6 +165,8 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 /// <summary>Creates token providers from stored (encrypted) tenant credentials.</summary>
 public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretProtector legacy)
 {
+    private readonly GraphTokenCache _tokens = new();
+
     public IGraphTokenProvider Create(Tenant tenant)
     {
         ArgumentNullException.ThrowIfNull(tenant);
@@ -111,7 +180,7 @@ public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretPro
 
             var pfx = Convert.FromBase64String(Open(tenant.ProtectedCertificate));
             var password = tenant.ProtectedCertificatePassword is null ? null : Open(tenant.ProtectedCertificatePassword);
-            return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), tenant.TenantId, tenant.ClientId, cloud), cloud.Scope);
+            return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), tenant.TenantId, tenant.ClientId, cloud), cloud.Scope, _tokens, CacheKey(tenant.TenantId, tenant.ClientId, tenant.Cloud, tenant.CredentialType, tenant.ProtectedCertificate + "\n" + tenant.ProtectedCertificatePassword));
         }
 
         if (string.IsNullOrEmpty(tenant.ProtectedSecret))
@@ -122,10 +191,12 @@ public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretPro
         var secret = Open(tenant.ProtectedSecret);
         return new AzureIdentityTokenProvider(
             () => new ClientSecretCredential(tenant.TenantId, tenant.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
-            cloud.Scope);
+            cloud.Scope,
+            _tokens,
+            CacheKey(tenant.TenantId, tenant.ClientId, tenant.Cloud, tenant.CredentialType, tenant.ProtectedSecret));
     }
 
-    public static IGraphTokenProvider Create(string directoryId, EntraApplicationCredential application)
+    public IGraphTokenProvider Create(string directoryId, EntraApplicationCredential application)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directoryId);
         ArgumentNullException.ThrowIfNull(application);
@@ -139,7 +210,7 @@ public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretPro
 
             var pfx = Convert.FromBase64String(application.CertificatePfxBase64);
             var password = application.CertificatePassword;
-            return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), directoryId, application.ClientId, cloud), cloud.Scope);
+            return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), directoryId, application.ClientId, cloud), cloud.Scope, _tokens, CacheKey(directoryId, application.ClientId, application.Cloud, application.CredentialType, application.CertificatePfxBase64 + "\n" + application.CertificatePassword));
         }
 
         if (string.IsNullOrEmpty(application.Secret))
@@ -150,7 +221,15 @@ public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretPro
         var secret = application.Secret;
         return new AzureIdentityTokenProvider(
             () => new ClientSecretCredential(directoryId, application.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
-            cloud.Scope);
+            cloud.Scope,
+            _tokens,
+            CacheKey(directoryId, application.ClientId, application.Cloud, application.CredentialType, application.Secret));
+    }
+
+    private static string CacheKey(string directoryId, string clientId, string? cloud, string? credentialType, string? material)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(material ?? ""));
+        return string.Join('\n', directoryId, clientId, cloud, credentialType, Convert.ToHexString(hash));
     }
 
     private string Open(string stored) =>
@@ -198,12 +277,12 @@ public sealed class CertificateCredential : IDisposable
     public void Dispose() => Interlocked.Exchange(ref _certificate, null)?.Dispose();
 }
 
-public sealed class EntraTokenSource(IEntraApplication application) : IEntraTokenSource
+public sealed class EntraTokenSource(IEntraApplication application, GraphCredentialFactory credentials) : IEntraTokenSource
 {
     public async Task<string> GetTokenAsync(string directoryId, CancellationToken cancellationToken)
     {
         var app = await application.GetAsync(cancellationToken) ?? throw new InvalidOperationException("The Entra application is not configured.");
-        return await GraphCredentialFactory.Create(directoryId, app).GetTokenAsync(cancellationToken);
+        return await credentials.Create(directoryId, app).GetTokenAsync(cancellationToken);
     }
 }
 

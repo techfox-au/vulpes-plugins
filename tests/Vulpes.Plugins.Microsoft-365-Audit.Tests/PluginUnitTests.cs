@@ -138,6 +138,19 @@ public sealed class CredentialFactoryTests
         Assert.Throws<InvalidOperationException>(() => factory.Create(new Tenant { Id = Guid.NewGuid(), DisplayName = "t", TenantId = "x", ClientId = "y", CredentialType = CredentialTypes.Certificate }));
     }
 
+    [Fact]
+    public void A_graph_token_is_kept_until_five_minutes_before_it_expires()
+    {
+        var cache = new GraphTokenCache();
+        var token = new Azure.Core.AccessToken("abc", DateTimeOffset.UtcNow.AddHours(1));
+        cache.Set("tenant", token);
+        Assert.True(cache.TryGet("tenant", DateTimeOffset.UtcNow, out var hit));
+        Assert.Equal("abc", hit.Token);
+        Assert.False(cache.TryGet("tenant", token.ExpiresOn.AddMinutes(-4), out _));
+        cache.Invalidate("tenant");
+        Assert.False(cache.TryGet("tenant", DateTimeOffset.UtcNow, out _));
+    }
+
     private sealed class NoHttp : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new RoutedGraphHandler());

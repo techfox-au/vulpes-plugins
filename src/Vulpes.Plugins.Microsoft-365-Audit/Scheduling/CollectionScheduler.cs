@@ -150,6 +150,7 @@ public sealed class CollectionScheduler(
 
             var settings = TenantSettings.Parse(tenant.SettingsJson).For(source);
             var interval = settings.IntervalMinutes is { } custom ? TimeSpan.FromMinutes(Math.Clamp(custom, 1, 24 * 60 * 7)) : options.IntervalFor(source);
+            string? queryTracked = null;
             try
             {
                 using var graph = graphFactory.Create(tenant);
@@ -166,6 +167,7 @@ public sealed class CollectionScheduler(
                     Deadline = startedAt.AddMinutes(Math.Clamp(options.RunTimeBudgetMinutes, 1, 180)),
                 };
                 var result = await collector.CollectAsync(context, cancellationToken);
+                queryTracked = result.QueryId;
                 var finished = timeProvider.GetUtcNow();
                 var indexedCleanly = result.Failed == 0;
                 checkpoint.LastStatus = result.Failed > 0
@@ -228,6 +230,12 @@ public sealed class CollectionScheduler(
             }
 
             entry.FinishedAt = timeProvider.GetUtcNow();
+            var queryId = queryTracked ?? RunQueries.IdIn(entry.Error);
+            if (queryId is not null)
+            {
+                await db.RunLog.Where(r => r.TenantId == tenant.Id && r.Source == source && r.Error != null && r.Error.Contains(queryId)).ExecuteDeleteAsync(cancellationToken);
+            }
+
             db.RunLog.Add(entry);
             await db.SaveChangesAsync(cancellationToken);
             await PruneRunLogAsync(db, cancellationToken);

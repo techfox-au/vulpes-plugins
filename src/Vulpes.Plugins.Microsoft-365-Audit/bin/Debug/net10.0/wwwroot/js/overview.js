@@ -1,4 +1,4 @@
-import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell322';
+import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell331';
 
 let root;
 export async function mount(el, ctx) {

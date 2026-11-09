@@ -1,4 +1,4 @@
-import { statusBadge } from './common.js?v=shell327';
+import { statusBadge } from './common.js?v=shell331';
 
 let timer;
 // Collector health per tenant and source. Refreshes every 15 seconds (docs/audit-plugin.md).

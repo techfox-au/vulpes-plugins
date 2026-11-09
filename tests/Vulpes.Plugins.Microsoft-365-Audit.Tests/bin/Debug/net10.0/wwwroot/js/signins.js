@@ -1,5 +1,5 @@
 // Interactive and non-interactive Entra ID sign-ins (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell322';
+import { createExplorer, outcomeBadge, severityBadge, get, locationCell } from './common.js?v=shell331';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -16,13 +16,26 @@ export async function mount(el, ctx) {
     source: 'signins',
     defaultRange: q.range || '24h',
     initialFilters,
+    selects: [{
+      key: 'type',
+      field: 'labels.signInType',
+      ariaLabel: 'Type',
+      allLabel: 'All types',
+      value: q.type || '',
+      options: [
+        ['interactive', 'Interactive'],
+        ['nonInteractive', 'Non-interactive'],
+        ['servicePrincipal', 'Service principal'],
+        ['managedIdentity', 'Managed identity'],
+      ],
+    }],
     columns: [
       { title: 'Time', render: (d) => h('span', { class: 'nowrap' }, fmt.dateTime(d['@timestamp'])) },
       { title: 'User', path: 'user.name', filterField: 'user.name' },
       { title: 'Outcome', render: (d) => h('div', null, outcomeBadge(ctx.ui, get(d, 'event.outcome')), get(d, 'labels.errorCode') && get(d, 'labels.errorCode') !== '0' ? h('div', { class: 'small muted' }, `code ${get(d, 'labels.errorCode')}`) : null) },
       { title: 'Application', path: 'client.appName', filterField: 'client.appName' },
       { title: 'IP', path: 'source.address', filterField: 'source.address', class: 'mono' },
-      { title: 'Location', render: (d) => [get(d, 'source.geo.city_name'), get(d, 'source.geo.country_name')].filter(Boolean).join(', ') },
+      { title: 'Location', render: (d) => locationCell(h, d) },
       { title: 'Type', path: 'labels.signInType', filterField: 'labels.signInType' },
       { title: 'CA', path: 'labels.conditionalAccessStatus', filterField: 'labels.conditionalAccessStatus' },
       { title: 'Risk', render: (d) => { const r = get(d, 'labels.riskLevel'); return r && r !== 'none' ? severityBadge(ctx.ui, r) : ''; } },

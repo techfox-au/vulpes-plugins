@@ -10,10 +10,13 @@ namespace Vulpes.Plugins.Microsoft365Audit.Collectors;
 
 public sealed record CollectorResult(int Published, int Duplicates, int Failed, int Alerts, bool Complete, string? Note = null)
 {
+    /// <summary>Purview query this run checked. A later row for the same query replaces the earlier one in Recent runs.</summary>
+    public string? QueryId { get; init; }
+
     public static CollectorResult Empty(string? note = null) => new(0, 0, 0, 0, true, note);
 
     /// <summary>The run is not finished. The scheduler polls again shortly instead of waiting the full interval.</summary>
-    public static CollectorResult Waiting(string? note = null) => new(0, 0, 0, 0, false, note);
+    public static CollectorResult Waiting(string? note = null, string? queryId = null) => new(0, 0, 0, 0, false, note) { QueryId = queryId };
 }
 
 /// <summary>Everything a collector needs for one run against one tenant.</summary>

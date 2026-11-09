@@ -87,9 +87,9 @@ export function bucketsToBarList(ui, buckets, opts) {
  * Generic event explorer: time range, tenant, free text, filter chips, paginated table and a detail drawer.
  * columns: [{ title, path | render(doc, row), filterField?, class? }]
  */
-export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [], ranges = RANGES }) {
+export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [], ranges = RANGES, selects = [] }) {
   const { h, clear, table, drawer, fmt, errorMessage, jsonView, kv, badge } = ctx.ui;
-  const state = { range: defaultRange, tenant: '', text: '', filters: [...initialFilters], hits: [], total: 0, searchAfter: null, loading: false, fields: [] };
+  const state = { range: defaultRange, tenant: '', text: '', filters: [...initialFilters], hits: [], total: 0, searchAfter: null, loading: false, fields: [], picks: {} };
 
   const toolbar = h('div', { class: 'toolbar' });
   const chips = h('div', { class: 'flex wrap' });
@@ -105,6 +105,15 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   const addFilterBtn = h('button', { class: 'btn', onClick: () => addFilterDialog() }, 'Add filter');
   const refreshBtn = h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: () => reload() }, ctx.ui.icon('refresh'));
   toolbar.append(rangeSel, textInput, searchBtn, addFilterBtn, refreshBtn);
+  for (const spec of selects) {
+    state.picks[spec.key] = spec.value || '';
+    const sel = ctx.ui.dropdown(
+      [{ value: '', label: spec.allLabel }, ...spec.options.map(([value, label]) => ({ value, label }))],
+      { value: state.picks[spec.key], ariaLabel: spec.ariaLabel },
+    );
+    sel.addEventListener('change', () => { state.picks[spec.key] = sel.value; reload(); });
+    toolbar.insertBefore(sel, textInput);
+  }
   tenantSelect(ctx, (v) => { state.tenant = v; reload(); }).then((sel) => toolbar.insertBefore(sel, textInput));
 
   ctx.api.get(`${ctx.plugin.apiBase}/sources`).then((sources) => { state.fields = sources.find((s) => s.source === source)?.fields || []; }).catch(() => {});
@@ -143,6 +152,9 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     const { from, to } = rangeToDates(state.range);
     const filters = [...state.filters];
     if (state.tenant) filters.push({ field: 'vc.tenantId', operator: 'equals', values: [state.tenant] });
+    for (const spec of selects) {
+      if (state.picks[spec.key]) filters.push({ field: spec.field, operator: 'equals', values: [state.picks[spec.key]] });
+    }
     return { source, from, to, filters, text: state.text || null, size: pageSize, sort, searchAfter: more ? state.searchAfter : null };
   }
 

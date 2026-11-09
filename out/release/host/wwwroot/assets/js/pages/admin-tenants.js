@@ -1,4 +1,5 @@
-import { h, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell161';
+import { confirmIdentity } from '../reauth.js?v=shell258';
+import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell161';
 
 let root;
 const plugin = '/api/plugins/microsoft-365-audit';
@@ -16,7 +17,7 @@ async function render(ctx) {
   try { await ctx.api.get(plugin + '/sources'); pluginReady = true; } catch { /* collection controls stay hidden */ }
 
   root.append(h('div', { class: 'page-header' }, h('h1', null, 'Tenants')));
-  root.append(applicationCard(ctx, app, data.permissions || []));
+  root.append(applicationCard(ctx, app, data.permissions || [], data.tenants || []));
   const applicationReady = !!(app.clientId && (app.credentialType === 'certificate' ? app.hasCertificate : app.hasSecret));
   root.append(h('div', { class: 'page-header' },
     h('h2', null, 'Clients'),
@@ -29,7 +30,7 @@ async function render(ctx) {
       { title: '', class: 'right', render: (t) => h('div', { class: 'flex' },
         h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); editTenant(ctx, t); } }, 'Edit'),
         pluginReady ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); collection(ctx, t); } }, 'Collection') : null,
-        pluginReady ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t); } }, 'Test') : null,
+        pluginReady ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t, e.currentTarget); } }, 'Test') : null,
         h('button', { class: 'btn sm danger', onClick: (e) => { e.stopPropagation(); removeTenant(ctx, t); } }, 'Delete')) },
     ],
     rows: data.tenants || [],
@@ -37,31 +38,146 @@ async function render(ctx) {
   }));
 }
 
-function applicationCard(ctx, app, permissions) {
+function applicationCard(ctx, app, permissions, tenants) {
   const { h, setBusy, formValues } = ctx.ui;
   const card = h('div', { class: 'card' });
   const form = h('form', { class: 'stack' });
   const input = (label, name, attrs) => h('div', { class: 'field' }, h('label', null, label), h('input', { class: 'input', name, autocomplete: 'off', ...attrs }));
   const credential = dropdown([['secret', 'Client secret'], ['certificate', 'Certificate (PFX)']], { value: app.credentialType || 'secret', name: 'credentialType', ariaLabel: 'Credential' });
-  const secretField = input(app.hasSecret ? 'Client secret (blank keeps the stored one)' : 'Client secret', 'secret', { type: 'password' });
+  const mask = '••••••••';
+  let revealedSecrets = null;
+  const secretField = (key, label, configured) => {
+    const field = h('input', {
+      class: 'input',
+      type: 'password',
+      value: configured ? mask : '',
+      autocomplete: 'off',
+      spellcheck: false,
+      readOnly: configured,
+    });
+    const button = h('button', {
+      class: 'secret-tool secret-eye',
+      type: 'button',
+      title: 'Show secret',
+      'aria-label': 'Show secret',
+    }, icon('eye'));
+    button.hidden = !configured;
+    let revealed = false;
+    const eyeLabel = (showing) => {
+      const text = showing ? 'Hide secret' : 'Show secret';
+      button.title = text;
+      button.setAttribute('aria-label', text);
+    };
+    button.addEventListener('click', async () => {
+      if (!revealed) {
+        if (!revealedSecrets) {
+          const me = await ctx.api.get('/api/account');
+          if (!(await confirmIdentity(ctx, me))) return;
+          try {
+            revealedSecrets = await ctx.api.get('/api/admin/tenants/application/secrets');
+          } catch (err) {
+            if (err.code !== 'reauth_required') {
+              panelNote(card, errorMessage(err));
+              return;
+            }
+            if (!(await confirmIdentity(ctx, me))) return;
+            revealedSecrets = await ctx.api.get('/api/admin/tenants/application/secrets');
+          }
+        }
+        field.value = revealedSecrets[key] || '';
+        field.readOnly = false;
+        field.type = 'text';
+        revealed = true;
+        button.hidden = false;
+        eyeLabel(true);
+        return;
+      }
+      const hidden = field.type === 'text';
+      field.type = hidden ? 'password' : 'text';
+      eyeLabel(hidden);
+    });
+    const payload = () => {
+      if (field.readOnly) return { secret: '', remove: false };
+      const text = field.value.trim();
+      if (text === mask) return { secret: '', remove: false };
+      return { secret: text, remove: revealed && text.length === 0 };
+    };
+    return {
+      line: h('div', { class: 'field' }, h('label', null, label), h('div', { class: 'secret-box secret-line' }, field, h('div', { class: 'secret-box-tools' }, button))),
+      payload,
+    };
+  };
+  const clientSecret = secretField('secret', app.hasSecret ? 'Client secret (blank keeps the stored one)' : 'Client secret', app.hasSecret === true);
+  const certificatePassword = secretField('certificatePassword', app.hasCertificatePassword ? 'PFX password (blank keeps the stored one)' : 'PFX password', app.hasCertificatePassword === true);
   const certificateRow = h('div', { class: 'form-row' },
     h('div', { class: 'field' }, h('label', null, app.hasCertificate ? 'Certificate (leave empty to keep the stored one)' : 'Certificate (PFX)'), filePicker({ name: 'pfx', accept: '.pfx,.p12' })),
-    input('PFX password', 'certificatePassword', { type: 'password' }));
+    certificatePassword.line);
   const showCredential = () => {
     const certificate = credential.value === 'certificate';
-    secretField.hidden = certificate;
+    clientSecret.line.hidden = certificate;
     certificateRow.hidden = !certificate;
   };
   credential.addEventListener('change', showCredential);
   showCredential();
+  const clientIdInput = h('input', { class: 'input', name: 'clientId', value: app.clientId || '', spellcheck: false, required: true, autocomplete: 'off' });
+  const cloud = dropdown([['Global', 'Global'], ['USGov', 'US Government']], { value: app.cloud || 'Global', name: 'cloud', ariaLabel: 'Cloud' });
+  const directoryInput = h('input', { class: 'input', spellcheck: false, autocomplete: 'off', placeholder: '00000000-0000-0000-0000-000000000000', 'aria-label': 'Customer directory id' });
+  const consentUrl = h('input', { class: 'input', readOnly: true, spellcheck: false, 'aria-label': 'Admin consent URL' });
+  const openConsent = h('a', { class: 'btn sm', target: '_blank', rel: 'noopener noreferrer', hidden: true }, 'Open');
+  const copyConsent = h('button', { class: 'btn sm', type: 'button' }, 'Copy');
+  let origin = '';
+  const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const paintConsent = () => {
+    const clientId = clientIdInput.value.trim();
+    const directoryId = directoryInput.value.trim();
+    const login = cloud.value === 'USGov' ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com';
+    const ready = guid.test(clientId) && guid.test(directoryId) && origin;
+    const url = ready ? `${login}/${directoryId}/adminconsent?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(origin)}` : '';
+    consentUrl.value = url;
+    openConsent.hidden = !url;
+    if (url) openConsent.href = url;
+    copyConsent.disabled = !url;
+  };
+  clientIdInput.addEventListener('input', paintConsent);
+  directoryInput.addEventListener('input', paintConsent);
+  cloud.addEventListener('change', paintConsent);
+  copyConsent.addEventListener('click', async () => {
+    if (!consentUrl.value) return;
+    try {
+      await navigator.clipboard.writeText(consentUrl.value);
+      pageNote(root, 'Consent link copied.', 'success');
+    } catch (err) {
+      panelNote(card, errorMessage(err));
+    }
+  });
+  ctx.api.get('/api/status').then((status) => {
+    origin = String(status.publicOrigin || '').replace(/\/$/, '');
+    paintConsent();
+  }).catch(() => {});
+  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || ''));
+  const savedClient = savedClients.length
+    ? dropdown([['', 'Choose a saved client'], ...savedClients.map((t) => [t.directoryId, t.displayName])], { value: '', ariaLabel: 'Saved client' })
+    : null;
+  if (savedClient) savedClient.addEventListener('change', () => {
+    if (savedClient.value) directoryInput.value = savedClient.value;
+    paintConsent();
+  });
   form.append(
     h('div', { class: 'form-row' },
-      input('Application (client) id', 'clientId', { value: app.clientId || '', spellcheck: false, required: true }),
-      h('div', { class: 'field' }, h('label', null, 'Cloud'), dropdown([['Global', 'Global'], ['USGov', 'US Government']], { value: app.cloud || 'Global', name: 'cloud', ariaLabel: 'Cloud' }))),
+      h('div', { class: 'field' }, h('label', null, 'Application (client) id'), clientIdInput),
+      h('div', { class: 'field' }, h('label', null, 'Cloud'), cloud)),
     h('div', { class: 'form-row' },
       h('div', { class: 'field' }, h('label', null, 'Credential'), credential),
-      secretField),
+      clientSecret.line),
     certificateRow,
+    h('div', { class: 'field' },
+      h('label', null, 'Admin consent'),
+      h('p', { class: 'small muted' }, 'A Global Administrator in the customer directory opens this link and accepts.'),
+      savedClient ? h('div', { class: 'field' }, h('label', null, 'Saved client'), savedClient) : null,
+      h('div', { class: 'field' }, h('label', null, 'Customer directory id'), directoryInput),
+      h('div', { class: 'form-row' },
+        h('div', { class: 'field' }, consentUrl),
+        h('div', { class: 'flex' }, copyConsent, openConsent))),
     h('div', { class: 'field' }, h('label', null, 'Application permissions'), permissions.length
       ? h('div', { class: 'stack' }, ...permissions.map((p) => h('div', null, h('span', { class: 'mono' }, p.name), h('span', { class: 'small muted' }, ' ' + p.purpose))))
       : h('p', { class: 'small muted' }, 'No plugin has declared permissions yet.')),
@@ -72,6 +188,8 @@ function applicationCard(ctx, app, permissions) {
     const button = form.querySelector('button[type="submit"]');
     const values = formValues(form);
     const certificate = values.credentialType === 'certificate';
+    const secret = clientSecret.payload();
+    const pfxPassword = certificatePassword.payload();
     const file = certificate ? form.querySelector('input[name="pfx"]').files?.[0] : null;
     let pfx = null;
     if (file) {
@@ -82,9 +200,11 @@ function applicationCard(ctx, app, permissions) {
     try {
       await ctx.api.put('/api/admin/tenants/application', {
         clientId: values.clientId, credentialType: values.credentialType, cloud: values.cloud,
-        secret: certificate ? null : (values.secret || null),
+        secret: certificate ? null : (secret.secret || null),
+        removeSecret: !certificate && secret.remove,
         certificatePfxBase64: pfx,
-        certificatePassword: certificate ? (values.certificatePassword || null) : null,
+        certificatePassword: certificate ? (pfxPassword.secret || null) : null,
+        removeCertificatePassword: certificate && pfxPassword.remove,
       });
       await render(ctx);
       pageNote(root, 'Application saved.', 'success');
@@ -123,17 +243,32 @@ async function removeTenant(ctx, tenant) {
   } catch (err) { pageNote(root, errorMessage(err)); }
 }
 
-async function testTenant(ctx, tenant) {
+async function testTenant(ctx, tenant, button) {
+  ctx.ui.setBusy(button, true, 'Testing…');
   try {
     const result = await ctx.api.post(`/api/admin/tenants/${tenant.id}/test`);
-    const report = result.reports?.[0];
-    if (!report) { pageNote(root, 'No plugin tested this client.'); return; }
-    if (!report.tokenAcquired) { pageNote(root, report.error || 'Token acquisition failed.'); return; }
-    const ok = (report.probes || []).filter((p) => p.status === 'ok').length;
-    pageNote(root, report.organizationName ? `Connected to ${report.organizationName}. ${ok} sources accessible.` : `${ok} sources accessible.`, report.error ? 'danger' : 'success');
-    if (report.error) pageNote(root, report.error);
     await render(ctx);
-  } catch (err) { pageNote(root, errorMessage(err)); }
+    const report = result?.reports?.[0];
+    if (!report) { pageNote(root, 'No plugin tested this client.'); return; }
+    const probes = report.probes || [];
+    const failed = !report.tokenAcquired || probes.some((p) => p.status === 'forbidden' || p.status === 'error');
+    pageNote(root, describeTest(report), failed ? 'danger' : 'success');
+  } catch (err) {
+    if (button?.isConnected) ctx.ui.setBusy(button, false);
+    pageNote(root, errorMessage(err));
+  }
+}
+
+function describeTest(report) {
+  if (!report.tokenAcquired) return report.error || 'Token acquisition failed.';
+  const lines = [];
+  lines.push(report.organizationName ? `Connected to ${report.organizationName}.` : 'Connected.');
+  for (const probe of report.probes || []) {
+    lines.push(`${probe.title || probe.source}: ${probe.status}${probe.detail ? ` — ${probe.detail}` : ''}`);
+  }
+  if ((report.probes || []).length === 0) lines.push('No sources were checked.');
+  if (report.error) lines.push(report.error);
+  return lines.join('\n');
 }
 
 async function collection(ctx, tenant) {

@@ -39,6 +39,7 @@ public sealed class AuditGraphPermissions : IGraphPermissionSource
         new("IdentityRiskyUser.Read.All", "Risky users", "risk"),
         new("IdentityRiskyServicePrincipal.Read.All", "Risky service principals", "risk"),
         new("SecurityEvents.Read.All", "Secure Score"),
+        new("Application.Read.All", "Application secret expiry"),
     ];
 }
 

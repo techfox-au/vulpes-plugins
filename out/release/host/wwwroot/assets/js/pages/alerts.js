@@ -146,7 +146,7 @@ async function editRule(ctx, rule) {
     h('div', { class: 'field' }, h('label', null, 'Email body template'), bodyI),
     h('div', { class: 'form-row' }, throtWinF, throtGroupF));
 
-  const saved = await modal.show({ title: rule ? 'Edit rule' : 'New rule', content: form, wide: true, actions: [{ label: 'Cancel', value: false }, { label: 'Save', kind: 'primary', onClick: async () => {
+  const saved = await modal.show({ title: rule ? 'Edit rule' : 'New rule', content: form, wide: true, actions: [{ label: 'Cancel', value: false }, { label: 'Save', kind: 'primary', value: true, onClick: async () => {
     const payload = {
       name: nameI.value.trim(), description: descI.value.trim() || null, enabled: enabledCb.checked, pluginId: pluginSel.value,
       sources: [...sourcesBox.querySelectorAll('input:checked')].map((i) => i.value), severity: sevSel.value,

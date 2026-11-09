@@ -10,10 +10,10 @@ let current = null; // { unmount, key }
 const corePages = {
   '/': () => import('./pages/home.js?v=shell296'),
   '/account': () => import('./pages/account.js?v=shell258'),
-  '/alerts': () => import('./pages/alerts.js?v=shell101'),
+  '/alerts': () => import('./pages/alerts.js?v=shell312'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell235'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell289'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell161'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell311'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell284'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
@@ -310,7 +310,7 @@ async function mountPluginPage(pluginId, page, query) {
     return;
   }
 
-  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell304`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell308`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Page not found (${res.status})`);
   const html = await res.text();
   // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
@@ -318,7 +318,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell304`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell308`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

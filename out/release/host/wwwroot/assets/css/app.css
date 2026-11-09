@@ -209,6 +209,8 @@ body:has(.shell) { overflow: hidden; }
 .content > .stack > .console-log,
 .content > .stack > [data-role="explorer"],
 .content > .stack > [data-role="list"] { flex: 1 1 auto; min-height: 0; }
+.content > .stack.page-scroll { overflow: auto; }
+.content > .stack.page-scroll > .table-wrap { flex: none; max-height: none; }
 [data-role="explorer"],
 [data-role="list"] { display: flex; flex-direction: column; min-height: 0; }
 [data-role="explorer"] > .fill,

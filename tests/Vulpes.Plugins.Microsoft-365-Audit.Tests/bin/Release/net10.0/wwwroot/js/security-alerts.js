@@ -1,4 +1,5 @@
-import { createExplorer, severityBadge, get } from './common.js';
+// Microsoft Defender XDR alerts and incidents, updated as they change (docs/audit-plugin.md).
+import { createExplorer, severityBadge, get, RANGES } from './common.js?v=shell308';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -18,6 +19,7 @@ export async function mount(el, ctx) {
     explorer = createExplorer(host, ctx, {
       source: which,
       defaultRange: q.range || '30d',
+      ranges: [...RANGES, ['180d', 'Last 180 days'], ['365d', 'Last 365 days'], ['730d', 'Last 730 days']],
       initialFilters,
       columns: [
         { title: 'Created', render: (d) => h('span', { class: 'nowrap' }, fmt.dateTime(d['@timestamp'])) },

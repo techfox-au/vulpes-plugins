@@ -1,4 +1,4 @@
-// Shared building blocks for the audit module pages. Uses only ctx.ui / ctx.api from the shell.
+// Shared building blocks for the audit plugin pages. Uses only ctx.ui / ctx.api from the shell.
 
 export const RANGES = [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days']];
 
@@ -31,11 +31,13 @@ export function statusBadge(ui, status) {
 }
 
 export async function tenantSelect(ctx, onChange, selected) {
-  const { h } = ctx.ui;
-  const sel = h('select', { class: 'select', 'aria-label': 'Tenant' }, h('option', { value: '' }, 'All tenants'));
+  const sel = ctx.ui.dropdown([{ value: '', label: 'All tenants' }], { value: selected || '', ariaLabel: 'Tenant' });
   try {
-    const tenants = await ctx.api.get(`${ctx.module.apiBase}/tenants/names`);
-    for (const t of tenants) sel.append(h('option', { value: t.tenantId, selected: t.tenantId === selected }, `${t.displayName}${t.discoveredName && t.discoveredName !== t.displayName ? ` (${t.discoveredName})` : ''}`));
+    const tenants = await ctx.api.get(`${ctx.plugin.apiBase}/tenants/names`);
+    sel.setOptions([
+      { value: '', label: 'All tenants' },
+      ...tenants.map((t) => ({ value: t.tenantId, label: `${t.displayName}${t.discoveredName && t.discoveredName !== t.displayName ? ` (${t.discoveredName})` : ''}` })),
+    ], selected || '');
   } catch { /* viewer without tenants endpoint access still gets "all" */ }
   sel.addEventListener('change', () => onChange(sel.value));
   return sel;
@@ -53,8 +55,8 @@ export function bucketsToBarList(ui, buckets, opts) {
  * Generic event explorer: time range, tenant, free text, filter chips, paginated table and a detail drawer.
  * columns: [{ title, path | render(doc, row), filterField?, class? }]
  */
-export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [] }) {
-  const { h, clear, table, drawer, toast, fmt, errorMessage, jsonView, kv, badge } = ctx.ui;
+export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [], ranges = RANGES }) {
+  const { h, clear, table, drawer, fmt, errorMessage, jsonView, kv, badge } = ctx.ui;
   const state = { range: defaultRange, tenant: '', text: '', filters: [...initialFilters], hits: [], total: 0, searchAfter: null, loading: false, fields: [] };
 
   const toolbar = h('div', { class: 'toolbar' });
@@ -63,7 +65,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   const pager = h('div', { class: 'pager' });
   el.append(toolbar, chips, results, pager);
 
-  const rangeSel = h('select', { class: 'select', 'aria-label': 'Time range' }, RANGES.map(([v, l]) => h('option', { value: v, selected: v === state.range }, l)));
+  const rangeSel = ctx.ui.dropdown(ranges.map(([value, label]) => ({ value, label })), { value: state.range, ariaLabel: 'Time range' });
   rangeSel.addEventListener('change', () => { state.range = rangeSel.value; reload(); });
   const textInput = h('input', { class: 'input', placeholder: 'Search text (AND, OR, "phrase", prefix*)', 'aria-label': 'Search text' });
   textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.text = textInput.value.trim(); reload(); } });
@@ -73,7 +75,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   toolbar.append(rangeSel, textInput, searchBtn, addFilterBtn, refreshBtn);
   tenantSelect(ctx, (v) => { state.tenant = v; reload(); }).then((sel) => toolbar.insertBefore(sel, textInput));
 
-  ctx.api.get(`${ctx.module.apiBase}/sources`).then((sources) => { state.fields = sources.find((s) => s.source === source)?.fields || []; }).catch(() => {});
+  ctx.api.get(`${ctx.plugin.apiBase}/sources`).then((sources) => { state.fields = sources.find((s) => s.source === source)?.fields || []; }).catch(() => {});
 
   function renderChips() {
     clear(chips);
@@ -84,16 +86,19 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   }
 
   async function addFilterDialog(preset) {
-    const fieldSel = h('select', { class: 'select' }, state.fields.map((f) => h('option', { value: f.path, selected: f.path === preset?.field }, `${f.label} (${f.path})`)));
-    const opSel = h('select', { class: 'select' }, [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['prefix', 'starts with'], ['contains', 'contains'], ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than']].map(([v, l]) => h('option', { value: v }, l)));
+    const fieldSel = ctx.ui.dropdown(state.fields.map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: preset?.field || '', ariaLabel: 'Field' });
+    const opSel = ctx.ui.dropdown([['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['prefix', 'starts with'], ['contains', 'contains'], ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than']], { value: 'equals', ariaLabel: 'Operator' });
     const valueInput = h('input', { class: 'input', value: preset?.value || '', placeholder: 'value' });
-    const ok = await ctx.ui.modal.show({ title: 'Add filter', content: h('div', { class: 'col' }, h('div', { class: 'field' }, h('label', null, 'Field'), fieldSel), h('div', { class: 'field' }, h('label', null, 'Operator'), opSel), h('div', { class: 'field' }, h('label', null, 'Value'), valueInput)), actions: [{ label: 'Cancel', value: false }, { label: 'Add', kind: 'primary', value: true }] });
-    if (!ok) return;
-    const op = opSel.value;
-    const values = op.endsWith('xists') ? [] : (op === 'in' || op === 'notIn' ? valueInput.value.split(',').map((s) => s.trim()).filter(Boolean) : [valueInput.value.trim()]);
-    if (!op.endsWith('xists') && values.length === 0) { toast.error('A value is required.'); return; }
-    state.filters.push({ field: fieldSel.value, operator: op, values });
-    reload();
+    const box = h('div', { class: 'col' }, h('div', { class: 'field' }, h('label', null, 'Field'), fieldSel), h('div', { class: 'field' }, h('label', null, 'Operator'), opSel), h('div', { class: 'field' }, h('label', null, 'Value'), valueInput));
+    valueInput.addEventListener('input', () => valueInput.classList.remove('invalid'));
+    await ctx.ui.modal.show({ title: 'Add filter', content: box, actions: [{ label: 'Cancel', value: false }, { label: 'Add', kind: 'primary', onClick: () => {
+      const op = opSel.value;
+      const values = op.endsWith('xists') ? [] : (op === 'in' || op === 'notIn' ? valueInput.value.split(',').map((s) => s.trim()).filter(Boolean) : [valueInput.value.trim()]);
+      if (!op.endsWith('xists') && values.length === 0) { ctx.ui.panelNote(box, 'A value is required.'); valueInput.classList.add('invalid'); return false; }
+      state.filters.push({ field: fieldSel.value, operator: op, values });
+      reload();
+      return true;
+    } }] });
   }
 
   function addQuickFilter(field, value) {
@@ -143,7 +148,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     state.loading = true;
     if (!more) { state.hits = []; state.total = 0; state.searchAfter = null; renderTable(); }
     try {
-      const res = await ctx.api.post(`${ctx.module.apiBase}/search`, buildBody(more));
+      const res = await ctx.api.post(`${ctx.plugin.apiBase}/search`, buildBody(more));
       state.hits = more ? state.hits.concat(res.hits) : res.hits;
       state.total = res.total;
       state.searchAfter = res.hits.length ? res.hits[res.hits.length - 1].sort : null;

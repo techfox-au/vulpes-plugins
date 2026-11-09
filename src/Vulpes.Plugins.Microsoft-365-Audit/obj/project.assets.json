@@ -897,7 +897,7 @@
     "/Users/lappy/.nuget/packages/": {}
   },
   "project": {
-    "version": "1.0.4",
+    "version": "1.0.7",
     "restore": {
       "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
       "projectName": "Vulpes.Plugins.Microsoft-365-Audit",

@@ -25,7 +25,7 @@ async function load(ctx, button) {
   try {
     const data = await ctx.api.get(`/api/plugins/${ctx.plugin.id}/permissions`);
     if (!data.configured) {
-      host.append(h('div', { class: 'alert danger' }, 'The Entra application is not configured. Save it under Manage → Tenants.'));
+      host.append(h('div', { class: 'alert danger' }, 'The Entra application is not configured. Save it under Manage → Settings.'));
       return;
     }
     if (!data.tenants?.length) {

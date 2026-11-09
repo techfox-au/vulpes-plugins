@@ -73,3 +73,5 @@
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Release/net10.0/Vulpes.Plugins.Microsoft-365-Audit.pdb
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Release/net10.0/Vulpes.Plugins.Microsoft-365-Audit.genruntimeconfig.cache
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Release/net10.0/ref/Vulpes.Plugins.Microsoft-365-Audit.dll
+/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Release/net10.0/wwwroot/js/clients.js
+/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Release/net10.0/wwwroot/pages/clients.html

@@ -91,6 +91,14 @@ public sealed class CollectorTests
     }
 
     [Fact]
+    public void Directory_audit_floor_is_read_from_the_graph_error()
+    {
+        var message = "Specified argument was out of the range of valid values. (Parameter 'Minimum allowed time for activityDateTime is 10/9/2026 12:00:00 AM')";
+        Assert.True(ActivityTimeFloor.TryParse(message, out var minimum));
+        Assert.Equal(new DateTimeOffset(2026, 10, 9, 0, 0, 0, TimeSpan.Zero), minimum);
+    }
+
+    [Fact]
     public async Task Directory_audits_map_and_advance_watermark()
     {
         var handler = new RoutedGraphHandler().Get(p => p.Contains("directoryAudits", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(

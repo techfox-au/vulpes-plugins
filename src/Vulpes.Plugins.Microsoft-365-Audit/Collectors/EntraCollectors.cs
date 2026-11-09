@@ -106,6 +106,8 @@ public sealed class DirectoryAuditsCollector : WatermarkCollector
     public override IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All", "Directory.Read.All"];
     public override string ProbePath => "auditLogs/directoryAudits?$top=1";
 
+    protected override TimeSpan? Retention => TimeSpan.FromDays(30);
+
     protected override string OrderByField => "activityDateTime";
 
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
@@ -124,6 +126,8 @@ public sealed class ProvisioningCollector : WatermarkCollector
     public override string Title => "Entra ID provisioning logs";
     public override IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All"];
     public override string ProbePath => "auditLogs/provisioning?$top=1";
+
+    protected override TimeSpan? Retention => TimeSpan.FromDays(30);
 
     protected override string OrderByField => "activityDateTime";
 

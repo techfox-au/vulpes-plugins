@@ -132,7 +132,9 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     }));
     results.append(table({ columns: cols, rows: state.hits, onRowClick: (row) => openDetail(row), emptyText: state.loading ? 'Loading…' : 'No events match.' }));
     clear(pager);
-    pager.append(h('span', null, state.loading ? 'Loading…' : `${fmt.number(state.total)}${state.hits.length < state.total ? ` events · showing ${state.hits.length}` : ' events'}`));
+    const eventCount = fmt.number(state.total);
+    const eventLabel = state.hits.length < state.total ? `${eventCount} events · showing ${state.hits.length}` : `${eventCount} events`;
+    pager.append(h('span', null, state.loading ? 'Loading…' : eventLabel));
     if (state.hits.length < state.total && state.searchAfter) pager.append(h('button', { class: 'btn sm', onClick: () => load(true) }, 'Load more'));
   }
 

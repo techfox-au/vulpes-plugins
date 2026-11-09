@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
 using Vulpes.Plugins.Microsoft365Audit.Tenants;
@@ -91,13 +93,32 @@ public abstract class WatermarkCollector : ICollector
 
     protected virtual TimeSpan Overlap(CollectorContext context) => TimeSpan.FromMinutes(context.Options.LogOverlapMinutes);
 
+    /// <summary>Graph refuses a filter older than this. Null means the source has no such floor.</summary>
+    protected virtual TimeSpan? Retention => null;
+
     /// <summary>Maps a record to an event and returns its timestamp for watermark tracking; null to skip.</summary>
     protected abstract (SecurityEvent Event, DateTimeOffset Timestamp)? Map(CollectorContext context, JsonElement record);
 
     public async Task<CollectorResult> CollectAsync(CollectorContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var from = context.WindowStart(Overlap(context));
+        var requested = context.WindowStart(Overlap(context));
+        var from = Clamp(context, requested);
+        string? moved = from > requested ? $"started at {from:O}; earlier records are outside Microsoft's retention" : null;
+        try
+        {
+            return await ReadAsync(context, from, moved, cancellationToken);
+        }
+        catch (GraphException ex) when (ActivityTimeFloor.TryParse(ex.Message, out var minimum) && from < minimum)
+        {
+            from = minimum.AddMinutes(1);
+            moved = $"started at {from:O}; earlier records are outside Microsoft's retention";
+            return await ReadAsync(context, from, moved, cancellationToken);
+        }
+    }
+
+    private async Task<CollectorResult> ReadAsync(CollectorContext context, DateTimeOffset from, string? moved, CancellationToken cancellationToken)
+    {
         var path = BuildPath(context, from);
         path += path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         path += "%24orderby=" + Uri.EscapeDataString(OrderByField + " asc");
@@ -148,11 +169,50 @@ public abstract class WatermarkCollector : ICollector
             context.Checkpoint.Watermark = w;
         }
 
-        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, complete, complete ? null : $"partial run: {seen} records read, resuming from {newWatermark:O}");
+        var partial = complete ? null : $"partial run: {seen} records read, resuming from {newWatermark:O}";
+        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, complete, partial ?? moved);
+    }
+
+    private DateTimeOffset Clamp(CollectorContext context, DateTimeOffset from)
+    {
+        if (Retention is not { } retention)
+        {
+            return from;
+        }
+
+        // One day inside the published retention. Graph rejects a filter on the exact 30-day boundary.
+        var earliest = context.Now - retention + TimeSpan.FromDays(1);
+        return from < earliest ? earliest : from;
     }
 
     private static (int, int, int, int) Add((int Indexed, int Duplicates, int Failed, int Alerts) a, (int Indexed, int Duplicates, int Failed, int Alerts) b) =>
         (a.Indexed + b.Indexed, a.Duplicates + b.Duplicates, a.Failed + b.Failed, a.Alerts + b.Alerts);
+}
+
+/// <summary>Reads the oldest activityDateTime Graph will accept out of a 400 response.</summary>
+public static class ActivityTimeFloor
+{
+    private static readonly Regex Pattern = new(@"Minimum allowed time for \w+ is (?<when>[^']+)", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public static bool TryParse(string? message, out DateTimeOffset minimum)
+    {
+        minimum = default;
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        var match = Pattern.Match(message);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var text = match.Groups["when"].Value.Trim();
+        var styles = DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
+        return DateTimeOffset.TryParse(text, CultureInfo.GetCultureInfo("en-US"), styles, out minimum)
+            || DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, styles, out minimum);
+    }
 }
 
 /// <summary>JSON helpers tolerant of missing properties.</summary>

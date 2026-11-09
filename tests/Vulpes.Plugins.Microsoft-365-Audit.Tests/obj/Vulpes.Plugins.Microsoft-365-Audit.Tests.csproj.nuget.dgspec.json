@@ -5,7 +5,7 @@
   },
   "projects": {
     "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj": {
-      "version": "1.0.2",
+      "version": "1.0.6",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
         "projectName": "Vulpes.Plugins.Microsoft-365-Audit",
@@ -55,13 +55,6 @@
             "Azure.Identity": {
               "target": "Package",
               "version": "[1.21.0, )",
-              "versionCentrallyManaged": true
-            },
-            "Microsoft.EntityFrameworkCore.Design": {
-              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
-              "suppressParent": "All",
-              "target": "Package",
-              "version": "[10.0.14, )",
               "versionCentrallyManaged": true
             },
             "Microsoft.EntityFrameworkCore.Sqlite": {
@@ -1124,13 +1117,6 @@
               "versionCentrallyManaged": true
             },
             "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
-              "target": "Package",
-              "version": "[10.0.14, )",
-              "versionCentrallyManaged": true
-            },
-            "Microsoft.EntityFrameworkCore.Design": {
-              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
-              "suppressParent": "All",
               "target": "Package",
               "version": "[10.0.14, )",
               "versionCentrallyManaged": true

@@ -1,4 +1,5 @@
-import { createExplorer, outcomeBadge, severityBadge, get } from './common.js';
+// Microsoft 365 unified audit log: SharePoint, OneDrive, Exchange, Teams, admin operations (docs/audit-plugin.md).
+import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell84';
 
 let explorer;
 const QUICK = [

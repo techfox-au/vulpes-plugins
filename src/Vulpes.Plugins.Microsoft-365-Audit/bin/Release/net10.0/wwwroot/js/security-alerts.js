@@ -1,5 +1,5 @@
 // Microsoft Defender XDR alerts and incidents, updated as they change (docs/audit-plugin.md).
-import { createExplorer, severityBadge, get, RANGES } from './common.js?v=shell308';
+import { createExplorer, severityBadge, get, RANGES } from './common.js?v=shell322';
 
 let explorer;
 export async function mount(el, ctx) {

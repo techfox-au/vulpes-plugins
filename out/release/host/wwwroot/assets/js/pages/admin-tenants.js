@@ -4,7 +4,7 @@ import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panel
 let root;
 const plugin = '/api/plugins/microsoft-365-audit';
 
-export async function mount(el, ctx) { root = el; ctx.setTitle(['Tenants']); await render(ctx); }
+export async function mount(el, ctx) { root = el; root.classList.add('page-scroll'); ctx.setTitle(['Tenants']); await render(ctx); }
 export function unmount() { root = null; }
 
 async function render(ctx) {
@@ -24,7 +24,7 @@ async function render(ctx) {
     h('button', { class: 'btn primary', disabled: !applicationReady, title: applicationReady ? undefined : 'Save the application first.', onClick: () => editTenant(ctx, null) }, 'Add client')));
   root.append(table({
     columns: [
-      { title: 'Name', render: (t) => h('div', null, h('strong', null, t.displayName), t.discoveredName && t.discoveredName !== t.displayName ? h('div', { class: 'small muted' }, t.discoveredName) : null) },
+      { title: 'Name', render: (t) => h('div', null, h('strong', null, t.displayName), t.shortName ? h('span', { class: 'small muted' }, ' ' + t.shortName) : null, t.discoveredName && t.discoveredName !== t.displayName ? h('div', { class: 'small muted' }, t.discoveredName) : null) },
       { title: 'Directory id', render: (t) => h('span', { class: 'mono small' }, t.directoryId) },
       { title: 'Status', render: (t) => t.enabled ? badge('enabled', 'success') : badge('disabled', 'warning') },
       { title: '', class: 'right', render: (t) => h('div', { class: 'flex' },
@@ -107,7 +107,7 @@ function applicationCard(ctx, app, permissions, tenants) {
       payload,
     };
   };
-  const clientSecret = secretField('secret', app.hasSecret ? 'Client secret (blank keeps the stored one)' : 'Client secret', app.hasSecret === true);
+  const clientSecret = secretField('secret', 'Client secret', app.hasSecret === true);
   const certificatePassword = secretField('certificatePassword', app.hasCertificatePassword ? 'PFX password (blank keeps the stored one)' : 'PFX password', app.hasCertificatePassword === true);
   const certificateRow = h('div', { class: 'form-row' },
     h('div', { class: 'field' }, h('label', null, app.hasCertificate ? 'Certificate (leave empty to keep the stored one)' : 'Certificate (PFX)'), filePicker({ name: 'pfx', accept: '.pfx,.p12' })),
@@ -123,16 +123,24 @@ function applicationCard(ctx, app, permissions, tenants) {
   const cloud = dropdown([['Global', 'Global'], ['USGov', 'US Government']], { value: app.cloud || 'Global', name: 'cloud', ariaLabel: 'Cloud' });
   const directoryInput = h('input', { class: 'input', spellcheck: false, autocomplete: 'off', placeholder: '00000000-0000-0000-0000-000000000000', 'aria-label': 'Customer directory id' });
   const consentUrl = h('input', { class: 'input', readOnly: true, spellcheck: false, 'aria-label': 'Admin consent URL' });
+  const redirectInput = h('input', { class: 'input', type: 'url', spellcheck: false, autocomplete: 'off', placeholder: 'https://invoice.techfox.au', 'aria-label': 'Redirect URI' });
   const openConsent = h('a', { class: 'btn sm', target: '_blank', rel: 'noopener noreferrer', hidden: true }, 'Open');
   const copyConsent = h('button', { class: 'btn sm', type: 'button' }, 'Copy');
-  let origin = '';
   const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const paintConsent = () => {
     const clientId = clientIdInput.value.trim();
     const directoryId = directoryInput.value.trim();
     const login = cloud.value === 'USGov' ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com';
-    const ready = guid.test(clientId) && guid.test(directoryId) && origin;
-    const url = ready ? `${login}/${directoryId}/adminconsent?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(origin)}` : '';
+    const graph = cloud.value === 'USGov' ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com';
+    let reply = '';
+    try {
+      const parsed = new URL(redirectInput.value.trim());
+      if (parsed.protocol === 'https:') reply = parsed.href.replace(/\/$/, '');
+    } catch { /* the consent link stays blank until the redirect is a public https address */ }
+    const ready = guid.test(clientId) && guid.test(directoryId) && reply;
+    const url = ready
+      ? `${login}/${directoryId}/v2.0/adminconsent?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(graph + '/.default')}&redirect_uri=${encodeURIComponent(reply)}`
+      : '';
     consentUrl.value = url;
     openConsent.hidden = !url;
     if (url) openConsent.href = url;
@@ -140,6 +148,7 @@ function applicationCard(ctx, app, permissions, tenants) {
   };
   clientIdInput.addEventListener('input', paintConsent);
   directoryInput.addEventListener('input', paintConsent);
+  redirectInput.addEventListener('input', paintConsent);
   cloud.addEventListener('change', paintConsent);
   copyConsent.addEventListener('click', async () => {
     if (!consentUrl.value) return;
@@ -150,10 +159,7 @@ function applicationCard(ctx, app, permissions, tenants) {
       panelNote(card, errorMessage(err));
     }
   });
-  ctx.api.get('/api/status').then((status) => {
-    origin = String(status.publicOrigin || '').replace(/\/$/, '');
-    paintConsent();
-  }).catch(() => {});
+  paintConsent();
   const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || ''));
   const savedClient = savedClients.length
     ? dropdown([['', 'Choose a saved client'], ...savedClients.map((t) => [t.directoryId, t.displayName])], { value: '', ariaLabel: 'Saved client' })
@@ -172,7 +178,7 @@ function applicationCard(ctx, app, permissions, tenants) {
     certificateRow,
     h('div', { class: 'field' },
       h('label', null, 'Admin consent'),
-      h('p', { class: 'small muted' }, 'A Global Administrator in the customer directory opens this link and accepts.'),
+      h('div', { class: 'field' }, h('label', null, 'Redirect URI'), redirectInput),
       savedClient ? h('div', { class: 'field' }, h('label', null, 'Saved client'), savedClient) : null,
       h('div', { class: 'field' }, h('label', null, 'Customer directory id'), directoryInput),
       h('div', { class: 'form-row' },
@@ -218,15 +224,17 @@ function applicationCard(ctx, app, permissions, tenants) {
 async function editTenant(ctx, existing) {
   const { h, modal } = ctx.ui;
   const name = h('input', { class: 'input', value: existing?.displayName || '', required: true });
+  const shortName = h('input', { class: 'input', value: existing?.shortName || '', maxlength: '16', spellcheck: false, autocomplete: 'off' });
   const directory = h('input', { class: 'input', value: existing?.directoryId || '', spellcheck: false, placeholder: '00000000-0000-0000-0000-000000000000' });
   const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled : true });
   const form = h('div', { class: 'col' },
     h('div', { class: 'field' }, h('label', null, 'Display name'), name),
+    h('div', { class: 'field' }, h('label', null, 'Short name'), shortName),
     h('div', { class: 'field' }, h('label', null, 'Directory id'), directory),
     h('label', { class: 'checkbox' }, enabled, h('span', null, 'Collection enabled')));
   const saved = await modal.show({ title: existing ? 'Edit client' : 'Add client', content: form, actions: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Add', kind: 'primary', value: true, onClick: async () => {
     try {
-      const body = { displayName: name.value.trim(), directoryId: directory.value.trim(), enabled: enabled.checked };
+      const body = { displayName: name.value.trim(), shortName: shortName.value.trim(), directoryId: directory.value.trim(), enabled: enabled.checked };
       if (existing) await ctx.api.put(`/api/admin/tenants/${existing.id}`, body);
       else await ctx.api.post('/api/admin/tenants', body);
     } catch (err) { panelNote(form, errorMessage(err)); return false; }

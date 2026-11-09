@@ -1,5 +1,5 @@
 // Interactive and non-interactive Entra ID sign-ins (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell84';
+import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell322';
 
 let explorer;
 export async function mount(el, ctx) {

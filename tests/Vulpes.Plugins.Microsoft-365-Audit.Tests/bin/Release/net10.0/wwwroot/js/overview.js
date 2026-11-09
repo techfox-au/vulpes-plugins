@@ -1,12 +1,12 @@
-import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js';
+import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell84';
 
 let root;
 export async function mount(el, ctx) {
   root = el;
-  const { h, clear } = ctx.ui;
+  const { h, clear, dropdown } = ctx.ui;
   const state = { range: '24h', tenant: '' };
   const toolbar = el.querySelector('[data-role="toolbar"]');
-  const rangeSel = h('select', { class: 'select' }, RANGES.filter(([v]) => v !== '1h').map(([v, l]) => h('option', { value: v, selected: v === state.range }, l)));
+  const rangeSel = dropdown(RANGES.filter(([v]) => v !== '1h').map(([value, label]) => ({ value, label })), { value: state.range, ariaLabel: 'Time range' });
   rangeSel.addEventListener('change', () => { state.range = rangeSel.value; render(); });
   toolbar.append(await tenantSelect(ctx, (v) => { state.tenant = v; render(); }), rangeSel, h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: render }, ctx.ui.icon('refresh')));
 
@@ -18,11 +18,12 @@ export async function mount(el, ctx) {
     clear(charts); clear(lists);
     const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30, '90d': 24 * 90 }[state.range] || 24;
     let o;
-    try { o = await ctx.api.get(`${ctx.module.apiBase}/overview${ctx.api.qs({ hours, tenantId: state.tenant })}`); }
-    catch (err) { clear(kpis).append(h('div', { class: 'alert danger' }, ctx.ui.errorMessage(err))); return; }
+    try { o = await ctx.api.get(`${ctx.plugin.apiBase}/overview${ctx.api.qs({ hours, tenantId: state.tenant })}`); }
+    catch (err) { clear(kpis); noteUnderKpis(h, kpis, ctx.ui.errorMessage(err)); return; }
 
     clear(kpis);
-    if (!o.available) kpis.append(h('div', { class: 'alert warning' }, 'The search backend is not available yet. Configure Elasticsearch and add a tenant to start collecting.'));
+    // Elasticsearch comes from the environment (README). Tenants are added on the Tenants page (docs/entra-setup.md).
+    noteUnderKpis(h, kpis, o.available ? '' : 'Search backend unavailable.', 'warning');
     kpis.append(
       kpiCard(ctx.ui, 'Sign-ins', ctx.ui.fmt.number(o.signIns.total), '', `${ctx.ui.fmt.number(o.failures.total)} failed`),
       kpiCard(ctx.ui, 'Failed sign-ins', ctx.ui.fmt.number(o.failures.total), o.failures.total > 0 ? 'warning' : '', o.signIns.total ? `${((100 * o.failures.total) / o.signIns.total).toFixed(1)}% of sign-ins` : ''),
@@ -39,7 +40,7 @@ export async function mount(el, ctx) {
       card(h, 'Activity over time', ctx.ui.columnChart({ labels: activityBuckets.map((b) => fmtBucket(b.key, hours)), axis: axisTicks(activityBuckets, hours), series: [{ label: 'events', values: activityBuckets.map((b) => b.count) }], height: 200 })),
     );
 
-    const link = (page, field) => (item) => ctx.navigate(`/m/${ctx.module.id}/${page}?${field}=${encodeURIComponent(item.key)}&range=${state.range}`);
+    const link = (page, field) => (item) => ctx.navigate(`/p/${ctx.plugin.id}/${page}?${field}=${encodeURIComponent(item.key)}&range=${state.range}`);
     lists.append(
       card(h, 'Top failing users', bucketsToBarList(ctx.ui, o.failures.byUser, { alt: true, onClick: link('signins', 'user') })),
       card(h, 'Top failing IPs', bucketsToBarList(ctx.ui, o.failures.byIp, { alt: true, onClick: link('signins', 'ip') })),
@@ -52,7 +53,7 @@ export async function mount(el, ctx) {
       card(h, 'Directory changes', bucketsToBarList(ctx.ui, o.directory.byActivity, { onClick: link('directory', 'activity') })),
       card(h, 'Alerts by severity', bucketsToBarList(ctx.ui, o.alerts.bySeverity, { alt: true, onClick: link('security-alerts', 'severity') })),
       card(h, 'Risk detections by level', bucketsToBarList(ctx.ui, o.risk.byLevel, { alt: true, onClick: link('risk', 'level') })),
-      card(h, 'Collector failures', o.collectorFailures.total ? bucketsToBarList(ctx.ui, o.collectorFailures.byCollector, { alt: true, onClick: () => ctx.navigate(`/m/${ctx.module.id}/ingestion`) }) : h('div', { class: 'muted small' }, 'No collector failures in this period.')),
+      card(h, 'Collector failures', o.collectorFailures.total ? bucketsToBarList(ctx.ui, o.collectorFailures.byCollector, { alt: true, onClick: () => ctx.navigate(`/p/${ctx.plugin.id}/ingestion`) }) : h('div', { class: 'muted small' }, 'No collector failures in this period.')),
     );
   }
 
@@ -60,6 +61,12 @@ export async function mount(el, ctx) {
 }
 
 export function unmount() { root = null; }
+
+function noteUnderKpis(h, kpis, message, kind = 'danger') {
+  kpis.parentElement?.querySelector(':scope > .overview-note')?.remove();
+  if (!message) return;
+  kpis.after(h('div', { class: `alert overview-note ${kind}`, role: 'alert' }, message));
+}
 
 function card(h, title, ...body) { return h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h3', null, title)), ...body); }
 

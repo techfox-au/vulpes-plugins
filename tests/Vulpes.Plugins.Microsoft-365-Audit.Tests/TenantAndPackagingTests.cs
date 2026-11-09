@@ -31,7 +31,7 @@ public sealed class TenantServiceTests : IDisposable
         _db.Database.EnsureCreated();
     }
 
-    private TenantService Service() => new(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
+    private TenantService Service() => new(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector, _protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
 
     [Fact]
     public async Task Shared_application_secret_is_encrypted_on_the_plugin_row()

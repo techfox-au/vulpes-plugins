@@ -114,7 +114,7 @@ public sealed class CredentialFactoryTests
     public void Builds_secret_and_certificate_credentials_from_protected_values()
     {
         var protector = new FakeProtector();
-        var factory = new GraphCredentialFactory(protector);
+        var factory = new GraphCredentialFactory(protector, protector);
         var tenant = new Tenant { Id = Guid.NewGuid(), DisplayName = "t", TenantId = Guid.NewGuid().ToString(), ClientId = Guid.NewGuid().ToString(), ProtectedSecret = protector.Protect("secret") };
         Assert.IsType<AzureIdentityTokenProvider>(factory.Create(tenant));
 

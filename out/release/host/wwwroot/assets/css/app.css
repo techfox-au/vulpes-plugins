@@ -99,6 +99,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .console-log { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 14px; background: var(--ink); border: 1px solid color-mix(in srgb, var(--text-faint) 35%, var(--border)); border-radius: var(--radius); font-family: var(--mono); font-size: 13px; line-height: 1.45; }
 .console-line { white-space: pre-wrap; word-break: break-word; min-height: 1.4em; }
 .console-line.err { color: var(--danger); }
+.console-line.paypal { color: #67e8f9; }
 h1, h2, h3, h4 { margin: 0 0 8px; font-weight: 650; letter-spacing: -0.01em; }
 h1 { font-size: calc(22px + 2pt); }
 h2 { font-size: calc(17px + 2pt); }

@@ -96,7 +96,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 }
 
 /// <summary>Creates token providers from stored (encrypted) tenant credentials.</summary>
-public sealed class GraphCredentialFactory(ISecretProtector protector)
+public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretProtector legacy)
 {
     public IGraphTokenProvider Create(Tenant tenant)
     {
@@ -109,8 +109,8 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
                 throw new InvalidOperationException("Tenant has no certificate configured.");
             }
 
-            var pfx = Convert.FromBase64String(protector.Unprotect(tenant.ProtectedCertificate));
-            var password = tenant.ProtectedCertificatePassword is null ? null : protector.Unprotect(tenant.ProtectedCertificatePassword);
+            var pfx = Convert.FromBase64String(Open(tenant.ProtectedCertificate));
+            var password = tenant.ProtectedCertificatePassword is null ? null : Open(tenant.ProtectedCertificatePassword);
             return new AzureIdentityTokenProvider(new CertificateCredential(() => LoadCertificate(pfx, password), tenant.TenantId, tenant.ClientId, cloud), cloud.Scope);
         }
 
@@ -119,7 +119,7 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
             throw new InvalidOperationException("Tenant has no client secret configured.");
         }
 
-        var secret = protector.Unprotect(tenant.ProtectedSecret);
+        var secret = Open(tenant.ProtectedSecret);
         return new AzureIdentityTokenProvider(
             () => new ClientSecretCredential(tenant.TenantId, tenant.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
             cloud.Scope);
@@ -152,6 +152,11 @@ public sealed class GraphCredentialFactory(ISecretProtector protector)
             () => new ClientSecretCredential(directoryId, application.ClientId, secret, new ClientSecretCredentialOptions { AuthorityHost = cloud.AuthorityHost }),
             cloud.Scope);
     }
+
+    private string Open(string stored) =>
+        data.IsProtected(stored) ? data.Unprotect(stored)
+        : stored.StartsWith("v1.", StringComparison.Ordinal) ? legacy.Unprotect(stored)
+        : stored;
 
     private static X509Certificate2 LoadCertificate(byte[] pfx, string? password)
     {

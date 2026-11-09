@@ -12,7 +12,7 @@ public sealed record ProbeResult(string Source, string Title, string Status, str
 public sealed record ConnectionTestResult(bool TokenAcquired, string? OrganizationName, string? Error, IReadOnlyList<ProbeResult> Probes, DateTimeOffset TestedAt);
 
 /// <summary>Plugin-side collection state for clients stored on the host. Credentials are copied from the shared application.</summary>
-public sealed class TenantService(AuditDbContext db, ISecretProtector protector, GraphClientFactory graphFactory, IEnumerable<ICollector> collectors, TimeProvider timeProvider, AuditOptions options, ILogger<TenantService> logger)
+public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, GraphClientFactory graphFactory, IEnumerable<ICollector> collectors, TimeProvider timeProvider, AuditOptions options, ILogger<TenantService> logger, ISecretProtector? legacy = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -27,6 +27,21 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
         foreach (var gone in local.Where(t => !wanted.Contains(t.Id)).ToList())
         {
             db.Tenants.Remove(gone);
+        }
+
+        string? Migrate(string? stored)
+        {
+            if (string.IsNullOrEmpty(stored) || data.IsProtected(stored))
+            {
+                return stored;
+            }
+
+            if (!stored.StartsWith("v1.", StringComparison.Ordinal) || legacy is null)
+            {
+                return stored;
+            }
+
+            return data.Protect(legacy.Unprotect(stored));
         }
 
         var directoryChanged = new List<Guid>();
@@ -54,6 +69,9 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
             row.DisplayName = remote.DisplayName;
             row.TenantId = remote.DirectoryId;
             row.Enabled = remote.Enabled;
+            row.ProtectedSecret = Migrate(row.ProtectedSecret);
+            row.ProtectedCertificate = Migrate(row.ProtectedCertificate);
+            row.ProtectedCertificatePassword = Migrate(row.ProtectedCertificatePassword);
             if (!string.IsNullOrWhiteSpace(remote.DiscoveredName))
             {
                 row.DiscoveredName = remote.DiscoveredName;
@@ -72,13 +90,13 @@ public sealed class TenantService(AuditDbContext db, ISecretProtector protector,
                 row.Cloud = application.Cloud;
                 if (!string.IsNullOrEmpty(application.Secret))
                 {
-                    row.ProtectedSecret = protector.Protect(application.Secret);
+                    row.ProtectedSecret = data.Protect(application.Secret);
                 }
 
                 if (!string.IsNullOrEmpty(application.CertificatePfxBase64))
                 {
-                    row.ProtectedCertificate = protector.Protect(application.CertificatePfxBase64);
-                    row.ProtectedCertificatePassword = string.IsNullOrEmpty(application.CertificatePassword) ? null : protector.Protect(application.CertificatePassword);
+                    row.ProtectedCertificate = data.Protect(application.CertificatePfxBase64);
+                    row.ProtectedCertificatePassword = string.IsNullOrEmpty(application.CertificatePassword) ? null : data.Protect(application.CertificatePassword);
                 }
             }
 

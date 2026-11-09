@@ -17,13 +17,19 @@ export async function mount(el, ctx) {
   source.onmessage = (ev) => {
     let row;
     try { row = JSON.parse(ev.data); } catch { return; }
-    log.append(h('div', { class: 'console-line' + (row.stream === 'err' ? ' err' : '') }, row.text ?? ''));
+    log.append(h('div', { class: consoleLineClass(row) }, row.text ?? ''));
     if (stick) log.scrollTop = log.scrollHeight;
   };
   source.onerror = () => {
     status.className = 'badge danger';
     status.textContent = 'Disconnected';
   };
+}
+
+function consoleLineClass(row) {
+  const text = row.text || '';
+  const paypal = /PayPal(?: sandbox)? webhook|PayPalWebhook/i.test(text);
+  return 'console-line' + (row.stream === 'err' ? ' err' : '') + (paypal ? ' paypal' : '');
 }
 
 export function unmount() {

@@ -40,7 +40,7 @@ public sealed class SchedulerTests : IDisposable
     private CollectionScheduler CreateScheduler(AuditOptions? options = null) => new(
         _provider.GetRequiredService<IServiceScopeFactory>(),
         [_collector],
-        new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, _time),
+        new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
         _pipeline,
         options ?? new AuditOptions(),
         _time,

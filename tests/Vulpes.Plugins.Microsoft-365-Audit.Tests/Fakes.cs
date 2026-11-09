@@ -149,8 +149,10 @@ public sealed class FakePipeline : IEventPipeline
     private static string Key(SecurityEvent e) => $"{e.TenantId}:{e.Source}:{e.RecordId}";
 }
 
-public sealed class FakeProtector : ISecretProtector
+public sealed class FakeProtector : ISecretProtector, IDataAtRestProtector
 {
+    public bool IsProtected(string? value) => value is not null && value.StartsWith("v1.", StringComparison.Ordinal);
+
     public string Protect(string plaintext) => "v1." + Convert.ToBase64String(Encoding.UTF8.GetBytes(plaintext));
 
     public string Unprotect(string protectedValue) => Encoding.UTF8.GetString(Convert.FromBase64String(protectedValue[3..]));

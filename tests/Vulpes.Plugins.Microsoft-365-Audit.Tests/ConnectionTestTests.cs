@@ -83,7 +83,7 @@ public sealed class ConnectionTestTests : IDisposable
         private readonly TimeProvider _time;
 
         public ScriptedGraphFactory(HttpMessageHandler handler, TimeProvider time)
-            : base(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, time)
+            : base(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, time)
         {
             _handler = handler;
             _time = time;

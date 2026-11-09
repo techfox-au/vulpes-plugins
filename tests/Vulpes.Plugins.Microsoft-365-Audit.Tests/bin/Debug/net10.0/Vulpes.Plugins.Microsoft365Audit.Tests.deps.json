@@ -43,7 +43,7 @@
           "Microsoft.NET.Test.Sdk": "18.11.0",
           "Vulpes.Host": "1.0.0",
           "Vulpes.PluginPacker": "1.0.0",
-          "Vulpes.Plugins.Microsoft-365-Audit": "1.0.1",
+          "Vulpes.Plugins.Microsoft-365-Audit": "1.0.2",
           "xunit": "2.9.3",
           "xunit.runner.visualstudio": "4.0.1",
           "Microsoft.AspNetCore.Antiforgery": "10.0.0.0",
@@ -1044,7 +1044,7 @@
           "Vulpes.PluginPacker.dll": {}
         }
       },
-      "Vulpes.Plugins.Microsoft-365-Audit/1.0.1": {
+      "Vulpes.Plugins.Microsoft-365-Audit/1.0.2": {
         "dependencies": {
           "Azure.Identity": "1.21.0",
           "Microsoft.EntityFrameworkCore.Sqlite": "10.0.14",
@@ -1052,8 +1052,8 @@
         },
         "runtime": {
           "Vulpes.Plugins.Microsoft-365-Audit.dll": {
-            "assemblyVersion": "1.0.1.0",
-            "fileVersion": "1.0.1.0"
+            "assemblyVersion": "1.0.2.0",
+            "fileVersion": "1.0.2.0"
           }
         },
         "compile": {
@@ -3233,7 +3233,7 @@
       "serviceable": false,
       "sha512": ""
     },
-    "Vulpes.Plugins.Microsoft-365-Audit/1.0.1": {
+    "Vulpes.Plugins.Microsoft-365-Audit/1.0.2": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

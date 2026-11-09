@@ -170,7 +170,7 @@ public sealed class CollectionScheduler(
                 var indexedCleanly = result.Failed == 0;
                 checkpoint.LastStatus = result.Failed > 0
                     ? RunStatuses.Failed
-                    : result.Complete ? RunStatuses.Succeeded : RunStatuses.Pending;
+                    : result.Complete ? RunStatuses.Succeeded : RunStatuses.Running;
                 if (result.Complete && indexedCleanly)
                 {
                     checkpoint.LastSuccessAt = finished;
@@ -196,7 +196,9 @@ public sealed class CollectionScheduler(
                 }
 
                 checkpoint.NextRunAt = finished + wait;
-                entry.Status = result.Failed > 0 ? RunStatuses.Failed : RunStatuses.Succeeded;
+                entry.Status = result.Failed > 0
+                    ? RunStatuses.Failed
+                    : result.Complete ? RunStatuses.Succeeded : RunStatuses.Running;
                 entry.Count = result.Published;
                 entry.Duplicates = result.Duplicates;
                 entry.Failed = result.Failed;

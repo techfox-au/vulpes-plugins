@@ -1,5 +1,5 @@
 // Entra ID Protection risk detections and the risk state of users and service principals (docs/audit-plugin.md).
-import { createExplorer, severityBadge, get } from './common.js?v=shell84';
+import { createExplorer, severityBadge, get } from './common.js?v=shell322';
 
 let explorer;
 export async function mount(el, ctx) {

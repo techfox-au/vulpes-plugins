@@ -1,6 +1,6 @@
 // Shared building blocks for the audit plugin pages. Uses only ctx.ui / ctx.api from the shell.
 
-export const RANGES = [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days']];
+export const RANGES = [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['180d', 'Last 180 days'], ['365d', 'Last 365 days'], ['730d', 'Last 730 days']];
 
 export function rangeToDates(range) {
   const to = new Date();
@@ -13,6 +13,38 @@ export function rangeToDates(range) {
 
 export function get(doc, path) {
   return path.split('.').reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), doc);
+}
+
+const COUNTRY_NAMES = {
+  australia: 'AU', austria: 'AT', belgium: 'BE', brazil: 'BR', canada: 'CA', china: 'CN', denmark: 'DK',
+  egypt: 'EG', finland: 'FI', france: 'FR', germany: 'DE', greece: 'GR', 'hong kong': 'HK', india: 'IN',
+  indonesia: 'ID', ireland: 'IE', israel: 'IL', italy: 'IT', japan: 'JP', malaysia: 'MY', mexico: 'MX',
+  netherlands: 'NL', 'the netherlands': 'NL', 'new zealand': 'NZ', norway: 'NO', pakistan: 'PK',
+  philippines: 'PH', poland: 'PL', portugal: 'PT', qatar: 'QA', russia: 'RU', 'russian federation': 'RU',
+  'saudi arabia': 'SA', singapore: 'SG', 'south africa': 'ZA', 'south korea': 'KR', korea: 'KR',
+  spain: 'ES', sweden: 'SE', switzerland: 'CH', taiwan: 'TW', thailand: 'TH', turkey: 'TR',
+  türkiye: 'TR', ukraine: 'UA', 'united arab emirates': 'AE', uae: 'AE', 'united kingdom': 'GB',
+  uk: 'GB', 'great britain': 'GB', england: 'GB', 'united states': 'US', 'united states of america': 'US',
+  usa: 'US', vietnam: 'VN', 'viet nam': 'VN',
+};
+
+export function countryCode(value) {
+  const text = String(value || '').trim();
+  if (/^[A-Za-z]{2}$/.test(text)) return text.toUpperCase() === 'UK' ? 'GB' : text.toUpperCase();
+  return COUNTRY_NAMES[text.toLowerCase()] || '';
+}
+
+function flagEmoji(code) {
+  return String.fromCodePoint(0x1F1E6 + code.charCodeAt(0) - 65, 0x1F1E6 + code.charCodeAt(1) - 65);
+}
+
+export function locationCell(h, doc) {
+  const city = get(doc, 'source.geo.city_name');
+  const country = get(doc, 'source.geo.country_name');
+  const text = [city, country].filter(Boolean).join(', ');
+  const code = countryCode(get(doc, 'source.geo.country_iso_code')) || countryCode(country);
+  if (!code || !text) return text;
+  return h('span', { class: 'loc' }, h('span', { class: 'flag', 'aria-hidden': 'true' }, flagEmoji(code)), text);
 }
 
 export function severityBadge(ui, sev) {
@@ -140,7 +172,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
 
   function openDetail(row) {
     const doc = row.doc;
-    const pairs = [['Time', fmt.dateTime(doc['@timestamp'])], ['Tenant', get(doc, 'vc.tenantName') || get(doc, 'vc.tenantId')], ['Source', get(doc, 'vc.source')], ['Action', get(doc, 'event.action')], ['Outcome', get(doc, 'event.outcome')], ['Severity', get(doc, 'event.severity')], ['User', get(doc, 'user.name')], ['IP', get(doc, 'source.address')], ['Location', [get(doc, 'source.geo.city_name'), get(doc, 'source.geo.country_name')].filter(Boolean).join(', ')], ['App', get(doc, 'client.appName')], ['File / object', get(doc, 'file.path')], ['User agent', get(doc, 'user_agent.original')], ['Message', doc.message]];
+    const pairs = [['Time', fmt.dateTime(doc['@timestamp'])], ['Tenant', get(doc, 'vc.tenantName') || get(doc, 'vc.tenantId')], ['Source', get(doc, 'vc.source')], ['Action', get(doc, 'event.action')], ['Outcome', get(doc, 'event.outcome')], ['Severity', get(doc, 'event.severity')], ['User', get(doc, 'user.name')], ['IP', get(doc, 'source.address')], ['Location', locationCell(h, doc)], ['App', get(doc, 'client.appName')], ['File / object', get(doc, 'file.path')], ['User agent', get(doc, 'user_agent.original')], ['Message', doc.message]];
     for (const f of detailFields) pairs.push([f.label, get(doc, f.path)]);
     const labels = doc.labels ? Object.entries(doc.labels).map(([k, v]) => [k, String(v)]) : [];
     drawer.open({ title: doc.message || get(doc, 'event.action') || 'Event', content: h('div', { class: 'col gap-lg' }, kv(pairs), labels.length ? h('div', null, h('h3', null, 'Labels'), kv(labels)) : null, h('details', { class: 'json', open: true }, h('summary', null, 'Raw record'), jsonView(doc.data || doc))) });

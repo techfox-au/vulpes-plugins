@@ -86,9 +86,9 @@ public sealed class SchedulerTests : IDisposable
         _collector.Behaviour = _ => new CollectorResult(1, 0, 0, 0, false, "partial");
         var scheduler = CreateScheduler();
         var entry = await scheduler.RunJobAsync(Tenant(), "scripted", CancellationToken.None);
-        Assert.Equal(RunStatuses.Succeeded, entry.Status);
+        Assert.Equal(RunStatuses.Running, entry.Status);
         var checkpoint = Checkpoint();
-        Assert.Equal(RunStatuses.Pending, checkpoint.LastStatus);
+        Assert.Equal(RunStatuses.Running, checkpoint.LastStatus);
         Assert.Equal("partial", checkpoint.LastError);
         Assert.Equal(_time.GetUtcNow().AddSeconds(5), checkpoint.NextRunAt);
 

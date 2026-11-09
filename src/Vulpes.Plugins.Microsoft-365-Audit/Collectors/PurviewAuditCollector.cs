@@ -190,7 +190,7 @@ public sealed class PurviewAuditCollector : ICollector
             context.Checkpoint.Watermark = w;
         }
 
-        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true, $"query {queryId} drained");
+        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true);
     }
 
     private static string? StateString(Dictionary<string, JsonElement> state, string key) =>

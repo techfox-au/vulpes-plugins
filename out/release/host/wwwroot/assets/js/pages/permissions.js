@@ -32,15 +32,15 @@ async function load(ctx, button) {
       host.append(h('div', { class: 'card muted' }, 'No clients added yet.'));
       return;
     }
-    for (const tenant of data.tenants) {
+    host.append(h('div', { class: 'card col' }, ...data.tenants.map((tenant) => {
       const missing = tenant.missing || [];
-      host.append(h('div', { class: 'card' },
+      return h('div', { class: 'subcard' },
         h('div', { class: 'card-header' }, h('h2', null, tenant.displayName), tenant.enabled ? null : badge('disabled', 'warning')),
         h('p', { class: 'mono small muted' }, tenant.directoryId),
         tenant.error ? h('div', { class: 'alert danger' }, tenant.error) : null,
         !tenant.error && missing.length === 0 ? h('div', null, badge('All required permissions granted', 'success')) : null,
-        missing.length ? h('div', { class: 'col' }, h('div', { class: 'small muted' }, 'Missing'), ...missing.map((p) => h('div', null, h('span', { class: 'mono' }, p.name), h('span', { class: 'small muted' }, ' ' + p.purpose)))) : null));
-    }
+        missing.length ? h('div', { class: 'col' }, h('div', { class: 'small muted' }, 'Missing'), ...missing.map((p) => h('div', null, h('span', { class: 'mono' }, p.name), h('span', { class: 'small muted' }, ' ' + p.purpose)))) : null);
+    })));
   } catch (err) {
     host.append(h('div', { class: 'alert danger' }, errorMessage(err)));
   } finally {

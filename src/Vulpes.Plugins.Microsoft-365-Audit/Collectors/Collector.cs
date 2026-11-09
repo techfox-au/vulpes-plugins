@@ -104,18 +104,64 @@ public abstract class WatermarkCollector : ICollector
         ArgumentNullException.ThrowIfNull(context);
         var requested = context.WindowStart(Overlap(context));
         var from = Clamp(context, requested);
-        string? moved = from > requested ? $"started at {from:O}; earlier records are outside Microsoft's retention" : null;
-        try
+        string? moved = from > requested ? RetentionNote(from) : null;
+        GraphException? rejected = null;
+        // Graph names the oldest activityDateTime it will accept. A single step of one minute
+        // can still fall on the rejected day, and the overlap would walk the next run back into it.
+        for (var attempt = 0; attempt < 6; attempt++)
         {
-            return await ReadAsync(context, from, moved, cancellationToken);
+            try
+            {
+                return await ReadAsync(context, from, moved, cancellationToken);
+            }
+            catch (GraphException ex) when (ActivityTimeFloor.TryParse(ex.Message, out var minimum))
+            {
+                rejected = ex;
+                if (AdvancePastFloor(from, minimum, context.Now) is not { } advanced)
+                {
+                    throw;
+                }
+
+                from = advanced;
+                RememberAcceptedStart(context, from);
+                moved = RetentionNote(from);
+            }
         }
-        catch (GraphException ex) when (ActivityTimeFloor.TryParse(ex.Message, out var minimum) && from < minimum)
+
+        throw rejected!;
+    }
+
+    /// <summary>The next UTC day after the floor Graph named, or one day after <paramref name="from"/> when that day was already rejected.</summary>
+    private static DateTimeOffset? AdvancePastFloor(DateTimeOffset from, DateTimeOffset minimum, DateTimeOffset now)
+    {
+        var afterNamedDay = new DateTimeOffset(minimum.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
+        var candidate = afterNamedDay > from
+            ? afterNamedDay
+            : new DateTimeOffset(from.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
+        if (candidate > now)
         {
-            from = minimum.AddMinutes(1);
-            moved = $"started at {from:O}; earlier records are outside Microsoft's retention";
-            return await ReadAsync(context, from, moved, cancellationToken);
+            candidate = now;
+        }
+
+        return candidate > from ? candidate : null;
+    }
+
+    private void RememberAcceptedStart(CollectorContext context, DateTimeOffset from)
+    {
+        var remembered = from + Overlap(context);
+        if (remembered > context.Now)
+        {
+            remembered = context.Now;
+        }
+
+        if (context.Checkpoint.Watermark is null || remembered > context.Checkpoint.Watermark)
+        {
+            context.Checkpoint.Watermark = remembered;
         }
     }
+
+    private static string RetentionNote(DateTimeOffset from) =>
+        $"started at {from:O}; earlier records are outside Microsoft's retention";
 
     private async Task<CollectorResult> ReadAsync(CollectorContext context, DateTimeOffset from, string? moved, CancellationToken cancellationToken)
     {
@@ -208,7 +254,8 @@ public static class ActivityTimeFloor
             return false;
         }
 
-        var text = match.Groups["when"].Value.Trim();
+        // Graph prints the floor with a narrow no-break space before AM/PM.
+        var text = match.Groups["when"].Value.Trim().Replace('\u00A0', ' ').Replace('\u202F', ' ').Replace('\u2007', ' ');
         var styles = DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
         return DateTimeOffset.TryParse(text, CultureInfo.GetCultureInfo("en-US"), styles, out minimum)
             || DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, styles, out minimum);

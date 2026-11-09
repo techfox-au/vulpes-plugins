@@ -99,6 +99,61 @@ public sealed class CollectorTests
     }
 
     [Fact]
+    public void Directory_audit_floor_accepts_the_narrow_space_graph_puts_before_am()
+    {
+        var message = "Graph /v1.0/auditLogs/directoryAudits returned 400 BadRequest (UnknownError): Specified argument was out of the range of valid values. (Parameter 'Minimum allowed time for activityDateTime is 10/9/2026 12:00:00\u202fAM')";
+        Assert.True(ActivityTimeFloor.TryParse(message, out var minimum));
+        Assert.Equal(new DateTimeOffset(2026, 10, 9, 0, 0, 0, TimeSpan.Zero), minimum);
+    }
+
+    [Fact]
+    public async Task Directory_audits_leave_a_rejected_start_and_do_not_walk_back_into_it()
+    {
+        var now = new DateTimeOffset(2026, 11, 9, 18, 0, 0, TimeSpan.Zero);
+        var time = new FakeTimeProvider(now);
+        var accepted = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero);
+        var calls = new List<DateTimeOffset>();
+        var handler = new RoutedGraphHandler().Get(p => p.Contains("directoryAudits", StringComparison.Ordinal), r =>
+        {
+            var url = Uri.UnescapeDataString(r.RequestUri!.PathAndQuery);
+            var marker = "activityDateTime ge ";
+            var at = url.IndexOf(marker, StringComparison.Ordinal);
+            var stamp = url[(at + marker.Length)..].Split('&')[0];
+            var sent = DateTimeOffset.Parse(stamp, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+            calls.Add(sent);
+            if (sent < accepted)
+            {
+                return FakeGraphHandler.Json(new
+                {
+                    error = new
+                    {
+                        code = "UnknownError",
+                        message = "Specified argument was out of the range of valid values. (Parameter 'Minimum allowed time for activityDateTime is 10/9/2026 12:00:00\u202fAM')",
+                    },
+                }, HttpStatusCode.BadRequest);
+            }
+
+            return RoutedGraphHandler.Page([]);
+        });
+        var previous = TestContext.Tenant.LookbackDays;
+        TestContext.Tenant.LookbackDays = 90;
+        try
+        {
+            var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "directory" };
+            var result = await new DirectoryAuditsCollector().CollectAsync(TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, time: time), CancellationToken.None);
+            Assert.True(result.Complete);
+            Assert.Contains(calls, sent => sent >= accepted);
+            Assert.NotNull(checkpoint.Watermark);
+            var again = checkpoint.Watermark.Value - TimeSpan.FromMinutes(new AuditOptions().LogOverlapMinutes);
+            Assert.True(again >= accepted);
+        }
+        finally
+        {
+            TestContext.Tenant.LookbackDays = previous;
+        }
+    }
+
+    [Fact]
     public async Task Directory_audits_map_and_advance_watermark()
     {
         var handler = new RoutedGraphHandler().Get(p => p.Contains("directoryAudits", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(

@@ -1,4 +1,4 @@
-import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell84';
+import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell322';
 
 let root;
 export async function mount(el, ctx) {
@@ -19,11 +19,11 @@ export async function mount(el, ctx) {
     const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30, '90d': 24 * 90 }[state.range] || 24;
     let o;
     try { o = await ctx.api.get(`${ctx.plugin.apiBase}/overview${ctx.api.qs({ hours, tenantId: state.tenant })}`); }
-    catch (err) { clear(kpis).append(h('div', { class: 'alert danger' }, ctx.ui.errorMessage(err))); return; }
+    catch (err) { clear(kpis); noteUnderKpis(h, kpis, ctx.ui.errorMessage(err)); return; }
 
     clear(kpis);
     // Elasticsearch comes from the environment (README). Tenants are added on the Tenants page (docs/entra-setup.md).
-    if (!o.available) kpis.append(h('div', { class: 'alert warning' }, 'Search backend unavailable.'));
+    noteUnderKpis(h, kpis, o.available ? '' : 'Search backend unavailable.', 'warning');
     kpis.append(
       kpiCard(ctx.ui, 'Sign-ins', ctx.ui.fmt.number(o.signIns.total), '', `${ctx.ui.fmt.number(o.failures.total)} failed`),
       kpiCard(ctx.ui, 'Failed sign-ins', ctx.ui.fmt.number(o.failures.total), o.failures.total > 0 ? 'warning' : '', o.signIns.total ? `${((100 * o.failures.total) / o.signIns.total).toFixed(1)}% of sign-ins` : ''),
@@ -61,6 +61,12 @@ export async function mount(el, ctx) {
 }
 
 export function unmount() { root = null; }
+
+function noteUnderKpis(h, kpis, message, kind = 'danger') {
+  kpis.parentElement?.querySelector(':scope > .overview-note')?.remove();
+  if (!message) return;
+  kpis.after(h('div', { class: `alert overview-note ${kind}`, role: 'alert' }, message));
+}
 
 function card(h, title, ...body) { return h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h3', null, title)), ...body); }
 

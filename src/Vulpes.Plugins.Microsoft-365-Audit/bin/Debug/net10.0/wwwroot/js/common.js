@@ -55,7 +55,7 @@ export function bucketsToBarList(ui, buckets, opts) {
  * Generic event explorer: time range, tenant, free text, filter chips, paginated table and a detail drawer.
  * columns: [{ title, path | render(doc, row), filterField?, class? }]
  */
-export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [] }) {
+export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [], ranges = RANGES }) {
   const { h, clear, table, drawer, fmt, errorMessage, jsonView, kv, badge } = ctx.ui;
   const state = { range: defaultRange, tenant: '', text: '', filters: [...initialFilters], hits: [], total: 0, searchAfter: null, loading: false, fields: [] };
 
@@ -65,7 +65,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   const pager = h('div', { class: 'pager' });
   el.append(toolbar, chips, results, pager);
 
-  const rangeSel = ctx.ui.dropdown(RANGES.map(([value, label]) => ({ value, label })), { value: state.range, ariaLabel: 'Time range' });
+  const rangeSel = ctx.ui.dropdown(ranges.map(([value, label]) => ({ value, label })), { value: state.range, ariaLabel: 'Time range' });
   rangeSel.addEventListener('change', () => { state.range = rangeSel.value; reload(); });
   const textInput = h('input', { class: 'input', placeholder: 'Search text (AND, OR, "phrase", prefix*)', 'aria-label': 'Search text' });
   textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.text = textInput.value.trim(); reload(); } });
@@ -132,7 +132,9 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     }));
     results.append(table({ columns: cols, rows: state.hits, onRowClick: (row) => openDetail(row), emptyText: state.loading ? 'Loading…' : 'No events match.' }));
     clear(pager);
-    pager.append(h('span', null, state.loading ? 'Loading…' : `${fmt.number(state.total)}${state.hits.length < state.total ? ` events · showing ${state.hits.length}` : ' events'}`));
+    const eventCount = fmt.number(state.total);
+    const eventLabel = state.hits.length < state.total ? `${eventCount} events · showing ${state.hits.length}` : `${eventCount} events`;
+    pager.append(h('span', null, state.loading ? 'Loading…' : eventLabel));
     if (state.hits.length < state.total && state.searchAfter) pager.append(h('button', { class: 'btn sm', onClick: () => load(true) }, 'Load more'));
   }
 

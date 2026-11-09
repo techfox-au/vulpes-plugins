@@ -23,6 +23,19 @@ public static class Normalizers
 {
     public const string PluginId = "microsoft-365-audit";
 
+    private static GeoLocation? Place(JsonElement? location)
+    {
+        if (location is not { } loc)
+        {
+            return null;
+        }
+
+        var country = loc.Str("countryOrRegion");
+        var code = country is { Length: 2 } && country.All(char.IsAsciiLetter) ? country.ToUpperInvariant() : null;
+        var coords = loc.Obj("geoCoordinates");
+        return new GeoLocation(code, country, loc.Str("state"), loc.Str("city"), coords?.Num("latitude"), coords?.Num("longitude"));
+    }
+
     public static SecurityEvent? SignIn(JsonElement r, string tenantId, string? tenantName, string signInType)
     {
         var id = r.Str("id");
@@ -37,7 +50,6 @@ public static class Normalizers
         var failureReason = status?.Str("failureReason");
         var outcome = errorCode == 0 ? "success" : "failure";
         var location = r.Obj("location");
-        var coords = location?.Obj("geoCoordinates");
         var upn = r.Str("userPrincipalName") ?? r.Str("servicePrincipalName");
         var app = r.Str("appDisplayName") ?? r.Str("resourceDisplayName");
         var ip = r.Str("ipAddress");
@@ -61,7 +73,7 @@ public static class Normalizers
             UserName = upn,
             UserEmail = upn is not null && upn.Contains('@', StringComparison.Ordinal) ? upn : null,
             SourceIp = ip,
-            Geo = location is null ? null : new GeoLocation(null, location.Value.Str("countryOrRegion"), location.Value.Str("state"), location.Value.Str("city"), coords?.Num("latitude"), coords?.Num("longitude")),
+            Geo = Place(location),
             UserAgent = r.Str("userAgent"),
             ClientAppId = r.Str("appId"),
             ClientAppName = app,
@@ -321,7 +333,6 @@ public static class Normalizers
         }
 
         var location = r.Obj("location");
-        var coords = location?.Obj("geoCoordinates");
         var upn = r.Str("userPrincipalName");
         return new SecurityEvent
         {
@@ -339,7 +350,7 @@ public static class Normalizers
             UserName = upn,
             UserEmail = upn,
             SourceIp = CleanIp(r.Str("ipAddress")),
-            Geo = location is null ? null : new GeoLocation(null, location.Value.Str("countryOrRegion"), location.Value.Str("state"), location.Value.Str("city"), coords?.Num("latitude"), coords?.Num("longitude")),
+            Geo = Place(location),
             Message = J.Truncate($"{r.Str("riskEventType")} ({r.Str("riskLevel")}, {r.Str("riskState")}) for {upn ?? r.Str("userDisplayName") ?? "?"}", 1000),
             Labels = Labels(("riskType", "detection"), ("riskLevel", r.Str("riskLevel")), ("riskState", r.Str("riskState")), ("riskDetail", r.Str("riskDetail")), ("activity", r.Str("activity")), ("detectionTiming", r.Str("detectionTimingType")), ("source", r.Str("source"))),
             Data = r,

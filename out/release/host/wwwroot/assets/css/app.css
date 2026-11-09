@@ -115,6 +115,8 @@ p { margin: 0 0 10px; }
 .right { text-align: right; }
 .center { text-align: center; }
 .flex { display: flex; gap: 10px; align-items: center; }
+.loc { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.flag { font-size: 15px; line-height: 1; flex: none; }
 .flex.wrap { flex-wrap: wrap; }
 .flex.between { justify-content: space-between; }
 .flex.end { justify-content: flex-end; }
@@ -203,7 +205,8 @@ body:has(.shell) { overflow: hidden; }
 .avatar-edit:hover .avatar-plus { opacity: 1; }
 .avatar-edit.plus-hidden .avatar-plus { opacity: 0; }
 .user-chip .truncate { min-width: 0; }
-.content { padding: 22px; display: flex; flex-direction: column; gap: 18px; width: 100%; flex: 1 1 auto; min-height: 0; overflow: auto; }
+.content { padding: 22px 22px 0; display: flex; flex-direction: column; gap: 18px; width: 100%; flex: 1 1 auto; min-height: 0; overflow: auto; }
+.content::after { content: ""; flex: 0 0 32px; height: 32px; }
 .content > .stack { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .content > .stack > .table-wrap,
 .content > .stack > .console-log,
@@ -220,6 +223,7 @@ body:has(.shell) { overflow: hidden; }
 
 /* ---------- cards & grids ---------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+.subcard { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
 .card > .panel-note { margin-bottom: 12px; }
 .card.tight { padding: 12px 14px; }
 .card h2, .card h3 { margin-bottom: 10px; }

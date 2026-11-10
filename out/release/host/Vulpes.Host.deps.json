@@ -6,7 +6,7 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "Vulpes.Host/1.0.19": {
+      "Vulpes.Host/1.0.21": {
         "dependencies": {
           "BouncyCastle.Cryptography": "2.7.0",
           "Elastic.Clients.Elasticsearch": "9.5.3",
@@ -324,7 +324,7 @@
     }
   },
   "libraries": {
-    "Vulpes.Host/1.0.19": {
+    "Vulpes.Host/1.0.21": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

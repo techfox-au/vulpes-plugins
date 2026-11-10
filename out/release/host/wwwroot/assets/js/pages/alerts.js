@@ -85,7 +85,10 @@ async function editRule(ctx, rule) {
   const plugins = catalog.plugins;
   if (plugins.length === 0) { pageNote(root, 'No plugin has registered event sources yet.'); return; }
   const firstSource = (mod) => mod.sources.find((s) => !s.unavailable)?.source;
-  const r = rule ? structuredClone(rule) : { name: '', description: '', enabled: true, pluginId: plugins[0].id, sources: [firstSource(plugins[0])].filter(Boolean), severity: 'medium', conditions: [], threshold: null, actions: { email: { recipients: [], subject: '', body: '' } }, throttle: null };
+  const ignoreMin = 30;
+  const ignoreMax = 43200;
+  const ignoreDefault = 60;
+  const r = rule ? structuredClone(rule) : { name: '', description: '', enabled: true, pluginId: plugins[0].id, sources: [firstSource(plugins[0])].filter(Boolean), severity: 'medium', conditions: [], threshold: null, actions: { email: { recipients: [], subject: '', body: '' } }, throttle: null, ignoreOlderThanMinutes: ignoreDefault };
 
   const pluginSel = dropdown(plugins.map((m) => ({ value: m.id, label: m.name })), { value: r.pluginId, ariaLabel: 'Plugin' });
   const sourcesBox = h('div', { class: 'flex wrap' });
@@ -133,6 +136,7 @@ async function editRule(ctx, rule) {
   const [subjF, subjI] = input('Email subject template', r.actions?.email?.subject || '', { placeholder: '[{{severity}}] {{rule.name}}: {{event.action}} by {{user.name}}' });
   // Body placeholders such as {{user.name}} are HTML-escaped (docs/security.md).
   const bodyI = h('textarea', { class: 'textarea', placeholder: '{{user.name}}' }, r.actions?.email?.body || '');
+  const [ignoreF, ignoreI] = input('Ignore older than (minutes)', r.ignoreOlderThanMinutes ?? ignoreDefault, { type: 'number', min: ignoreMin, max: ignoreMax, required: true });
   const [throtWinF, throtWinI] = input('Throttle: at most one notification per (minutes)', r.throttle?.windowMinutes ?? '', { type: 'number', min: 1 });
   const [throtGroupF, throtGroupI] = input('Throttle: group by field', r.throttle?.groupBy ?? '', { placeholder: 'e.g. user.name' });
 
@@ -144,6 +148,7 @@ async function editRule(ctx, rule) {
     h('div', { class: 'form-row' }, thCountF, thWinF, thGroupF),
     h('div', { class: 'form-row' }, recF, subjF),
     h('div', { class: 'field' }, h('label', null, 'Email body template'), bodyI),
+    h('div', { class: 'form-row' }, ignoreF),
     h('div', { class: 'form-row' }, throtWinF, throtGroupF));
 
   const saved = await modal.show({ title: rule ? 'Edit rule' : 'New rule', content: form, wide: true, actions: [{ label: 'Cancel', value: false }, { label: 'Save', kind: 'primary', value: true, onClick: async () => {
@@ -154,8 +159,19 @@ async function editRule(ctx, rule) {
       threshold: thCountI.value ? { count: Number(thCountI.value), windowMinutes: Number(thWinI.value || 10), groupBy: thGroupI.value.trim() || null } : null,
       actions: { email: { recipients: recI.value.split(',').map((s) => s.trim()).filter(Boolean), subject: subjI.value.trim() || null, body: bodyI.value.trim() || null } },
       throttle: throtWinI.value ? { windowMinutes: Number(throtWinI.value), groupBy: throtGroupI.value.trim() || null } : null,
+      ignoreOlderThanMinutes: Number(ignoreI.value),
     };
     if (!payload.name) { panelNote(form, 'A name is required.'); nameI.classList.add('invalid'); return false; }
+    if (!Number.isInteger(payload.ignoreOlderThanMinutes) || payload.ignoreOlderThanMinutes < ignoreMin || payload.ignoreOlderThanMinutes > ignoreMax) {
+      panelNote(form, 'Ignore older than must be from 30 to 43200 minutes.');
+      ignoreI.classList.add('invalid');
+      return false;
+    }
+    if (payload.throttle && (!Number.isInteger(payload.throttle.windowMinutes) || payload.throttle.windowMinutes < 1)) {
+      panelNote(form, 'Throttle window must be at least 1 minute.');
+      throtWinI.classList.add('invalid');
+      return false;
+    }
     if (payload.sources.length === 0) { panelNote(form, 'Select at least one source.'); return false; }
     try { if (rule) await ctx.api.put(`/api/alerts/rules/${rule.id}`, payload); else await ctx.api.post('/api/alerts/rules', payload); return true; }
     catch (err) { panelNote(form, errorMessage(err)); return false; }

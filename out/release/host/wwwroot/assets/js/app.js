@@ -10,7 +10,7 @@ let current = null; // { unmount, key }
 const corePages = {
   '/': () => import('./pages/home.js?v=shell296'),
   '/account': () => import('./pages/account.js?v=shell258'),
-  '/alerts': () => import('./pages/alerts.js?v=shell334'),
+  '/alerts': () => import('./pages/alerts.js?v=shell344'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell340'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell289'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell338'),

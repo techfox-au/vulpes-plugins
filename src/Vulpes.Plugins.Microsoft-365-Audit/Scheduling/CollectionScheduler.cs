@@ -35,7 +35,7 @@ public sealed class CollectionScheduler(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Audit collection scheduler started with {Count} collectors", _collectors.Count);
+        logger.LogDebug("Audit collection scheduler started with {Count} collectors", _collectors.Count);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -206,7 +206,7 @@ public sealed class CollectionScheduler(
                 entry.Failed = result.Failed;
                 entry.Alerts = result.Alerts;
                 entry.Error = result.Note;
-                logger.LogInformation("{Source} for {Tenant}: {Count} new, {Duplicates} duplicates, {Failed} failed, {Alerts} alerts in {Seconds:F1}s{Note}", source, tenant.DisplayName, result.Published, result.Duplicates, result.Failed, result.Alerts, (finished - startedAt).TotalSeconds, result.Note is null ? string.Empty : " (" + result.Note + ")");
+                logger.LogDebug("{Source} for {Tenant}: {Count} new, {Duplicates} duplicates, {Failed} failed, {Alerts} alerts in {Seconds:F1}s{Note}", source, tenant.DisplayName, result.Published, result.Duplicates, result.Failed, result.Alerts, (finished - startedAt).TotalSeconds, result.Note is null ? string.Empty : " (" + result.Note + ")");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

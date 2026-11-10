@@ -1,6 +1,6 @@
 {
-  "Vulpes.Host, Version=1.0.2.0, Culture=neutral, PublicKeyToken=null": "\/Users\/lappy\/vulpes\/src\/Vulpes.Host",
+  "Vulpes.Host, Version=1.0.19.0, Culture=neutral, PublicKeyToken=null": "\/Users\/lappy\/vulpes\/src\/Vulpes.Host",
   "Vulpes.PluginPacker, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/Users\/lappy\/vulpes\/tools\/Vulpes.PluginPacker",
-  "Vulpes.Plugins.Microsoft-365-Audit, Version=1.0.16.0, Culture=neutral, PublicKeyToken=null": "\/Users\/lappy\/vulpes-plugins\/src\/Vulpes.Plugins.Microsoft-365-Audit",
+  "Vulpes.Plugins.Microsoft-365-Audit, Version=1.0.18.0, Culture=neutral, PublicKeyToken=null": "\/Users\/lappy\/vulpes-plugins\/src\/Vulpes.Plugins.Microsoft-365-Audit",
   "Vulpes.Sdk, Version=1.0.1.0, Culture=neutral, PublicKeyToken=null": "\/Users\/lappy\/vulpes\/src\/Vulpes.Sdk"
 }

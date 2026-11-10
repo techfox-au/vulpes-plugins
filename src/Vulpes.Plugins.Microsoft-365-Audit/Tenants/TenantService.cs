@@ -88,15 +88,26 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
                 row.ClientId = application.ClientId;
                 row.CredentialType = application.CredentialType;
                 row.Cloud = application.Cloud;
-                if (!string.IsNullOrEmpty(application.Secret))
+                if (!string.IsNullOrEmpty(application.Secret) && !SameSecret(row.ProtectedSecret, application.Secret))
                 {
                     row.ProtectedSecret = data.Protect(application.Secret);
                 }
 
-                if (!string.IsNullOrEmpty(application.CertificatePfxBase64))
+                if (!string.IsNullOrEmpty(application.CertificatePfxBase64) && !SameSecret(row.ProtectedCertificate, application.CertificatePfxBase64))
                 {
                     row.ProtectedCertificate = data.Protect(application.CertificatePfxBase64);
-                    row.ProtectedCertificatePassword = string.IsNullOrEmpty(application.CertificatePassword) ? null : data.Protect(application.CertificatePassword);
+                }
+
+                if (!string.IsNullOrEmpty(application.CertificatePfxBase64))
+                {
+                    if (string.IsNullOrEmpty(application.CertificatePassword))
+                    {
+                        row.ProtectedCertificatePassword = null;
+                    }
+                    else if (!SameSecret(row.ProtectedCertificatePassword, application.CertificatePassword))
+                    {
+                        row.ProtectedCertificatePassword = data.Protect(application.CertificatePassword);
+                    }
                 }
             }
 
@@ -151,6 +162,31 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         tenant.UpdatedAt = timeProvider.GetUtcNow();
         await db.SaveChangesAsync(ct);
         return null;
+    }
+
+    private bool SameSecret(string? stored, string? plaintext)
+    {
+        if (string.IsNullOrEmpty(plaintext))
+        {
+            return string.IsNullOrEmpty(stored);
+        }
+
+        if (string.IsNullOrEmpty(stored))
+        {
+            return false;
+        }
+
+        try
+        {
+            var opened = data.IsProtected(stored) ? data.Unprotect(stored)
+                : stored.StartsWith("v1.", StringComparison.Ordinal) && legacy is not null ? legacy.Unprotect(stored)
+                : stored;
+            return string.Equals(opened, plaintext, StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private string? ValidateSettings(TenantSettings settings)

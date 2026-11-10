@@ -1,5 +1,5 @@
 let root;
-const psa = '/api/plugins/invoices/clients';
+const psa = '/api/plugins/psa/clients';
 
 export async function mount(el, ctx) {
   el.classList.add('page-scroll');

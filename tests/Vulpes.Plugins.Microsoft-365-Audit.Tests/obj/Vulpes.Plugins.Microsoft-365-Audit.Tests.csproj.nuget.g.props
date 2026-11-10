@@ -4,23 +4,23 @@
     <RestoreSuccess Condition=" '$(RestoreSuccess)' == '' ">True</RestoreSuccess>
     <RestoreTool Condition=" '$(RestoreTool)' == '' ">NuGet</RestoreTool>
     <ProjectAssetsFile Condition=" '$(ProjectAssetsFile)' == '' ">$(MSBuildThisFileDirectory)project.assets.json</ProjectAssetsFile>
-    <NuGetPackageRoot Condition=" '$(NuGetPackageRoot)' == '' ">/Users/lappy/.nuget/packages/</NuGetPackageRoot>
-    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">/Users/lappy/.nuget/packages/</NuGetPackageFolders>
+    <NuGetPackageRoot Condition=" '$(NuGetPackageRoot)' == '' ">/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget</NuGetPackageRoot>
+    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget</NuGetPackageFolders>
     <NuGetProjectStyle Condition=" '$(NuGetProjectStyle)' == '' ">PackageReference</NuGetProjectStyle>
     <NuGetToolVersion Condition=" '$(NuGetToolVersion)' == '' ">7.0.0</NuGetToolVersion>
   </PropertyGroup>
   <ItemGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <SourceRoot Include="/Users/lappy/.nuget/packages/" />
+    <SourceRoot Include="/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget/" />
   </ItemGroup>
   <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <Import Project="$(NuGetPackageRoot)xunit.runner.visualstudio/4.0.1/build/net8.0/xunit.runner.visualstudio.props" Condition="Exists('$(NuGetPackageRoot)xunit.runner.visualstudio/4.0.1/build/net8.0/xunit.runner.visualstudio.props')" />
-    <Import Project="$(NuGetPackageRoot)xunit.core/2.9.3/build/xunit.core.props" Condition="Exists('$(NuGetPackageRoot)xunit.core/2.9.3/build/xunit.core.props')" />
-    <Import Project="$(NuGetPackageRoot)microsoft.entityframeworkcore/10.0.14/buildTransitive/net10.0/Microsoft.EntityFrameworkCore.props" Condition="Exists('$(NuGetPackageRoot)microsoft.entityframeworkcore/10.0.14/buildTransitive/net10.0/Microsoft.EntityFrameworkCore.props')" />
-    <Import Project="$(NuGetPackageRoot)microsoft.testplatform.testhost/18.11.0/build/net8.0/Microsoft.TestPlatform.TestHost.props" Condition="Exists('$(NuGetPackageRoot)microsoft.testplatform.testhost/18.11.0/build/net8.0/Microsoft.TestPlatform.TestHost.props')" />
-    <Import Project="$(NuGetPackageRoot)microsoft.codecoverage/18.11.0/build/netstandard2.0/Microsoft.CodeCoverage.props" Condition="Exists('$(NuGetPackageRoot)microsoft.codecoverage/18.11.0/build/netstandard2.0/Microsoft.CodeCoverage.props')" />
-    <Import Project="$(NuGetPackageRoot)microsoft.net.test.sdk/18.11.0/build/net8.0/Microsoft.NET.Test.Sdk.props" Condition="Exists('$(NuGetPackageRoot)microsoft.net.test.sdk/18.11.0/build/net8.0/Microsoft.NET.Test.Sdk.props')" />
+    <Import Project="$(NuGetPackageRoot)/xunit.runner.visualstudio/4.0.1/build/net8.0/xunit.runner.visualstudio.props" Condition="Exists('$(NuGetPackageRoot)/xunit.runner.visualstudio/4.0.1/build/net8.0/xunit.runner.visualstudio.props')" />
+    <Import Project="$(NuGetPackageRoot)/xunit.core/2.9.3/build/xunit.core.props" Condition="Exists('$(NuGetPackageRoot)/xunit.core/2.9.3/build/xunit.core.props')" />
+    <Import Project="$(NuGetPackageRoot)/microsoft.entityframeworkcore/10.0.14/buildTransitive/net10.0/Microsoft.EntityFrameworkCore.props" Condition="Exists('$(NuGetPackageRoot)/microsoft.entityframeworkcore/10.0.14/buildTransitive/net10.0/Microsoft.EntityFrameworkCore.props')" />
+    <Import Project="$(NuGetPackageRoot)/microsoft.testplatform.testhost/18.11.0/build/net8.0/Microsoft.TestPlatform.TestHost.props" Condition="Exists('$(NuGetPackageRoot)/microsoft.testplatform.testhost/18.11.0/build/net8.0/Microsoft.TestPlatform.TestHost.props')" />
+    <Import Project="$(NuGetPackageRoot)/microsoft.codecoverage/18.11.0/build/netstandard2.0/Microsoft.CodeCoverage.props" Condition="Exists('$(NuGetPackageRoot)/microsoft.codecoverage/18.11.0/build/netstandard2.0/Microsoft.CodeCoverage.props')" />
+    <Import Project="$(NuGetPackageRoot)/microsoft.net.test.sdk/18.11.0/build/net8.0/Microsoft.NET.Test.Sdk.props" Condition="Exists('$(NuGetPackageRoot)/microsoft.net.test.sdk/18.11.0/build/net8.0/Microsoft.NET.Test.Sdk.props')" />
   </ImportGroup>
   <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <Pkgxunit_analyzers Condition=" '$(Pkgxunit_analyzers)' == '' ">/Users/lappy/.nuget/packages/xunit.analyzers/1.18.0</Pkgxunit_analyzers>
+    <Pkgxunit_analyzers Condition=" '$(Pkgxunit_analyzers)' == '' ">/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget/xunit.analyzers/1.18.0</Pkgxunit_analyzers>
   </PropertyGroup>
 </Project>

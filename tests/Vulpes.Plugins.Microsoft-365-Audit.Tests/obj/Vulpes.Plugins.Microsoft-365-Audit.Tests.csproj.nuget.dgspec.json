@@ -5,12 +5,12 @@
   },
   "projects": {
     "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj": {
-      "version": "1.0.16",
+      "version": "1.0.18",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
         "projectName": "Vulpes.Plugins.Microsoft-365-Audit",
         "projectPath": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
-        "packagesPath": "/Users/lappy/.nuget/packages/",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
         "outputPath": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -531,7 +531,7 @@
         "projectUniqueName": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
         "projectName": "Vulpes.Plugins.Microsoft365Audit.Tests",
         "projectPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
-        "packagesPath": "/Users/lappy/.nuget/packages/",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
         "outputPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -1061,12 +1061,12 @@
       }
     },
     "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj": {
-      "version": "1.0.2",
+      "version": "1.0.19",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
         "projectName": "Vulpes.Host",
         "projectPath": "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
-        "packagesPath": "/Users/lappy/.nuget/packages/",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
         "outputPath": "/Users/lappy/vulpes/src/Vulpes.Host/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -1605,7 +1605,7 @@
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
         "projectName": "Vulpes.Sdk",
         "projectPath": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
-        "packagesPath": "/Users/lappy/.nuget/packages/",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
         "outputPath": "/Users/lappy/vulpes/src/Vulpes.Sdk/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -2101,7 +2101,7 @@
         "projectUniqueName": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
         "projectName": "Vulpes.PluginPacker",
         "projectPath": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
-        "packagesPath": "/Users/lappy/.nuget/packages/",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
         "outputPath": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,

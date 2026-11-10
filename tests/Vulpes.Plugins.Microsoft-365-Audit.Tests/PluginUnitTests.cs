@@ -139,14 +139,15 @@ public sealed class CredentialFactoryTests
     }
 
     [Fact]
-    public void A_graph_token_is_kept_until_five_minutes_before_it_expires()
+    public void A_graph_token_is_kept_until_ten_minutes_before_it_expires()
     {
         var cache = new GraphTokenCache();
         var token = new Azure.Core.AccessToken("abc", DateTimeOffset.UtcNow.AddHours(1));
         cache.Set("tenant", token);
         Assert.True(cache.TryGet("tenant", DateTimeOffset.UtcNow, out var hit));
         Assert.Equal("abc", hit.Token);
-        Assert.False(cache.TryGet("tenant", token.ExpiresOn.AddMinutes(-4), out _));
+        Assert.True(cache.TryGet("tenant", token.ExpiresOn.AddMinutes(-11), out _));
+        Assert.False(cache.TryGet("tenant", token.ExpiresOn.AddMinutes(-9), out _));
         cache.Invalidate("tenant");
         Assert.False(cache.TryGet("tenant", DateTimeOffset.UtcNow, out _));
     }

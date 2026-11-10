@@ -54,6 +54,21 @@ public sealed class TenantServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Syncing_the_same_application_secret_does_not_rewrite_it()
+    {
+        var protector = new RewritingProtector();
+        var service = new TenantService(_db, protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(protector, protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
+        var id = Guid.NewGuid();
+        var directory = Guid.NewGuid().ToString();
+        var application = new EntraApplicationCredential(Guid.NewGuid().ToString(), "secret", "Global", "super-secret-value", null, null);
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null)], application, CancellationToken.None);
+        var first = Assert.Single(_db.Tenants).ProtectedSecret;
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null)], application, CancellationToken.None);
+        Assert.Equal(first, Assert.Single(_db.Tenants).ProtectedSecret);
+        Assert.Equal(1, protector.Protections);
+    }
+
+    [Fact]
     public async Task Collection_settings_reject_an_unknown_source_and_a_bad_lookback()
     {
         var service = Service();
@@ -77,6 +92,25 @@ public sealed class TenantServiceTests : IDisposable
     private sealed class NoHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new RoutedGraphHandler());
+    }
+
+    private sealed class RewritingProtector : ISecretProtector, IDataAtRestProtector
+    {
+        public int Protections { get; private set; }
+
+        public bool IsProtected(string? value) => value is not null && value.StartsWith("vd1.", StringComparison.Ordinal);
+
+        public string Protect(string plaintext)
+        {
+            Protections++;
+            return "vd1." + Protections.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + Convert.ToBase64String(Encoding.UTF8.GetBytes(plaintext));
+        }
+
+        public string Unprotect(string protectedValue)
+        {
+            var body = protectedValue["vd1.".Length..];
+            return Encoding.UTF8.GetString(Convert.FromBase64String(body[(body.IndexOf(':') + 1)..]));
+        }
     }
 }
 

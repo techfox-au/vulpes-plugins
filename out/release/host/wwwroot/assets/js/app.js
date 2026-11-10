@@ -13,7 +13,7 @@ const corePages = {
   '/alerts': () => import('./pages/alerts.js?v=shell348'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell340'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell289'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell347'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell351'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
 };
@@ -309,7 +309,7 @@ async function mountPluginPage(pluginId, page, query) {
     return;
   }
 
-  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell346`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell354`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Page not found (${res.status})`);
   const html = await res.text();
   // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
@@ -317,7 +317,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell346`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell354`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

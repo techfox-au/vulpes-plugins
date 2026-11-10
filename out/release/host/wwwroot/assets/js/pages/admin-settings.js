@@ -168,7 +168,7 @@ async function render(ctx) {
       input('defaultRecipients', 'Default recipients', (smtp.defaultRecipients || []).join(', ')),
       h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'enabled', checked: smtp.enabled === true }), h('span', null, 'SMTP enabled')),
       h('h3', { class: 'mt' }, 'Mailgun'),
-      h('div', { class: 'form-row' }, input('mailgunDomain', 'Sending domain', smtp.mailgunDomain), input('mailgunFrom', 'From address', smtp.mailgunFrom, 'email')),
+      h('div', { class: 'form-row' }, input('mailgunDomain', 'Sending domain', smtp.mailgunDomain), input('mailgunFrom', 'From address', smtp.mailgunFrom, 'email'), input('mailgunFromName', 'From name', smtp.mailgunFromName)),
       h('div', { class: 'form-row' },
         h('div', { class: 'field' }, h('label', null, 'API region'), dropdown(
           [['https://api.mailgun.net', 'United States'], ['https://api.eu.mailgun.net', 'Europe']],

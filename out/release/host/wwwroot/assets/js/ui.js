@@ -633,6 +633,7 @@ export function dropdown(options, { value, ariaLabel, name, disabled = false } =
     close();
     button.focus();
     if (!changed) return;
+    if (typeof root.onSelect === 'function') root.onSelect(current);
     root.dispatchEvent(new Event('input', { bubbles: true }));
     root.dispatchEvent(new Event('change', { bubbles: true }));
   };

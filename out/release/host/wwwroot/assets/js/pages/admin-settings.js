@@ -1,6 +1,6 @@
 import { confirmIdentity } from '../reauth.js?v=shell258';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell84';
-import { appendApplication } from './entra-application.js?v=shell321';
+import { appendApplication } from './entra-application.js?v=shell338';
 
 let root;
 let pageCtx;
@@ -91,7 +91,7 @@ async function render(ctx) {
     const secretField = (key, configured) => {
       const field = h('input', {
         class: 'input',
-        type: 'password',
+        type: configured ? 'password' : 'text',
         value: configured ? mask : '',
         autocomplete: 'off',
         spellcheck: false,

@@ -15,7 +15,7 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
   const mask = '••••••••';
   let revealedSecrets = null;
   const secretField = (key, label, configured) => {
-    const field = h('input', { class: 'input', type: 'password', value: configured ? mask : '', autocomplete: 'off', spellcheck: false, readOnly: configured });
+    const field = h('input', { class: 'input', type: configured ? 'password' : 'text', value: configured ? mask : '', autocomplete: 'off', spellcheck: false, readOnly: configured });
     const button = h('button', { class: 'secret-tool secret-eye', type: 'button', title: 'Show secret', 'aria-label': 'Show secret' }, icon('eye'));
     button.hidden = !configured;
     let revealed = false;

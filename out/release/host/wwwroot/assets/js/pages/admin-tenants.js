@@ -49,7 +49,7 @@ function applicationCard(ctx, app, permissions, tenants) {
   const secretField = (key, label, configured) => {
     const field = h('input', {
       class: 'input',
-      type: 'password',
+      type: configured ? 'password' : 'text',
       value: configured ? mask : '',
       autocomplete: 'off',
       spellcheck: false,

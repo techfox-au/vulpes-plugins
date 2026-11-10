@@ -8,7 +8,7 @@ export function unmount() { root = null; catalog = null; }
 
 const OPERATORS = [
   ['equals', 'equals'], ['notEquals', 'does not equal'], ['contains', 'contains'], ['startsWith', 'starts with'], ['in', 'is one of'], ['notIn', 'is not one of'],
-  ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than'], ['cidr', 'in CIDR range'], ['regex', 'matches regex'],
+  ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than'], ['cidr', 'in CIDR range'], ['notCidr', 'is not in CIDR range'], ['regex', 'matches regex'], ['notRegex', 'does not match regex'],
 ];
 const SEVERITIES = ['informational', 'low', 'medium', 'high', 'critical'];
 

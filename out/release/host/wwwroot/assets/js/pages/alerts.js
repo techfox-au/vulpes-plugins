@@ -85,7 +85,7 @@ async function editRule(ctx, rule) {
   const plugins = catalog.plugins;
   if (plugins.length === 0) { pageNote(root, 'No plugin has registered event sources yet.'); return; }
   const firstSource = (mod) => mod.sources.find((s) => !s.unavailable)?.source;
-  const ignoreMin = 30;
+  const ignoreMin = 60;
   const ignoreMax = 43200;
   const ignoreDefault = 60;
   const r = rule ? structuredClone(rule) : { name: '', description: '', enabled: true, pluginId: plugins[0].id, sources: [firstSource(plugins[0])].filter(Boolean), severity: 'medium', conditions: [], threshold: null, actions: { email: { recipients: [], subject: '', body: '' } }, throttle: null, ignoreOlderThanMinutes: ignoreDefault };
@@ -163,7 +163,7 @@ async function editRule(ctx, rule) {
     };
     if (!payload.name) { panelNote(form, 'A name is required.'); nameI.classList.add('invalid'); return false; }
     if (!Number.isInteger(payload.ignoreOlderThanMinutes) || payload.ignoreOlderThanMinutes < ignoreMin || payload.ignoreOlderThanMinutes > ignoreMax) {
-      panelNote(form, 'Ignore older than must be from 30 to 43200 minutes.');
+      panelNote(form, 'Ignore older than must be from 60 to 43200 minutes.');
       ignoreI.classList.add('invalid');
       return false;
     }

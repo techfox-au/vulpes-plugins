@@ -157,6 +157,7 @@ async function render(ctx) {
       h('div', { class: 'form-row' }, input('graphTenantId', 'Directory id', smtp.graphTenantId), input('graphClientId', 'Application id', smtp.graphClientId)),
       h('div', { class: 'form-row' }, input('graphSender', 'Sender mailbox', smtp.graphSender, 'email'), h('div', { class: 'field' }, h('label', null, 'Client secret'), graphSecret.line)),
       h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'graphEnabled', checked: smtp.graphEnabled === true }), h('span', null, 'Graph enabled')),
+      h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', name: 'graphSaveToSentItems', checked: smtp.graphSaveToSentItems === true }), h('span', null, 'Save a copy in Sent Items')),
       h('h3', { class: 'mt' }, 'SMTP'),
       h('div', { class: 'form-row' }, input('host', 'SMTP host', smtp.host), input('port', 'Port', smtp.port ?? 587, 'number')),
       h('div', { class: 'field' }, h('label', null, 'Security'), dropdown(

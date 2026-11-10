@@ -1,0 +1,9 @@
+.secret-tool.copied,
+.secret-tool.copied:hover,
+.secret-tool.copied:active,
+.secret-tool.copied:focus,
+.secret-tool.copied:focus-visible {
+  color: var(--success);
+  background: transparent;
+  outline-color: var(--success);
+}

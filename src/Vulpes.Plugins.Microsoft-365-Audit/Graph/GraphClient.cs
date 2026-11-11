@@ -522,7 +522,7 @@ public sealed class GraphClient : IDisposable
 
                     attempt++;
                     var delay = RetryAfter(response) ?? Backoff(attempt);
-                    _logger.LogInformation("Graph returned {Status} for {Path}; waiting {Delay}s (attempt {Attempt})", (int)response.StatusCode, uri.AbsolutePath, delay.TotalSeconds, attempt);
+                    _logger.LogDebug("Graph returned {Status} for {Path}; waiting {Delay}s (attempt {Attempt})", (int)response.StatusCode, uri.AbsolutePath, delay.TotalSeconds, attempt);
                     await Task.Delay(delay, _time, cancellationToken);
                     continue;
                 }

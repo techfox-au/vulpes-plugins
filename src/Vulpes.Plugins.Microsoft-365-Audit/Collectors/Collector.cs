@@ -218,7 +218,8 @@ public abstract class WatermarkCollector : ICollector
             context.Checkpoint.Watermark = w;
         }
 
-        var partial = complete ? null : $"partial run: {seen} records read, resuming from {newWatermark:O}";
+        var reason = context.OutOfTime ? "time budget" : "page budget";
+        var partial = complete ? null : $"partial run: {seen} records read ({reason}), resuming from {newWatermark:O}";
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, complete, partial ?? moved);
     }
 

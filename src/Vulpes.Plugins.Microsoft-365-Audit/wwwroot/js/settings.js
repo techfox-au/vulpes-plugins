@@ -58,6 +58,7 @@ export async function mount(el, ctx) {
     card('Intervals (minutes)', h('div', { class: 'form-row' }, ...intervalFields.map((f) => f.field))),
     h('div', { class: 'flex end' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save')));
 
+  el.append(botCard(ctx));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -89,6 +90,66 @@ export async function mount(el, ctx) {
       setBusy(button, false);
     }
   });
+}
+
+function botCard(ctx) {
+  const { h, clear, table, fmt, errorMessage, panelNote, copyToClipboard } = ctx.ui;
+  const card = h('div', { class: 'card' });
+  const list = h('div');
+  const name = h('input', { class: 'input', placeholder: 'Grok Bot', 'aria-label': 'Token name', maxlength: '80' });
+  const revealed = h('div');
+  card.append(
+    h('div', { class: 'card-header' }, h('h2', null, 'Grok Bot')),
+    h('p', { class: 'muted' }, 'A read-only connection for every client’s logs. It cannot change anything. The token is shown once, expires after 90 days, and each use is written to the audit trail. Send it only to the HTTPS dashboard.'),
+    h('p', { class: 'muted' }, 'MCP endpoint: /api/plugins/microsoft-365-audit/mcp'),
+    h('div', { class: 'form-row' }, name, h('button', { class: 'btn', type: 'button', onClick: create }, 'Create token')),
+    revealed,
+    list,
+  );
+  load();
+  return card;
+
+  async function load() {
+    let rows;
+    try { rows = await ctx.api.get(`${ctx.plugin.apiBase}/bot/tokens`); }
+    catch (err) { clear(list).append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
+    clear(list).append(table({
+      columns: [
+        { title: 'Name', render: (r) => r.name },
+        { title: 'Prefix', render: (r) => r.prefix },
+        { title: 'Created', render: (r) => fmt.date(r.createdAt) },
+        { title: 'Expires', render: (r) => r.expiresAt ? fmt.date(r.expiresAt) : '—' },
+        { title: 'Last used', render: (r) => r.lastUsedAt ? fmt.relative(r.lastUsedAt) : 'never' },
+        { title: '', render: (r) => r.revoked ? h('span', { class: 'badge' }, 'Revoked') : h('button', { class: 'btn ghost', type: 'button', onClick: () => revoke(r) }, 'Revoke') },
+      ],
+      rows,
+      emptyText: 'No tokens yet.',
+    }));
+  }
+
+  async function create() {
+    clear(revealed);
+    try {
+      const created = await ctx.api.post(`${ctx.plugin.apiBase}/bot/tokens`, { name: name.value.trim() || 'Grok Bot' });
+      revealed.append(h('div', { class: 'alert success' },
+        h('div', null, 'Copy this token now. It is not shown again.'),
+        h('code', null, created.token),
+        h('button', { class: 'btn ghost', type: 'button', onClick: () => copyToClipboard(created.token, card) }, 'Copy')));
+      name.value = '';
+      await load();
+    } catch (err) {
+      panelNote(card, errorMessage(err));
+    }
+  }
+
+  async function revoke(row) {
+    try {
+      await ctx.api.delete(`${ctx.plugin.apiBase}/bot/tokens/${row.id}`);
+      await load();
+    } catch (err) {
+      panelNote(card, errorMessage(err));
+    }
+  }
 }
 
 export function unmount() { }

@@ -40,6 +40,11 @@ public static class AuditEndpoints
         group.MapPut("/tenants/{id:guid}/collection", UpdateCollectionAsync).RequireAuthorization(Policies.Admin);
         group.MapGet("/settings", GetSettings).RequireAuthorization(Policies.Admin);
         group.MapPut("/settings", PutSettings).RequireAuthorization(Policies.Admin);
+        group.MapGet("/statistics", StatisticsAsync).RequireAuthorization(Policies.Admin);
+        group.MapGet("/bot/tokens", ListBotTokensAsync).RequireAuthorization(Policies.Admin);
+        group.MapPost("/bot/tokens", CreateBotTokenAsync).RequireAuthorization(Policies.Admin);
+        group.MapDelete("/bot/tokens/{id:guid}", RevokeBotTokenAsync).RequireAuthorization(Policies.Admin);
+        group.MapPost("/mcp", AuditMcp.HandleAsync).AllowAnonymous();
     }
 
     private static IResult GetSettings(AuditSettingsStore store) => Results.Json(store.Current(), Json);
@@ -145,7 +150,7 @@ public static class AuditEndpoints
     }
 
     /// <summary>KPIs for the overview page, computed with a handful of aggregations.</summary>
-    private static async Task<IResult> OverviewAsync(int? hours, string? tenantId, IEventSearch search, CancellationToken ct)
+    private static async Task<IResult> OverviewAsync(int? hours, string? tenantId, IEventSearch search, AuditDbContext db, CancellationToken ct)
     {
         var window = Math.Clamp(hours ?? 24, 1, 24 * 30);
         var to = DateTimeOffset.UtcNow;
@@ -173,6 +178,7 @@ public static class AuditEndpoints
         var alerts = await Agg(Sources.SecurityAlerts, [], new AggregationSpec("bySeverity", AggregationKind.Terms, "event.severity", 5), new AggregationSpec("byStatus", AggregationKind.Terms, "labels.status", 5));
         var risk = await Agg(Sources.Risk, [new FieldFilter("labels.riskType", FilterOperator.Equals, ["detection"])], new AggregationSpec("byLevel", AggregationKind.Terms, "labels.riskLevel", 5), new AggregationSpec("byType", AggregationKind.Terms, "event.action", 10));
         var system = await Agg(Sources.System, [], new AggregationSpec("byCollector", AggregationKind.Terms, "labels.collector", 10));
+        var secureScores = await SecureScoresAsync(search, db, tenantId, ct);
 
         return Results.Json(new
         {
@@ -187,7 +193,166 @@ public static class AuditEndpoints
             alerts = new { total = alerts?.Total ?? 0, bySeverity = alerts?.Aggregations.GetValueOrDefault("bySeverity"), byStatus = alerts?.Aggregations.GetValueOrDefault("byStatus") },
             risk = new { total = risk?.Total ?? 0, byLevel = risk?.Aggregations.GetValueOrDefault("byLevel"), byType = risk?.Aggregations.GetValueOrDefault("byType") },
             collectorFailures = new { total = system?.Total ?? 0, byCollector = system?.Aggregations.GetValueOrDefault("byCollector") },
+            secureScores,
         }, Json);
+    }
+
+    private static async Task<IReadOnlyList<object>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, CancellationToken ct)
+    {
+        var clients = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
+        if (!string.IsNullOrEmpty(tenantId))
+        {
+            clients = clients.Where(t => t.TenantId == tenantId).ToList();
+        }
+
+        var latest = new Dictionary<string, (string? Current, string? Max, string? Percent, string? At)>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var found = await search.SearchAsync(new EventQuery
+            {
+                PluginId = Normalizers.PluginId,
+                Source = Sources.SecureScore,
+                Size = 200,
+                Sort = SortDirection.Descending,
+                Filters = string.IsNullOrEmpty(tenantId) ? [] : [new FieldFilter("vc.tenantId", FilterOperator.Equals, [tenantId])],
+            }, ct);
+            foreach (var hit in found.Hits)
+            {
+                var id = Text(hit.Document, "vc", "tenantId");
+                if (string.IsNullOrEmpty(id) || latest.ContainsKey(id))
+                {
+                    continue;
+                }
+
+                latest[id] = (Text(hit.Document, "labels", "currentScore"), Text(hit.Document, "labels", "maxScore"), Text(hit.Document, "labels", "percent"), Stamp(hit.Document));
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
+        {
+        }
+
+        return clients.Select(t =>
+        {
+            latest.TryGetValue(t.TenantId, out var score);
+            return (object)new { name = t.DisplayName, tenantId = t.TenantId, current = score.Current, max = score.Max, percent = score.Percent, at = score.At };
+        }).ToList();
+    }
+
+    private static string? Stamp(JsonElement doc) =>
+        doc.ValueKind == JsonValueKind.Object && doc.TryGetProperty("@timestamp", out var stamp) && stamp.ValueKind == JsonValueKind.String ? stamp.GetString() : null;
+
+    private static string? Text(JsonElement doc, string parent, string name)
+    {
+        if (doc.ValueKind != JsonValueKind.Object || !doc.TryGetProperty(parent, out var node) || node.ValueKind != JsonValueKind.Object || !node.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
+    }
+
+    private static async Task<IResult> StatisticsAsync(IEventSearch search, IAlertFieldCatalog catalog, CancellationToken ct)
+    {
+        if (!search.IsAvailable)
+        {
+            return Results.Json(new { available = false, documents = 0L, storedBytes = 0L, diskBytes = 0L, sources = Array.Empty<object>(), tenants = Array.Empty<object>() }, Json);
+        }
+
+        EventStoreUsage usage;
+        try
+        {
+            usage = await search.StoreUsageAsync(Normalizers.PluginId, ct);
+        }
+        catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
+        {
+            return Error(503, "search_unavailable", "Elasticsearch is not reachable.");
+        }
+
+        var titles = catalog.GetSources(Normalizers.PluginId).ToDictionary(s => s.Source, s => s.Title, StringComparer.Ordinal);
+        var tenants = new Dictionary<string, (long Docs, double Bytes)>(StringComparer.OrdinalIgnoreCase);
+        var spans = new Dictionary<string, (DateTimeOffset? Oldest, DateTimeOffset? Newest)>(StringComparer.Ordinal);
+        foreach (var source in usage.Sources.Where(s => s.Documents > 0))
+        {
+            try
+            {
+                var oldest = await search.SearchAsync(new EventQuery { PluginId = Normalizers.PluginId, Source = source.Source, Size = 1, Sort = SortDirection.Ascending }, ct);
+                var newest = await search.SearchAsync(new EventQuery { PluginId = Normalizers.PluginId, Source = source.Source, Size = 1, Sort = SortDirection.Descending }, ct);
+                spans[source.Source] = (Timestamp(oldest), Timestamp(newest));
+
+                var agg = await search.AggregateAsync(new EventAggregationQuery
+                {
+                    PluginId = Normalizers.PluginId,
+                    Source = source.Source,
+                    Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantName", 50)],
+                }, ct);
+                if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
+                {
+                    continue;
+                }
+
+                long counted = 0;
+                foreach (var bucket in buckets)
+                {
+                    counted += bucket.Count;
+                    var name = string.IsNullOrWhiteSpace(bucket.Key) || bucket.Key == "(none)" ? "Unknown" : bucket.Key;
+                    var share = (double)bucket.Count / source.Documents * source.StoredBytes;
+                    tenants.TryGetValue(name, out var current);
+                    tenants[name] = (current.Docs + bucket.Count, current.Bytes + share);
+                }
+
+                var remainder = source.Documents - counted;
+                if (remainder > 0)
+                {
+                    var share = (double)remainder / source.Documents * source.StoredBytes;
+                    tenants.TryGetValue("Other clients", out var current);
+                    tenants["Other clients"] = (current.Docs + remainder, current.Bytes + share);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
+            {
+            }
+        }
+
+        return Results.Json(new
+        {
+            available = usage.Available,
+            documents = usage.Documents,
+            storedBytes = usage.StoredBytes,
+            diskBytes = usage.DiskBytes,
+            sources = usage.Sources.Select(s =>
+            {
+                spans.TryGetValue(s.Source, out var span);
+                return new
+                {
+                    s.Source,
+                    title = titles.GetValueOrDefault(s.Source) ?? s.Source,
+                    documents = s.Documents,
+                    storedBytes = s.StoredBytes,
+                    diskBytes = s.DiskBytes,
+                    oldest = span.Oldest,
+                    newest = span.Newest,
+                };
+            }).OrderByDescending(s => s.storedBytes).ThenBy(s => s.title, StringComparer.OrdinalIgnoreCase),
+            tenants = tenants
+                .Select(t => new { name = t.Key, documents = t.Value.Docs, estimatedBytes = (long)Math.Round(t.Value.Bytes) })
+                .OrderByDescending(t => t.estimatedBytes)
+                .ThenBy(t => t.name, StringComparer.OrdinalIgnoreCase),
+        }, Json);
+    }
+
+    private static DateTimeOffset? Timestamp(EventSearchResult result)
+    {
+        if (result.Hits.Count == 0 || result.Hits[0].Document.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!result.Hits[0].Document.TryGetProperty("@timestamp", out var stamp) || stamp.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return DateTimeOffset.TryParse(stamp.GetString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed) ? parsed : null;
     }
 
     private static async Task<IResult> TenantNamesAsync(AuditDbContext db, CancellationToken ct) =>
@@ -246,7 +411,52 @@ public static class AuditEndpoints
         return error is null ? Results.NoContent() : Error(400, "validation", error);
     }
 
-    private static List<FieldFilter> MapFilters(IReadOnlyList<FilterDto>? filters)
+    private static async Task<IResult> ListBotTokensAsync(AuditDbContext db, CancellationToken ct) =>
+        Results.Json(await db.BotTokens.AsNoTracking().OrderByDescending(t => t.CreatedAt).Select(t => new { t.Id, t.Name, t.Prefix, t.CreatedAt, t.ExpiresAt, t.LastUsedAt, revoked = t.RevokedAt != null }).ToListAsync(ct), Json);
+
+    private static async Task<IResult> CreateBotTokenAsync(BotTokenName body, AuditDbContext db, IHostAuditLog audit, TimeProvider time, CancellationToken ct)
+    {
+        var name = body.Name?.Trim() ?? string.Empty;
+        if (name.Length is < 1 or > 80)
+        {
+            return Error(400, "validation", "Name must be 1 to 80 characters.");
+        }
+
+        if (await db.BotTokens.CountAsync(t => t.RevokedAt == null, ct) >= 10)
+        {
+            return Error(400, "validation", "Revoke an existing token before creating another. Ten active tokens is the limit.");
+        }
+
+        var secret = AuditMcp.CreateSecret();
+        var created = time.GetUtcNow();
+        var row = new BotToken { Id = Guid.NewGuid(), Name = name, Prefix = secret[..12], TokenHash = AuditMcp.Hash(secret), CreatedAt = created, ExpiresAt = created + AuditMcp.TokenLifetime };
+        db.BotTokens.Add(row);
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("audit.bot_token.created", row.Id.ToString(), name, cancellationToken: ct);
+        return Results.Json(new { row.Id, row.Name, row.Prefix, token = secret }, Json);
+    }
+
+    private static async Task<IResult> RevokeBotTokenAsync(Guid id, AuditDbContext db, IHostAuditLog audit, TimeProvider time, CancellationToken ct)
+    {
+        var row = await db.BotTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
+        if (row is null)
+        {
+            return Error(404, "not_found", "Token not found.");
+        }
+
+        if (row.RevokedAt is null)
+        {
+            row.RevokedAt = time.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+            await audit.RecordAsync("audit.bot_token.revoked", row.Id.ToString(), row.Name, cancellationToken: ct);
+        }
+
+        return Results.NoContent();
+    }
+
+    private sealed record BotTokenName(string? Name);
+
+    internal static List<FieldFilter> MapFilters(IReadOnlyList<FilterDto>? filters)
     {
         var result = new List<FieldFilter>();
         foreach (var f in filters ?? [])

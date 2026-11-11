@@ -93,3 +93,5 @@
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/Debug/net10.0/ref/Vulpes.Plugins.Microsoft-365-Audit.dll
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/wwwroot/js/clients.js
 /Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/wwwroot/pages/clients.html
+/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/wwwroot/js/statistics.js
+/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/bin/Debug/net10.0/wwwroot/pages/statistics.html

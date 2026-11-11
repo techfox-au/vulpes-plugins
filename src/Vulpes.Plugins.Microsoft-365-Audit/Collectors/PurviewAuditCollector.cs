@@ -76,7 +76,7 @@ public sealed class PurviewAuditCollector : ICollector
             [PendingEndKey] = end.ToString("O", CultureInfo.InvariantCulture),
             [PendingCreatedKey] = now.ToString("O", CultureInfo.InvariantCulture),
         });
-        context.Logger.LogInformation("Purview audit query {QueryId} created for {Tenant}: {Start} .. {End}", id, context.Tenant.DisplayName, start, end);
+        context.Logger.LogDebug("Purview audit query {QueryId} created for {Tenant}: {Start} .. {End}", id, context.Tenant.DisplayName, start, end);
         return CollectorResult.Waiting($"query {id} submitted for {start:O}..{end:O}", id);
     }
 

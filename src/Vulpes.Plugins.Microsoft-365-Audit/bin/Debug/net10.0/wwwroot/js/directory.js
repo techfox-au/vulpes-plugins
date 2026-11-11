@@ -1,5 +1,5 @@
 // Entra directory changes and provisioning (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell331';
+import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell332';
 
 let explorer;
 export async function mount(el, ctx) {

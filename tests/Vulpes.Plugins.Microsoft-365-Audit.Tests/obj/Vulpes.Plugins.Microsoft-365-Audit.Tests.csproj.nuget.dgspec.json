@@ -5,12 +5,12 @@
   },
   "projects": {
     "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj": {
-      "version": "1.0.18",
+      "version": "1.0.23",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
         "projectName": "Vulpes.Plugins.Microsoft-365-Audit",
         "projectPath": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
         "outputPath": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -21,6 +21,7 @@
           "net10.0"
         ],
         "sources": {
+          "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -84,7 +85,7 @@
             "Microsoft.IdentityModel.JsonWebTokens": "8.23.0",
             "Microsoft.NET.Test.Sdk": "18.11.0",
             "SharpCompress": "0.50.7",
-            "System.Formats.Cbor": "10.0.14",
+            "System.Formats.Cbor": "10.0.15",
             "xunit": "2.9.3",
             "xunit.runner.visualstudio": "4.0.1"
           },
@@ -107,7 +108,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.AspNetCore": "(,10.0.32767]",
             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",
@@ -531,7 +532,7 @@
         "projectUniqueName": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
         "projectName": "Vulpes.Plugins.Microsoft365Audit.Tests",
         "projectPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
         "outputPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -542,6 +543,7 @@
           "net10.0"
         ],
         "sources": {
+          "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -619,7 +621,7 @@
             "Microsoft.IdentityModel.JsonWebTokens": "8.23.0",
             "Microsoft.NET.Test.Sdk": "18.11.0",
             "SharpCompress": "0.50.7",
-            "System.Formats.Cbor": "10.0.14",
+            "System.Formats.Cbor": "10.0.15",
             "xunit": "2.9.3",
             "xunit.runner.visualstudio": "4.0.1"
           },
@@ -642,7 +644,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.AspNetCore": "(,10.0.32767]",
             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",
@@ -1061,12 +1063,12 @@
       }
     },
     "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj": {
-      "version": "1.0.19",
+      "version": "1.0.26",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
         "projectName": "Vulpes.Host",
         "projectPath": "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
         "outputPath": "/Users/lappy/vulpes/src/Vulpes.Host/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -1077,6 +1079,7 @@
           "net10.0"
         ],
         "sources": {
+          "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -1158,7 +1161,7 @@
             "Microsoft.Extensions.TimeProvider.Testing": "10.11.0",
             "Microsoft.NET.Test.Sdk": "18.11.0",
             "SharpCompress": "0.50.7",
-            "System.Formats.Cbor": "10.0.14",
+            "System.Formats.Cbor": "10.0.15",
             "xunit": "2.9.3",
             "xunit.runner.visualstudio": "4.0.1"
           },
@@ -1181,7 +1184,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.AspNetCore": "(,10.0.32767]",
             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",
@@ -1605,7 +1608,7 @@
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
         "projectName": "Vulpes.Sdk",
         "projectPath": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
         "outputPath": "/Users/lappy/vulpes/src/Vulpes.Sdk/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -1616,6 +1619,7 @@
           "net10.0"
         ],
         "sources": {
+          "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -1654,7 +1658,7 @@
             "Microsoft.Extensions.TimeProvider.Testing": "10.11.0",
             "Microsoft.NET.Test.Sdk": "18.11.0",
             "SharpCompress": "0.50.7",
-            "System.Formats.Cbor": "10.0.14",
+            "System.Formats.Cbor": "10.0.15",
             "xunit": "2.9.3",
             "xunit.runner.visualstudio": "4.0.1"
           },
@@ -1677,7 +1681,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.AspNetCore": "(,10.0.32767]",
             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",
@@ -2101,7 +2105,7 @@
         "projectUniqueName": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
         "projectName": "Vulpes.PluginPacker",
         "projectPath": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/a08c00b81369fabeca1c61f903c5f3f2/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
         "outputPath": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -2112,6 +2116,7 @@
           "net10.0"
         ],
         "sources": {
+          "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -2161,7 +2166,7 @@
             "Microsoft.Extensions.TimeProvider.Testing": "10.11.0",
             "Microsoft.NET.Test.Sdk": "18.11.0",
             "SharpCompress": "0.50.7",
-            "System.Formats.Cbor": "10.0.14",
+            "System.Formats.Cbor": "10.0.15",
             "xunit": "2.9.3",
             "xunit.runner.visualstudio": "4.0.1"
           },
@@ -2181,7 +2186,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.403/libexec/sdk/10.0.403/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.CSharp": "(,4.7.32767]",
             "Microsoft.VisualBasic": "(,10.4.32767]",

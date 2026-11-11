@@ -132,11 +132,35 @@ public sealed class RunLogEntry
     public string? Error { get; set; }
 }
 
+/// <summary>A read-only bearer token for a machine client such as Grok Bot. Only the hash is stored.</summary>
+public sealed class BotToken
+{
+    public Guid Id { get; set; }
+
+    [MaxLength(80)]
+    public required string Name { get; set; }
+
+    [MaxLength(64)]
+    public required string TokenHash { get; set; }
+
+    [MaxLength(16)]
+    public required string Prefix { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    public DateTimeOffset? LastUsedAt { get; set; }
+
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
 public sealed class AuditDbContext(DbContextOptions<AuditDbContext> options) : DbContext(options)
 {
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<Checkpoint> Checkpoints => Set<Checkpoint>();
     public DbSet<RunLogEntry> RunLog => Set<RunLogEntry>();
+    public DbSet<BotToken> BotTokens => Set<BotToken>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -160,6 +184,11 @@ public sealed class AuditDbContext(DbContextOptions<AuditDbContext> options) : D
             e.HasKey(r => r.Id);
             e.HasIndex(r => r.StartedAt);
             e.HasOne<Tenant>().WithMany().HasForeignKey(r => r.TenantId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<BotToken>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.HasIndex(t => t.TokenHash).IsUnique();
         });
     }
 }

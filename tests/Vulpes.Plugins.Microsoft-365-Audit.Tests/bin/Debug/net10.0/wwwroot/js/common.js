@@ -179,7 +179,29 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     const eventCount = fmt.number(state.total);
     const eventLabel = state.hits.length < state.total ? `${eventCount} events · showing ${state.hits.length}` : `${eventCount} events`;
     pager.append(h('span', null, state.loading ? 'Loading…' : eventLabel));
-    if (state.hits.length < state.total && state.searchAfter) pager.append(h('button', { class: 'btn sm', onClick: () => load(true) }, 'Load more'));
+    if (state.hits.length < state.total && state.searchAfter) pager.append(h('button', { type: 'button', class: 'btn sm', onClick: () => load(true) }, 'Load more'));
+  }
+
+  function scrollPlace() {
+    const ancestors = [];
+    let node = el;
+    while (node) {
+      ancestors.push({ node, top: node.scrollTop, left: node.scrollLeft });
+      node = node.parentElement;
+    }
+    const wrap = results.querySelector('.table-wrap');
+    return { ancestors, tableTop: wrap ? wrap.scrollTop : 0, tableLeft: wrap ? wrap.scrollLeft : 0 };
+  }
+
+  function restoreScroll(place) {
+    for (const item of place.ancestors) {
+      item.node.scrollTop = item.top;
+      item.node.scrollLeft = item.left;
+    }
+    const wrap = results.querySelector('.table-wrap');
+    if (!wrap) return;
+    wrap.scrollTop = place.tableTop;
+    wrap.scrollLeft = place.tableLeft;
   }
 
   function openDetail(row) {
@@ -191,6 +213,8 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   }
 
   async function load(more) {
+    const place = more ? scrollPlace() : null;
+    if (more && document.activeElement && el.contains(document.activeElement)) document.activeElement.blur();
     state.loading = true;
     if (!more) { state.hits = []; state.total = 0; state.searchAfter = null; renderTable(); }
     try {
@@ -205,6 +229,10 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     }
     state.loading = false;
     renderTable();
+    if (place) {
+      restoreScroll(place);
+      requestAnimationFrame(() => restoreScroll(place));
+    }
   }
 
   function reload() { renderChips(); load(false); }

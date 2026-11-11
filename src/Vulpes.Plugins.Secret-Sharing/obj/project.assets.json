@@ -386,7 +386,7 @@
           "Microsoft.IdentityModel.JsonWebTokens": "8.23.0",
           "Microsoft.NET.Test.Sdk": "18.11.0",
           "SharpCompress": "0.50.7",
-          "System.Formats.Cbor": "10.0.14",
+          "System.Formats.Cbor": "10.0.15",
           "xunit": "2.9.3",
           "xunit.runner.visualstudio": "4.0.1"
         },

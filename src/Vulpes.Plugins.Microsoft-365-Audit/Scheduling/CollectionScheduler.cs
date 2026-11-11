@@ -21,6 +21,7 @@ public sealed class CollectionScheduler(
     private readonly Dictionary<string, ICollector> _collectors = collectors.ToDictionary(c => c.Source, StringComparer.Ordinal);
     private readonly SemaphoreSlim _concurrency = new(Math.Clamp(options.MaxConcurrentJobs, 1, 32));
     private readonly HashSet<(Guid, string)> _running = [];
+    private readonly Dictionary<Guid, (DateTimeOffset Until, string Reason)> _credentialBlock = [];
     private readonly Lock _lock = new();
 
     public IReadOnlyDictionary<string, ICollector> Collectors => _collectors;
@@ -146,6 +147,28 @@ public sealed class CollectionScheduler(
 
             checkpoint.LastStatus = RunStatuses.Running;
             checkpoint.LastRunAt = startedAt;
+            string? blocked = null;
+            lock (_lock)
+            {
+                if (_credentialBlock.TryGetValue(tenant.Id, out var block) && block.Until > startedAt)
+                {
+                    blocked = block.Reason;
+                }
+            }
+
+            if (blocked is not null)
+            {
+                checkpoint.LastStatus = RunStatuses.Failed;
+                checkpoint.LastError = blocked;
+                checkpoint.NextRunAt = startedAt.Add(TimeSpan.FromMinutes(15));
+                entry.Status = RunStatuses.Failed;
+                entry.Error = blocked;
+                entry.FinishedAt = timeProvider.GetUtcNow();
+                db.RunLog.Add(entry);
+                await db.SaveChangesAsync(cancellationToken);
+                return entry;
+            }
+
             await db.SaveChangesAsync(cancellationToken);
 
             var settings = TenantSettings.Parse(tenant.SettingsJson).For(source);
@@ -212,13 +235,26 @@ public sealed class CollectionScheduler(
             {
                 var finished = timeProvider.GetUtcNow();
                 checkpoint.LastStatus = RunStatuses.Failed;
-                checkpoint.LastError = ex.Message.Length <= 2000 ? ex.Message : ex.Message[..2000];
+                var credential = CredentialFailure(ex);
+                checkpoint.LastError = (credential ?? ex.Message).Length <= 2000 ? (credential ?? ex.Message) : (credential ?? ex.Message)[..2000];
                 checkpoint.ConsecutiveFailures++;
                 var backoff = TimeSpan.FromMinutes(Math.Min(Math.Pow(2, checkpoint.ConsecutiveFailures), interval.TotalMinutes * 4));
                 checkpoint.NextRunAt = finished + (backoff > interval ? backoff : interval);
                 entry.Status = RunStatuses.Failed;
                 entry.Error = checkpoint.LastError;
-                logger.LogError(ex, "{Source} for {Tenant} failed (failure #{Failures}); next attempt at {Next}", source, tenant.DisplayName, checkpoint.ConsecutiveFailures, checkpoint.NextRunAt);
+                if (credential is not null)
+                {
+                    lock (_lock)
+                    {
+                        _credentialBlock[tenant.Id] = (checkpoint.NextRunAt.Value, credential);
+                    }
+
+                    logger.LogWarning("{Source} for {Tenant} cannot sign in: {Reason} Next attempt at {Next}", source, tenant.DisplayName, credential, checkpoint.NextRunAt);
+                }
+                else
+                {
+                    logger.LogError(ex, "{Source} for {Tenant} failed (failure #{Failures}); next attempt at {Next}", source, tenant.DisplayName, checkpoint.ConsecutiveFailures, checkpoint.NextRunAt);
+                }
                 try
                 {
                     await pipeline.PublishAsync([Normalizers.CollectorFailure(tenant.TenantId, tenant.DiscoveredName ?? tenant.DisplayName, source, ex.Message, finished)], cancellationToken);
@@ -250,6 +286,35 @@ public sealed class CollectionScheduler(
 
             _concurrency.Release();
         }
+    }
+
+    /// <summary>Entra rejected the app credential. The same failure hits every collector, so the stack is not useful.</summary>
+    private static string? CredentialFailure(Exception exception)
+    {
+        string? reason = null;
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var text = current.Message;
+            if (current is not Azure.Identity.AuthenticationFailedException
+                && text.Contains("AADSTS", StringComparison.Ordinal) == false
+                && text.Contains("invalid_client", StringComparison.Ordinal) == false)
+            {
+                continue;
+            }
+
+            const string original = "Original exception:";
+            var start = text.IndexOf(original, StringComparison.Ordinal);
+            var detail = start >= 0 ? text[(start + original.Length)..].Trim() : text.Trim();
+            var trace = detail.IndexOf("Trace ID:", StringComparison.Ordinal);
+            if (trace > 0)
+            {
+                detail = detail[..trace].Trim();
+            }
+
+            reason = detail.Length <= 500 ? detail : detail[..500];
+        }
+
+        return reason;
     }
 
     private static TimeSpan Jitter(TimeSpan interval)

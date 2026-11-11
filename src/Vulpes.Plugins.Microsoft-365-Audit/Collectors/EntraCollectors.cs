@@ -42,7 +42,8 @@ public sealed class SignInsCollector : ICollector
         };
         var second = await new NonInteractive().CollectAsync(shadowContext, cancellationToken);
         context.SaveState(new Dictionary<string, object?> { ["nonInteractiveWatermark"] = shadow.Watermark?.ToString("O", CultureInfo.InvariantCulture) });
-        return new CollectorResult(result.Published + second.Published, result.Duplicates + second.Duplicates, result.Failed + second.Failed, result.Alerts + second.Alerts, second.Complete, second.Note ?? result.Note);
+        var note = second.Note is not null && !second.Complete ? "non-interactive " + second.Note : second.Note ?? result.Note;
+        return new CollectorResult(result.Published + second.Published, result.Duplicates + second.Duplicates, result.Failed + second.Failed, result.Alerts + second.Alerts, second.Complete, note);
     }
 
     private sealed class Interactive : WatermarkCollector

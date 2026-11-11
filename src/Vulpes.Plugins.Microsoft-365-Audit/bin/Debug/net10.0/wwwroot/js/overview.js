@@ -1,4 +1,4 @@
-import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell331';
+import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell332';
 
 let root;
 export async function mount(el, ctx) {
@@ -12,16 +12,18 @@ export async function mount(el, ctx) {
 
   async function render() {
     const kpis = el.querySelector('[data-role="kpis"]');
+    const scores = el.querySelector('[data-role="scores"]');
     const charts = el.querySelector('[data-role="charts"]');
     const lists = el.querySelector('[data-role="lists"]');
     clear(kpis).append(h('div', { class: 'card skeleton' }), h('div', { class: 'card skeleton' }), h('div', { class: 'card skeleton' }), h('div', { class: 'card skeleton' }));
-    clear(charts); clear(lists);
+    clear(scores); clear(charts); clear(lists);
     const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30, '90d': 24 * 90 }[state.range] || 24;
     let o;
     try { o = await ctx.api.get(`${ctx.plugin.apiBase}/overview${ctx.api.qs({ hours, tenantId: state.tenant })}`); }
-    catch (err) { clear(kpis); noteUnderKpis(h, kpis, ctx.ui.errorMessage(err)); return; }
+    catch (err) { clear(kpis); clear(scores); noteUnderKpis(h, kpis, ctx.ui.errorMessage(err)); return; }
 
     clear(kpis);
+    clear(scores).append(secureScoreCard(ctx, o.secureScores || []));
     // Elasticsearch comes from the environment (README). Tenants are added on the Tenants page (docs/entra-setup.md).
     noteUnderKpis(h, kpis, o.available ? '' : 'Search backend unavailable.', 'warning');
     kpis.append(
@@ -69,6 +71,23 @@ function noteUnderKpis(h, kpis, message, kind = 'danger') {
 }
 
 function card(h, title, ...body) { return h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h3', null, title)), ...body); }
+
+function secureScoreCard(ctx, rows) {
+  const { h, table, fmt } = ctx.ui;
+  const body = rows.length
+    ? table({
+        columns: [
+          { title: 'Client', render: (r) => r.name },
+          { title: 'Score', class: 'num', render: (r) => r.current ? `${r.current} / ${r.max || '—'}` : '—' },
+          { title: 'Percent', class: 'num', render: (r) => r.percent ? `${r.percent}%` : '—' },
+          { title: 'Collected', render: (r) => r.at ? fmt.date(r.at) : 'Not collected' },
+        ],
+        rows,
+        emptyText: 'No clients.',
+      })
+    : h('div', { class: 'muted small' }, 'No clients are configured.');
+  return card(h, 'Secure Score', body);
+}
 
 function fmtBucket(key, hours) {
   const d = new Date(key);

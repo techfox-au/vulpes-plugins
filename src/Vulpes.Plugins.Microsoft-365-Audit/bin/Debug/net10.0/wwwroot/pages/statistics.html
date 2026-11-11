@@ -1,0 +1,18 @@
+<div class="page-header">
+  <div>
+    <h1>Statistics</h1>
+    <p>Storage used by the audit logs in Elasticsearch. Stored is the primary copy. On disk includes replicas.</p>
+  </div>
+  <div class="btn-group" data-role="actions"></div>
+</div>
+<div data-role="note"></div>
+<div data-role="kpis" class="grid cols-4"></div>
+<div class="card">
+  <div class="card-header"><h2>By log</h2></div>
+  <div data-role="sources"></div>
+</div>
+<div class="card">
+  <div class="card-header"><h2>By client</h2></div>
+  <p class="muted">Estimated storage splits each log's stored size across clients in proportion to their document counts. Clients outside a log's 50 largest are grouped as Other clients.</p>
+  <div data-role="tenants"></div>
+</div>

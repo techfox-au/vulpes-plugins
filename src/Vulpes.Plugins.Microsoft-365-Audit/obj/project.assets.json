@@ -897,7 +897,7 @@
     "/Users/lappy/.nuget/packages/": {}
   },
   "project": {
-    "version": "1.0.20",
+    "version": "1.0.24",
     "restore": {
       "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
       "projectName": "Vulpes.Plugins.Microsoft-365-Audit",
@@ -970,7 +970,7 @@
           "Microsoft.IdentityModel.JsonWebTokens": "8.23.0",
           "Microsoft.NET.Test.Sdk": "18.11.0",
           "SharpCompress": "0.50.7",
-          "System.Formats.Cbor": "10.0.14",
+          "System.Formats.Cbor": "10.0.15",
           "xunit": "2.9.3",
           "xunit.runner.visualstudio": "4.0.1"
         },

@@ -55,15 +55,15 @@ export async function mount(el, ctx) {
         number('purviewOverlapMinutes', 'Overlap (minutes)', current.purviewOverlapMinutes),
         number('purviewMaxWindowHours', 'Window (hours)', current.purviewMaxWindowHours)),
       h('div', { class: 'field' }, h('label', null, 'Record types'), h('textarea', { class: 'textarea', name: 'purviewRecordTypes', spellcheck: false, autocorrect: 'off', autocapitalize: 'off' }, (current.purviewRecordTypes || []).join(', ')))),
-    card('Intervals (minutes)', h('div', { class: 'form-row' }, ...intervalFields.map((f) => f.field))),
-    h('div', { class: 'flex end' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save')));
+    card('Intervals (minutes)', h('div', { class: 'form-row' }, ...intervalFields.map((f) => f.field))));
 
-  el.append(botCard(ctx));
+  const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
+  form.append(botCard(ctx), h('div', { class: 'flex end' }, save));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const data = new FormData(form);
     const read = (name) => Number(data.get(name));
-    const button = form.querySelector('button[type="submit"]');
+    const button = save;
     setBusy(button, true, 'Saving…');
     try {
       await ctx.api.put(`${ctx.plugin.apiBase}/settings`, {
@@ -95,7 +95,7 @@ export async function mount(el, ctx) {
 function botCard(ctx) {
   const { h, clear, table, fmt, errorMessage, panelNote, copyToClipboard } = ctx.ui;
   const card = h('div', { class: 'card' });
-  const list = h('div');
+  const list = h('div', { class: 'mt' });
   const name = h('input', { class: 'input', placeholder: 'Grok Bot', 'aria-label': 'Token name', maxlength: '80' });
   const revealed = h('div');
   card.append(

@@ -205,8 +205,7 @@ body:has(.shell) { overflow: hidden; }
 .avatar-edit:hover .avatar-plus { opacity: 1; }
 .avatar-edit.plus-hidden .avatar-plus { opacity: 0; }
 .user-chip .truncate { min-width: 0; }
-.content { padding: 22px 22px 0; display: flex; flex-direction: column; gap: 18px; width: 100%; flex: 1 1 auto; min-height: 0; overflow: auto; }
-.content::after { content: ""; flex: 0 0 32px; height: 32px; }
+.content { padding: 22px 22px 14px; display: flex; flex-direction: column; gap: 18px; width: 100%; flex: 1 1 auto; min-height: 0; overflow: auto; }
 .content > .stack { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .content > .stack > .table-wrap,
 .content > .stack > .console-log,

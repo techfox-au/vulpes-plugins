@@ -197,7 +197,9 @@ public static class AuditEndpoints
         }, Json);
     }
 
-    private static async Task<IReadOnlyList<object>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, CancellationToken ct)
+    private sealed record SecureScoreRow(string Name, string TenantId, string? Current, string? Max, string? Percent, string? At);
+
+    private static async Task<IReadOnlyList<SecureScoreRow>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, CancellationToken ct)
     {
         var clients = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
         if (!string.IsNullOrEmpty(tenantId))
@@ -205,7 +207,7 @@ public static class AuditEndpoints
             clients = clients.Where(t => t.TenantId == tenantId).ToList();
         }
 
-        var latest = new Dictionary<string, (string? Current, string? Max, string? Percent, string? At)>(StringComparer.OrdinalIgnoreCase);
+        var latest = new Dictionary<string, SecureScoreRow>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var found = await search.SearchAsync(new EventQuery
@@ -224,18 +226,22 @@ public static class AuditEndpoints
                     continue;
                 }
 
-                latest[id] = (Text(hit.Document, "labels", "currentScore"), Text(hit.Document, "labels", "maxScore"), Text(hit.Document, "labels", "percent"), Stamp(hit.Document));
+                latest[id] = new SecureScoreRow(
+                    Text(hit.Document, "vc", "tenantName") ?? id,
+                    id,
+                    Text(hit.Document, "labels", "currentScore") ?? Text(hit.Document, "data", "currentScore"),
+                    Text(hit.Document, "labels", "maxScore") ?? Text(hit.Document, "data", "maxScore"),
+                    Text(hit.Document, "labels", "percent"),
+                    Stamp(hit.Document));
             }
         }
         catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
         {
         }
 
-        return clients.Select(t =>
-        {
-            latest.TryGetValue(t.TenantId, out var score);
-            return (object)new { name = t.DisplayName, tenantId = t.TenantId, current = score.Current, max = score.Max, percent = score.Percent, at = score.At };
-        }).ToList();
+        return clients.Select(t => latest.TryGetValue(t.TenantId, out var score)
+            ? score with { Name = t.DisplayName }
+            : new SecureScoreRow(t.DisplayName, t.TenantId, null, null, null, null)).ToList();
     }
 
     private static string? Stamp(JsonElement doc) =>

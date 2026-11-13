@@ -11,6 +11,26 @@ export function rangeToDates(range) {
   return { from: from.toISOString(), to: to.toISOString(), hours: unit === 'h' ? n : n * 24 };
 }
 
+function localDateInput(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function customDayBounds(start, end) {
+  const fromParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start || '');
+  const toParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end || '');
+  if (!fromParts || !toParts) return { error: 'Choose a start date and an end date.' };
+  const from = new Date(Number(fromParts[1]), Number(fromParts[2]) - 1, Number(fromParts[3]), 0, 0, 0, 0);
+  const to = new Date(Number(toParts[1]), Number(toParts[2]) - 1, Number(toParts[3]), 23, 59, 59, 999);
+  if (from.getFullYear() !== Number(fromParts[1]) || from.getMonth() !== Number(fromParts[2]) - 1 || to.getFullYear() !== Number(toParts[1]) || to.getMonth() !== Number(toParts[2]) - 1) {
+    return { error: 'Choose a real start date and end date.' };
+  }
+  if (to < from) return { error: 'The end date is before the start date.' };
+  if ((to - from) / 86400000 > 730) return { error: 'A custom range can cover at most 730 days.' };
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 export function get(doc, path) {
   return path.split('.').reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), doc);
 }
@@ -97,14 +117,36 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   const pager = h('div', { class: 'pager' });
   el.append(toolbar, chips, results, pager);
 
-  const rangeSel = ctx.ui.dropdown(ranges.map(([value, label]) => ({ value, label })), { value: state.range, ariaLabel: 'Time range' });
-  rangeSel.addEventListener('change', () => { state.range = rangeSel.value; reload(); });
+  const rangeOptions = [...ranges.map(([value, label]) => ({ value, label })), { value: 'custom', label: 'Custom' }];
+  const rangeSel = ctx.ui.dropdown(rangeOptions, { value: state.range, ariaLabel: 'Time range' });
+  const customFrom = h('input', { class: 'input sm', type: 'date', 'aria-label': 'Start date', hidden: true });
+  const customTo = h('input', { class: 'input sm', type: 'date', 'aria-label': 'End date', hidden: true });
+  const applyCustom = () => {
+    state.range = 'custom';
+    customFrom.hidden = false;
+    customTo.hidden = false;
+    if (!customFrom.value || !customTo.value) {
+      const today = localDateInput(new Date());
+      customFrom.value = customFrom.value || today;
+      customTo.value = customTo.value || today;
+    }
+    reload();
+  };
+  rangeSel.addEventListener('change', () => {
+    if (rangeSel.value === 'custom') { applyCustom(); return; }
+    customFrom.hidden = true;
+    customTo.hidden = true;
+    state.range = rangeSel.value;
+    reload();
+  });
+  customFrom.addEventListener('change', () => { if (state.range === 'custom') reload(); });
+  customTo.addEventListener('change', () => { if (state.range === 'custom') reload(); });
   const textInput = h('input', { class: 'input', placeholder: 'Search text (AND, OR, "phrase", prefix*)', 'aria-label': 'Search text' });
   textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.text = textInput.value.trim(); reload(); } });
   const searchBtn = h('button', { class: 'btn', onClick: () => { state.text = textInput.value.trim(); reload(); } }, 'Search');
   const addFilterBtn = h('button', { class: 'btn', onClick: () => addFilterDialog() }, 'Add filter');
   const refreshBtn = h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: () => reload() }, ctx.ui.icon('refresh'));
-  toolbar.append(rangeSel, textInput, searchBtn, addFilterBtn, refreshBtn);
+  toolbar.append(rangeSel, customFrom, customTo, textInput, searchBtn, addFilterBtn, refreshBtn);
   for (const spec of selects) {
     state.picks[spec.key] = spec.value || '';
     const sel = ctx.ui.dropdown(
@@ -126,16 +168,47 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     if (state.filters.length > 0) chips.append(h('button', { class: 'btn ghost sm', onClick: () => { state.filters = []; reload(); } }, 'Clear all'));
   }
 
+  function fieldType(path) {
+    return String(state.fields.find((f) => f.path === path)?.type || 'Keyword').toLowerCase();
+  }
+
+  function operatorsFor(type) {
+    const text = [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['prefix', 'starts with'], ['contains', 'contains'], ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than']];
+    if (type === 'date') return [['equals', 'equals'], ['gt', 'after'], ['lt', 'before'], ['exists', 'exists'], ['notExists', 'does not exist']];
+    if (type === 'ip') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['exists', 'exists'], ['notExists', 'does not exist']];
+    if (type === 'number' || type === 'wholenumber') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['gt', 'greater than'], ['lt', 'less than'], ['exists', 'exists'], ['notExists', 'does not exist']];
+    if (type === 'boolean') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['exists', 'exists'], ['notExists', 'does not exist']];
+    return text;
+  }
+
+  function valueFits(type, value) {
+    if (type === 'date') return !Number.isNaN(Date.parse(value));
+    if (type === 'number' || type === 'wholenumber') return value !== '' && !Number.isNaN(Number(value));
+    if (type === 'boolean') return value === 'true' || value === 'false';
+    if (type === 'ip') return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(':');
+    return true;
+  }
+
   async function addFilterDialog(preset) {
     const fieldSel = ctx.ui.dropdown(state.fields.map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: preset?.field || '', ariaLabel: 'Field' });
-    const opSel = ctx.ui.dropdown([['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['prefix', 'starts with'], ['contains', 'contains'], ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than']], { value: 'equals', ariaLabel: 'Operator' });
+    const opSel = ctx.ui.dropdown(operatorsFor(fieldType(fieldSel.value)), { value: 'equals', ariaLabel: 'Operator' });
     const valueInput = h('input', { class: 'input', value: preset?.value || '', placeholder: 'value' });
+    const syncOperator = () => {
+      const type = fieldType(fieldSel.value);
+      opSel.setOptions(operatorsFor(type));
+      valueInput.placeholder = type === 'date' ? '2026-11-13T00:00:00Z' : type === 'boolean' ? 'true or false' : type === 'ip' ? '203.0.113.10' : 'value';
+    };
+    fieldSel.addEventListener('change', syncOperator);
+    syncOperator();
     const box = h('div', { class: 'col' }, h('div', { class: 'field' }, h('label', null, 'Field'), fieldSel), h('div', { class: 'field' }, h('label', null, 'Operator'), opSel), h('div', { class: 'field' }, h('label', null, 'Value'), valueInput));
     valueInput.addEventListener('input', () => valueInput.classList.remove('invalid'));
     await ctx.ui.modal.show({ title: 'Add filter', content: box, actions: [{ label: 'Cancel', value: false }, { label: 'Add', kind: 'primary', onClick: () => {
       const op = opSel.value;
+      const type = fieldType(fieldSel.value);
       const values = op.endsWith('xists') ? [] : (op === 'in' || op === 'notIn' ? valueInput.value.split(',').map((s) => s.trim()).filter(Boolean) : [valueInput.value.trim()]);
+      if (!operatorsFor(type).some(([value]) => value === op)) { ctx.ui.panelNote(box, 'That operator is not valid for this field.'); return false; }
       if (!op.endsWith('xists') && values.length === 0) { ctx.ui.panelNote(box, 'A value is required.'); valueInput.classList.add('invalid'); return false; }
+      if (values.some((value) => !valueFits(type, value))) { ctx.ui.panelNote(box, `Enter a valid ${type === 'wholenumber' ? 'number' : type}.`); valueInput.classList.add('invalid'); return false; }
       state.filters.push({ field: fieldSel.value, operator: op, values });
       reload();
       return true;
@@ -148,8 +221,13 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     reload();
   }
 
+  function currentBounds() {
+    if (state.range !== 'custom') return rangeToDates(state.range);
+    return customDayBounds(customFrom.value, customTo.value);
+  }
+
   function buildBody(more) {
-    const { from, to } = rangeToDates(state.range);
+    const { from, to } = currentBounds();
     const filters = [...state.filters];
     if (state.tenant) filters.push({ field: 'vc.tenantId', operator: 'equals', values: [state.tenant] });
     for (const spec of selects) {
@@ -213,6 +291,13 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   }
 
   async function load(more) {
+    const bounds = currentBounds();
+    if (bounds?.error) {
+      state.loading = false;
+      clear(results).append(h('div', { class: 'alert danger' }, bounds.error));
+      clear(pager);
+      return;
+    }
     const place = more ? scrollPlace() : null;
     if (more && document.activeElement && el.contains(document.activeElement)) document.activeElement.blur();
     state.loading = true;

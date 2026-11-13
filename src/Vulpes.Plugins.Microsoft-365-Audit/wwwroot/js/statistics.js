@@ -1,4 +1,4 @@
-import { kpiCard } from './common.js?v=shell332';
+import { kpiCard } from './common.js?v=shell365';
 
 let timer;
 

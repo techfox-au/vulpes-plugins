@@ -22,8 +22,10 @@ public sealed class CollectionScheduler(
     private readonly Dictionary<string, ICollector> _collectors = collectors.ToDictionary(c => c.Source, StringComparer.Ordinal);
     private readonly SemaphoreSlim _concurrency = new(Math.Clamp(options.MaxConcurrentJobs, 1, 32));
     private readonly HashSet<(Guid, string)> _running = [];
+    private readonly HashSet<Guid> _purging = [];
     private readonly Dictionary<Guid, (DateTimeOffset Until, string Reason)> _credentialBlock = [];
     private readonly Lock _lock = new();
+    private bool _secureScoreOnStartup;
 
     public IReadOnlyDictionary<string, ICollector> Collectors => _collectors;
 
@@ -32,6 +34,37 @@ public sealed class CollectionScheduler(
         lock (_lock)
         {
             return _running.Contains((tenantId, source));
+        }
+    }
+
+    /// <summary>Stops this client from starting collectors until <see cref="EndPurge"/> . Fails when one is already running.</summary>
+    public bool TryBeginPurge(Guid tenantId)
+    {
+        lock (_lock)
+        {
+            if (_purging.Contains(tenantId))
+            {
+                return false;
+            }
+
+            foreach (var (runningTenant, _) in _running)
+            {
+                if (runningTenant == tenantId)
+                {
+                    return false;
+                }
+            }
+
+            _purging.Add(tenantId);
+            return true;
+        }
+    }
+
+    public void EndPurge(Guid tenantId)
+    {
+        lock (_lock)
+        {
+            _purging.Remove(tenantId);
         }
     }
 
@@ -66,12 +99,33 @@ public sealed class CollectionScheduler(
 
     private async Task DispatchDueJobsAsync(CancellationToken stoppingToken)
     {
+        foreach (var (tenant, source) in await DueJobsAsync(stoppingToken))
+        {
+            lock (_lock)
+            {
+                if (_purging.Contains(tenant.Id) || !_running.Add((tenant.Id, source)))
+                {
+                    continue;
+                }
+            }
+
+            _ = Task.Run(() => RunJobAsync(tenant, source, stoppingToken), stoppingToken);
+        }
+    }
+
+    /// <summary>
+    /// Jobs whose interval has elapsed. Once per process, the first time Elasticsearch is ready, Secure Score is included even when its next run is still in the future.
+    /// </summary>
+    internal async Task<IReadOnlyList<(Tenant Tenant, string Source)>> DueJobsAsync(CancellationToken stoppingToken)
+    {
         if (!store.IsReady)
         {
             logger.LogDebug("Elasticsearch is not ready; collection is waiting");
-            return;
+            return [];
         }
 
+        var secureScoreNow = !_secureScoreOnStartup;
+        _secureScoreOnStartup = true;
         var now = timeProvider.GetUtcNow();
         List<(Tenant Tenant, string Source)> due;
         await using (var scope = scopeFactory.CreateAsyncScope())
@@ -96,6 +150,14 @@ public sealed class CollectionScheduler(
             due = [];
             foreach (var tenant in tenants)
             {
+                lock (_lock)
+                {
+                    if (_purging.Contains(tenant.Id))
+                    {
+                        continue;
+                    }
+                }
+
                 var settings = TenantSettings.Parse(tenant.SettingsJson);
                 foreach (var source in _collectors.Keys)
                 {
@@ -104,7 +166,8 @@ public sealed class CollectionScheduler(
                         continue;
                     }
 
-                    if (lookup.TryGetValue((tenant.Id, source), out var checkpoint) && checkpoint.NextRunAt is { } next && next > now)
+                    var intervalPending = lookup.TryGetValue((tenant.Id, source), out var checkpoint) && checkpoint.NextRunAt is { } next && next > now;
+                    if (intervalPending && !(secureScoreNow && source == Sources.SecureScore))
                     {
                         continue;
                     }
@@ -114,18 +177,12 @@ public sealed class CollectionScheduler(
             }
         }
 
-        foreach (var (tenant, source) in due)
+        if (secureScoreNow && due.Any(job => job.Source == Sources.SecureScore))
         {
-            lock (_lock)
-            {
-                if (!_running.Add((tenant.Id, source)))
-                {
-                    continue;
-                }
-            }
-
-            _ = Task.Run(() => RunJobAsync(tenant, source, stoppingToken), stoppingToken);
+            logger.LogInformation("Elasticsearch is ready; Secure Score will be collected once at startup");
         }
+
+        return due;
     }
 
     /// <summary>Runs one collector for one tenant now (used by the scheduler and by "run now").</summary>
@@ -140,6 +197,11 @@ public sealed class CollectionScheduler(
         {
             lock (_lock)
             {
+                if (_purging.Contains(tenant.Id))
+                {
+                    return entry;
+                }
+
                 _running.Add((tenant.Id, source));
             }
 

@@ -49,7 +49,11 @@ async function editClient(ctx, existing) {
   const form = h('div', { class: 'col' },
     h('div', { class: 'field' }, h('label', null, 'Display name'), name),
     h('div', { class: 'field' }, h('label', null, 'Directory id'), directory),
-    h('label', { class: 'checkbox' }, enabled, h('span', null, 'Collection enabled')));
+    h('label', { class: 'checkbox' }, enabled, h('span', null, 'Collection enabled')),
+    existing ? h('div', { class: 'stack mt' },
+      h('h3', null, 'Danger'),
+      h('p', { class: 'small muted' }, 'Deletes this client’s stored audit logs and collects them again from the lookback window.'),
+      h('button', { class: 'btn danger', type: 'button', onClick: () => purgeClient(ctx, existing) }, 'Purge & Reset')) : null);
   const saved = await modal.show({ title: existing ? 'Edit client' : 'Add client', content: form, actions: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Add', kind: 'primary', value: true, onClick: async () => {
     try {
       const body = { displayName: name.value.trim(), directoryId: directory.value.trim(), enabled: enabled.checked };
@@ -61,6 +65,16 @@ async function editClient(ctx, existing) {
     } catch (err) { panelNote(form, errorMessage(err)); return false; }
   } }] });
   if (saved) { await render(ctx); ctx.ui.pageNote(root, existing ? 'Client saved.' : 'Client added.', 'success'); }
+}
+
+async function purgeClient(ctx, tenant) {
+  if (!(await ctx.ui.modal.confirm('Purge & Reset', `Delete every stored audit log for ${tenant.displayName} and collect them again from the lookback window?`, { danger: true, confirmLabel: 'Purge & Reset' }))) return;
+  try {
+    const result = await ctx.api.post(`${ctx.plugin.apiBase}/tenants/${tenant.id}/purge`);
+    ctx.ui.pageNote(root, `Purged ${ctx.ui.fmt.number(result.deleted || 0)} stored events. Collection will start again.`, 'success');
+  } catch (err) {
+    ctx.ui.pageNote(root, ctx.ui.errorMessage(err));
+  }
 }
 
 async function removeClient(ctx, tenant) {

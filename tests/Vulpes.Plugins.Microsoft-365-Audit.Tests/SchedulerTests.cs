@@ -6,6 +6,7 @@ using Microsoft.Extensions.Time.Testing;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
+using Vulpes.Plugins.Microsoft365Audit.Normalization;
 using Vulpes.Plugins.Microsoft365Audit.Scheduling;
 using Vulpes.Plugins.Microsoft365Audit.Tenants;
 using Vulpes.Sdk;
@@ -139,6 +140,59 @@ public sealed class SchedulerTests : IDisposable
     }
 
     [Fact]
+    public async Task Secure_score_runs_once_after_startup_when_elasticsearch_is_ready()
+    {
+        var store = new ToggleStore();
+        var scheduler = new CollectionScheduler(
+            _provider.GetRequiredService<IServiceScopeFactory>(),
+            [new ScriptedCollector { Source = Sources.SecureScore }, new ScriptedCollector { Source = Sources.SignIns }],
+            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
+            _pipeline,
+            store,
+            new AuditOptions(),
+            _time,
+            NullLogger<CollectionScheduler>.Instance);
+
+        using (var scope = _provider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            var later = _time.GetUtcNow().AddHours(20);
+            db.Checkpoints.AddRange(
+                new Checkpoint { TenantId = TestContext.Tenant.Id, Source = Sources.SecureScore, NextRunAt = later },
+                new Checkpoint { TenantId = TestContext.Tenant.Id, Source = Sources.SignIns, NextRunAt = later });
+            db.SaveChanges();
+        }
+
+        var startup = await scheduler.DueJobsAsync(CancellationToken.None);
+        var started = Assert.Single(startup);
+        Assert.Equal(Sources.SecureScore, started.Source);
+        Assert.Empty(await scheduler.DueJobsAsync(CancellationToken.None));
+
+        store.IsReady = false;
+        Assert.Empty(await scheduler.DueJobsAsync(CancellationToken.None));
+        store.IsReady = true;
+        Assert.Empty(await scheduler.DueJobsAsync(CancellationToken.None));
+
+        var waiting = new ToggleStore { IsReady = false };
+        var afterWait = new CollectionScheduler(
+            _provider.GetRequiredService<IServiceScopeFactory>(),
+            [new ScriptedCollector { Source = Sources.SecureScore }, new ScriptedCollector { Source = Sources.SignIns }],
+            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
+            _pipeline,
+            waiting,
+            new AuditOptions(),
+            _time,
+            NullLogger<CollectionScheduler>.Instance);
+        Assert.Empty(await afterWait.DueJobsAsync(CancellationToken.None));
+        waiting.IsReady = true;
+        var caughtUp = await afterWait.DueJobsAsync(CancellationToken.None);
+        var job = Assert.Single(caughtUp);
+        Assert.Equal(Sources.SecureScore, job.Source);
+
+        Assert.Empty(await afterWait.DueJobsAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Collector_context_exposes_window_start_deadline_and_state_helpers()
     {
         var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "x" };
@@ -169,7 +223,7 @@ public sealed class SchedulerTests : IDisposable
     private sealed class ScriptedCollector : ICollector
     {
         public Func<CollectorContext, CollectorResult> Behaviour { get; set; } = _ => CollectorResult.Empty();
-        public string Source => "scripted";
+        public string Source { get; init; } = "scripted";
         public string Title => "Scripted";
         public IReadOnlyList<string> RequiredPermissions => [];
         public string ProbePath => string.Empty;
@@ -184,5 +238,10 @@ public sealed class SchedulerTests : IDisposable
     private sealed class ReadyStore : IEventStoreReadiness
     {
         public bool IsReady => true;
+    }
+
+    private sealed class ToggleStore : IEventStoreReadiness
+    {
+        public bool IsReady { get; set; } = true;
     }
 }

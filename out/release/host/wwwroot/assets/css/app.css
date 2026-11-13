@@ -344,6 +344,7 @@ textarea.chalkboard { min-height: 120px; font-family: var(--mono); line-height: 
 .toolbar.nowrap .input { min-width: 0; }
 .toolbar .select { width: auto; min-width: 140px; }
 .toolbar .input { width: auto; flex: 1 1 220px; min-width: 180px; }
+.toolbar input[type="date"] { flex: 0 0 auto; width: auto; min-width: 0; }
 
 .dropdown { display: inline-flex; width: 100%; min-width: 0; vertical-align: bottom; }
 .dropdown-button {

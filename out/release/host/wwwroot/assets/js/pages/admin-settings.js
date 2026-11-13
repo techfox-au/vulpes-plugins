@@ -260,12 +260,17 @@ async function render(ctx) {
       ctx.api.get('/api/admin/settings/sqlite'),
     ]);
     const hours = Array.from({ length: 24 }, (_, hour) => [String(hour), String(hour).padStart(2, '0') + ':00 UTC']);
+    const levels = ['Trace', 'Debug', 'Information', 'Warning', 'Error', 'Critical', 'None'].map((name) => [name, name]);
     const form = h('form', { class: 'col', novalidate: true });
     const input = (name, label, value, type = 'text', help) => h('div', { class: 'field' },
       h('label', null, label),
       h('input', { class: 'input', name, type, value: value ?? '', autocomplete: 'off', placeholder: type === 'password' ? 'Leave blank to keep' : '' }),
       help ? h('div', { class: 'help' }, help) : null);
     form.append(
+      h('div', { class: 'field' },
+        h('label', null, 'Console log level'),
+        dropdown(levels, { value: runtime.consoleLogLevel || 'Information', name: 'consoleLogLevel', ariaLabel: 'Console log level' }),
+        h('div', { class: 'help' }, 'Lines after the Vulpes banner. The banner always prints.')),
       h('div', { class: 'field' }, h('label', null, 'SQLite daily maintenance schedule'), dropdown(hours, { value: String(sqlite.hourUtc ?? 3), name: 'hourUtc', ariaLabel: 'SQLite daily maintenance schedule' })),
       input('publicOrigin', 'Public origin', runtime.publicOrigin, 'url'),
       input('knownProxies', 'Known proxies', runtime.knownProxies),

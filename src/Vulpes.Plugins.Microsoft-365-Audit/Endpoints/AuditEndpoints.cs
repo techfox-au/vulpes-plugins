@@ -46,6 +46,14 @@ public static class AuditEndpoints
         group.MapPost("/bot/tokens", CreateBotTokenAsync).RequireAuthorization(Policies.Admin);
         group.MapDelete("/bot/tokens/{id:guid}", RevokeBotTokenAsync).RequireAuthorization(Policies.Admin);
         group.MapPost("/mcp", AuditMcp.HandleAsync).AllowAnonymous();
+        // Streamable HTTP clients open a GET to listen for server messages. This server does not stream that way. 405 tells them to use POST, instead of the group auth turning the probe into a 401.
+        group.MapGet("/mcp", McpListen).AllowAnonymous();
+    }
+
+    private static IResult McpListen(HttpResponse response)
+    {
+        response.Headers.Append("Allow", "POST");
+        return Results.StatusCode(StatusCodes.Status405MethodNotAllowed);
     }
 
     private static IResult GetSettings(AuditSettingsStore store) => Results.Json(store.Current(), Json);
@@ -365,12 +373,31 @@ public static class AuditEndpoints
     private static async Task<IResult> TenantNamesAsync(AuditDbContext db, CancellationToken ct) =>
         Results.Json(await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).Select(t => new { t.Id, t.TenantId, t.DisplayName, t.DiscoveredName, t.Enabled }).ToListAsync(ct), Json);
 
-    private static async Task<IResult> StatusAsync(AuditDbContext db, CollectionScheduler scheduler, CancellationToken ct)
+    private static async Task<IResult> StatusAsync(AuditDbContext db, CollectionScheduler scheduler, IEventSearch search, CancellationToken ct)
     {
         var tenants = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
         var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
         var runs = RunQueries.LatestPerQuery(await db.RunLog.AsNoTracking().OrderByDescending(r => r.Id).Take(500).ToListAsync(ct)).Take(100).ToList();
         var tenantNames = tenants.ToDictionary(t => t.Id, t => t.DisplayName);
+        var stored = new Dictionary<(string Source, string TenantId), long>();
+        if (search.IsAvailable)
+        {
+            foreach (var collector in scheduler.Collectors.Values)
+            {
+                try
+                {
+                    foreach (var (tenantId, count) in await search.CountByTenantAsync(Normalizers.PluginId, collector.Source, ct))
+                    {
+                        stored[(collector.Source, tenantId)] = count;
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
+                {
+                    // Leave this source unset. The page shows a dash instead of the collector's lifetime total.
+                }
+            }
+        }
+
         return Results.Json(new
         {
             sources = scheduler.Collectors.Values.Select(c => new { c.Source, c.Title }).OrderBy(c => c.Source, StringComparer.Ordinal).ToList(),
@@ -379,7 +406,20 @@ public static class AuditEndpoints
                 t.Id,
                 t.DisplayName,
                 t.Enabled,
-                checkpoints = checkpoints.Where(c => c.TenantId == t.Id).Select(c => new { c.Source, c.Watermark, c.LastRunAt, c.LastSuccessAt, lastStatus = scheduler.IsRunning(t.Id, c.Source) ? RunStatuses.Running : c.LastStatus, c.LastError, c.LastCount, c.TotalCount, c.NextRunAt, c.ConsecutiveFailures }).ToList(),
+                checkpoints = checkpoints.Where(c => c.TenantId == t.Id).Select(c => new
+                {
+                    c.Source,
+                    c.Watermark,
+                    c.LastRunAt,
+                    c.LastSuccessAt,
+                    lastStatus = scheduler.IsRunning(t.Id, c.Source) ? RunStatuses.Running : c.LastStatus,
+                    c.LastError,
+                    c.LastCount,
+                    c.TotalCount,
+                    storedCount = stored.TryGetValue((c.Source, t.TenantId), out var count) ? count : (long?)null,
+                    c.NextRunAt,
+                    c.ConsecutiveFailures,
+                }).ToList(),
             }).ToList(),
             recentRuns = runs.Select(r => new { r.Id, r.TenantId, tenant = tenantNames.GetValueOrDefault(r.TenantId), r.Source, r.StartedAt, r.FinishedAt, r.Status, r.Count, r.Duplicates, r.Failed, r.Alerts, r.Error }).ToList(),
         }, Json);
@@ -412,37 +452,44 @@ public static class AuditEndpoints
             return Error(404, "not_found", "Client not found.");
         }
 
-        if (scheduler.Collectors.Keys.Any(source => scheduler.IsRunning(id, source)))
-        {
-            return Error(409, "busy", "A collector is still running for this client. Try again when it finishes.");
-        }
-
         if (!readiness.IsReady)
         {
             return Error(503, "search_unavailable", "Elasticsearch is not ready.");
         }
 
-        long? deleted;
-        try
+        if (!scheduler.TryBeginPurge(id))
         {
-            deleted = await store.DeleteTenantAsync(Normalizers.PluginId, tenant.TenantId, ct);
-        }
-        catch (ArgumentException ex)
-        {
-            return Error(400, "validation", ex.Message);
-        }
-        catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
-        {
-            return Error(503, "search_unavailable", "Elasticsearch could not delete the stored logs.");
+            return Error(409, "busy", "A collector is still running for this client. Try again when it finishes.");
         }
 
-        var checkpoints = await db.Checkpoints.Where(c => c.TenantId == id).ToListAsync(ct);
-        db.Checkpoints.RemoveRange(checkpoints);
-        var runs = await db.RunLog.Where(r => r.TenantId == id).ToListAsync(ct);
-        db.RunLog.RemoveRange(runs);
-        await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("audit.tenant.purged", tenant.DisplayName, $"directory={tenant.TenantId} deleted={deleted?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "0"}", cancellationToken: ct);
-        return Results.Json(new { deleted = deleted ?? 0 }, Json);
+        try
+        {
+            long? deleted;
+            try
+            {
+                deleted = await store.DeleteTenantAsync(Normalizers.PluginId, tenant.TenantId, ct);
+            }
+            catch (ArgumentException ex)
+            {
+                return Error(400, "validation", ex.Message);
+            }
+            catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
+            {
+                return Error(503, "search_unavailable", "Elasticsearch could not delete the stored logs.");
+            }
+
+            var checkpoints = await db.Checkpoints.Where(c => c.TenantId == id).ToListAsync(ct);
+            db.Checkpoints.RemoveRange(checkpoints);
+            var runs = await db.RunLog.Where(r => r.TenantId == id).ToListAsync(ct);
+            db.RunLog.RemoveRange(runs);
+            await db.SaveChangesAsync(ct);
+            await audit.RecordAsync("audit.tenant.purged", tenant.DisplayName, $"directory={tenant.TenantId} deleted={deleted?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "0"}", cancellationToken: ct);
+            return Results.Json(new { deleted = deleted ?? 0 }, Json);
+        }
+        finally
+        {
+            scheduler.EndPurge(id);
+        }
     }
 
     private static async Task<IResult> UpdateCollectionAsync(Guid id, CollectionRequest request, TenantService tenants, ITenantDirectory directory, IEntraApplication application, CancellationToken ct)

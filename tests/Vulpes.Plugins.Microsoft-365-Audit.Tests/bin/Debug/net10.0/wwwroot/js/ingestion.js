@@ -1,4 +1,4 @@
-import { statusBadge } from './common.js?v=shell332';
+import { statusBadge } from './common.js?v=shell365';
 
 let timer;
 // Collector health per tenant and source. Refreshes every 15 seconds (docs/audit-plugin.md).
@@ -29,7 +29,8 @@ async function render(el, ctx) {
       ...sources.map((s) => ({ title: s.title.replace(/^(Entra ID|Microsoft 365|Microsoft) /, ''), render: (r) => {
         const c = r.byName[s.source];
         if (!c) return h('span', { class: 'cell-muted' }, '-');
-        return h('div', { title: c.lastError || '' }, statusBadge(ctx.ui, c.lastStatus), h('div', { class: 'small muted nowrap' }, c.lastSuccessAt ? fmt.relative(c.lastSuccessAt) : 'never'), h('div', { class: 'small faint nowrap' }, `${fmt.number(c.totalCount)} ev`));
+        const stored = c.storedCount == null ? '—' : `${fmt.number(c.storedCount)} ev`;
+        return h('div', { title: c.lastError || '' }, statusBadge(ctx.ui, c.lastStatus), h('div', { class: 'small muted nowrap' }, c.lastSuccessAt ? fmt.relative(c.lastSuccessAt) : 'never'), h('div', { class: 'small faint nowrap' }, stored));
       } })),
     ],
     rows,

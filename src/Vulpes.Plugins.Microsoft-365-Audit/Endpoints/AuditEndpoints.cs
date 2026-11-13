@@ -44,7 +44,7 @@ public static class AuditEndpoints
         group.MapGet("/statistics", StatisticsAsync).RequireAuthorization(Policies.Admin);
         group.MapGet("/bot/tokens", ListBotTokensAsync).RequireAuthorization(Policies.Admin);
         group.MapPost("/bot/tokens", CreateBotTokenAsync).RequireAuthorization(Policies.Admin);
-        group.MapDelete("/bot/tokens/{id:guid}", RevokeBotTokenAsync).RequireAuthorization(Policies.Admin);
+        group.MapDelete("/bot/tokens/{id:guid}", DeleteBotTokenAsync).RequireAuthorization(Policies.Admin);
         group.MapPost("/mcp", AuditMcp.HandleAsync).AllowAnonymous();
         // Streamable HTTP clients open a GET to listen for server messages. This server does not stream that way. 405 tells them to use POST, instead of the group auth turning the probe into a 401.
         group.MapGet("/mcp", McpListen).AllowAnonymous();
@@ -545,7 +545,7 @@ public static class AuditEndpoints
         return Results.Json(new { row.Id, row.Name, row.Prefix, token = secret }, Json);
     }
 
-    private static async Task<IResult> RevokeBotTokenAsync(Guid id, AuditDbContext db, IHostAuditLog audit, TimeProvider time, CancellationToken ct)
+    internal static async Task<IResult> DeleteBotTokenAsync(Guid id, AuditDbContext db, IHostAuditLog audit, CancellationToken ct)
     {
         var row = await db.BotTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (row is null)
@@ -553,13 +553,11 @@ public static class AuditEndpoints
             return Error(404, "not_found", "Token not found.");
         }
 
-        if (row.RevokedAt is null)
-        {
-            row.RevokedAt = time.GetUtcNow();
-            await db.SaveChangesAsync(ct);
-            await audit.RecordAsync("audit.bot_token.revoked", row.Id.ToString(), row.Name, cancellationToken: ct);
-        }
-
+        var name = row.Name;
+        var prefix = row.Prefix;
+        db.BotTokens.Remove(row);
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("audit.bot_token.deleted", id.ToString(), name + " " + prefix, cancellationToken: ct);
         return Results.NoContent();
     }
 

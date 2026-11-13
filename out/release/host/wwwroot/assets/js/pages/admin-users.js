@@ -1,4 +1,4 @@
-import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell84';
+import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell370';
 
 let root;
 export async function mount(el, ctx) { root = el; ctx.setTitle(['Users']); await render(ctx); }

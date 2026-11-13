@@ -93,7 +93,7 @@ export async function mount(el, ctx) {
 }
 
 function botCard(ctx) {
-  const { h, clear, table, fmt, errorMessage, panelNote, copyToClipboard } = ctx.ui;
+  const { h, clear, table, fmt, errorMessage, panelNote, copyToClipboard, modal } = ctx.ui;
   const card = h('div', { class: 'card' });
   const list = h('div', { class: 'mt' });
   const name = h('input', { class: 'input', placeholder: 'Grok Bot', 'aria-label': 'Token name', maxlength: '80' });
@@ -120,7 +120,7 @@ function botCard(ctx) {
         { title: 'Created', render: (r) => fmt.date(r.createdAt) },
         { title: 'Expires', render: (r) => r.expiresAt ? fmt.date(r.expiresAt) : '—' },
         { title: 'Last used', render: (r) => r.lastUsedAt ? fmt.relative(r.lastUsedAt) : 'never' },
-        { title: '', render: (r) => r.revoked ? h('span', { class: 'badge' }, 'Revoked') : h('button', { class: 'btn ghost', type: 'button', onClick: () => revoke(r) }, 'Revoke') },
+        { title: '', render: (r) => h('div', { class: 'flex' }, r.revoked ? h('span', { class: 'badge' }, 'Revoked') : null, h('button', { class: 'btn sm danger', type: 'button', onClick: () => remove(r) }, 'Delete')) },
       ],
       rows,
       emptyText: 'No tokens yet.',
@@ -142,7 +142,8 @@ function botCard(ctx) {
     }
   }
 
-  async function revoke(row) {
+  async function remove(row) {
+    if (!(await modal.confirm('Delete token', `Delete ${row.name}? Its token stops working.`, { danger: true, confirmLabel: 'Delete' }))) return;
     try {
       await ctx.api.delete(`${ctx.plugin.apiBase}/bot/tokens/${row.id}`);
       await load();

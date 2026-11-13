@@ -1,5 +1,5 @@
 import { confirmIdentity } from '../reauth.js?v=shell258';
-import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell161';
+import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell370';
 
 let root;
 const plugin = '/api/plugins/microsoft-365-audit';

@@ -170,25 +170,41 @@ export function empty(text, iconName = 'info') {
 
 export function spinner() { return h('span', { class: 'spinner', role: 'status', 'aria-label': 'Loading' }); }
 
-export function panelNote(panel, message, kind = 'danger') {
-  if (!panel) return;
-  panel.querySelector(':scope > .panel-note')?.remove();
+const savedNoteTimers = new WeakMap();
+
+function clearSavedNote(box) {
+  const timer = savedNoteTimers.get(box);
+  if (timer) clearTimeout(timer);
+}
+
+// A save confirmation is enough for five seconds. A restart instruction stays, because it is the next action.
+function dismissSavedNote(box, message, kind) {
+  if (kind !== 'success' || typeof message !== 'string' || !/\bsaved\b/i.test(message) || /restart/i.test(message)) return;
+  savedNoteTimers.set(box, setTimeout(() => { if (box.isConnected) box.remove(); }, 5000));
+}
+
+function placeNote(parent, selector, className, headerSelector, message, kind) {
+  if (!parent) return;
+  const existing = parent.querySelector(selector);
+  if (existing) {
+    clearSavedNote(existing);
+    existing.remove();
+  }
   if (!message) return;
-  const box = h('div', { class: `alert panel-note ${kind}`, role: 'alert' }, message);
-  const header = panel.querySelector(':scope > .card-header');
+  const box = h('div', { class: `alert ${className} ${kind}`, role: 'alert' }, message);
+  const header = parent.querySelector(headerSelector);
   if (header) header.after(box);
-  else panel.prepend(box);
+  else parent.prepend(box);
+  dismissSavedNote(box, message, kind);
+}
+
+export function panelNote(panel, message, kind = 'danger') {
+  placeNote(panel, ':scope > .panel-note', 'panel-note', ':scope > .card-header', message, kind);
 }
 
 // Sits under the page heading. A fixed banner covers the heading.
 export function pageNote(root, message, kind = 'danger') {
-  if (!root) return;
-  root.querySelector(':scope > .page-note')?.remove();
-  if (!message) return;
-  const box = h('div', { class: `alert page-note ${kind}`, role: 'alert' }, message);
-  const header = root.querySelector(':scope > .page-header');
-  if (header) header.after(box);
-  else root.prepend(box);
+  placeNote(root, ':scope > .page-note', 'page-note', ':scope > .page-header', message, kind);
 }
 
 // ---------------------------------------------------------------- toasts

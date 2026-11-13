@@ -5,12 +5,12 @@
   },
   "projects": {
     "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj": {
-      "version": "1.0.29",
+      "version": "1.0.31",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
         "projectName": "Vulpes.Plugins.Microsoft-365-Audit",
         "projectPath": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget",
         "outputPath": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -532,7 +532,7 @@
         "projectUniqueName": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
         "projectName": "Vulpes.Plugins.Microsoft365Audit.Tests",
         "projectPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget",
         "outputPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -1063,12 +1063,12 @@
       }
     },
     "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj": {
-      "version": "1.0.30",
+      "version": "1.0.31",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
         "projectName": "Vulpes.Host",
         "projectPath": "/Users/lappy/vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget",
         "outputPath": "/Users/lappy/vulpes/src/Vulpes.Host/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -1608,7 +1608,7 @@
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
         "projectName": "Vulpes.Sdk",
         "projectPath": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget",
         "outputPath": "/Users/lappy/vulpes/src/Vulpes.Sdk/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
@@ -2105,7 +2105,7 @@
         "projectUniqueName": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
         "projectName": "Vulpes.PluginPacker",
         "projectPath": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
-        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
+        "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget",
         "outputPath": "/Users/lappy/vulpes/tools/Vulpes.PluginPacker/obj/",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,

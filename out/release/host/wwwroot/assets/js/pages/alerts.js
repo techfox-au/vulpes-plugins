@@ -1,4 +1,4 @@
-import { h, badge, fmt, table, modal, drawer, errorMessage, clear, jsonView, dropdown, panelNote, pageNote } from '../ui.js?v=shell84';
+import { h, badge, fmt, table, modal, drawer, errorMessage, clear, jsonView, dropdown, panelNote, pageNote } from '../ui.js?v=shell370';
 import { severityKind } from './home.js';
 
 let root;

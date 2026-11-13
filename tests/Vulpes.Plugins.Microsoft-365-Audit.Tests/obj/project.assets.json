@@ -973,7 +973,7 @@
           "build/net8.0/xunit.runner.visualstudio.props": {}
         }
       },
-      "Vulpes.Host/1.0.30": {
+      "Vulpes.Host/1.0.31": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
@@ -1009,7 +1009,7 @@
           "bin/placeholder/Vulpes.PluginPacker.dll": {}
         }
       },
-      "Vulpes.Plugins.Microsoft-365-Audit/1.0.29": {
+      "Vulpes.Plugins.Microsoft-365-Audit/1.0.31": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
@@ -2241,7 +2241,7 @@
         "xunit.runner.visualstudio.nuspec"
       ]
     },
-    "Vulpes.Host/1.0.30": {
+    "Vulpes.Host/1.0.31": {
       "type": "project",
       "path": "../../../vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
       "msbuildProject": "../../../vulpes/src/Vulpes.Host/Vulpes.Host.csproj"
@@ -2251,7 +2251,7 @@
       "path": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
       "msbuildProject": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj"
     },
-    "Vulpes.Plugins.Microsoft-365-Audit/1.0.29": {
+    "Vulpes.Plugins.Microsoft-365-Audit/1.0.31": {
       "type": "project",
       "path": "../../src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
       "msbuildProject": "../../src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj"
@@ -2267,15 +2267,15 @@
       "Microsoft.AspNetCore.Mvc.Testing >= 10.0.14",
       "Microsoft.Extensions.TimeProvider.Testing >= 10.11.0",
       "Microsoft.NET.Test.Sdk >= 18.11.0",
-      "Vulpes.Host >= 1.0.30",
+      "Vulpes.Host >= 1.0.31",
       "Vulpes.PluginPacker >= 1.0.0",
-      "Vulpes.Plugins.Microsoft-365-Audit >= 1.0.29",
+      "Vulpes.Plugins.Microsoft-365-Audit >= 1.0.31",
       "xunit >= 2.9.3",
       "xunit.runner.visualstudio >= 4.0.1"
     ]
   },
   "packageFolders": {
-    "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget": {}
+    "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget": {}
   },
   "project": {
     "version": "0.1.0",
@@ -2283,7 +2283,7 @@
       "projectUniqueName": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
       "projectName": "Vulpes.Plugins.Microsoft365Audit.Tests",
       "projectPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/Vulpes.Plugins.Microsoft-365-Audit.Tests.csproj",
-      "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/c78bc31c065f2e3fc5b23164d944a57f/nuget",
+      "packagesPath": "/var/folders/t9/qn_nzj753p505t1x5lp8k_4w0000gn/T/cursor-sandbox-cache/e23fbe4ff8049e4a0c506cf3f608019c/nuget",
       "outputPath": "/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/obj/",
       "projectStyle": "PackageReference",
       "centralPackageVersionsManagementEnabled": true,

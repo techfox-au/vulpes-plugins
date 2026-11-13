@@ -1,6 +1,6 @@
 import { confirmIdentity } from '../reauth.js?v=shell258';
-import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell84';
-import { appendApplication } from './entra-application.js?v=shell338';
+import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell370';
+import { appendApplication } from './entra-application.js?v=shell370';
 
 let root;
 let pageCtx;
@@ -77,6 +77,30 @@ async function render(ctx) {
   await appendApplication(ctx, root, () => render(ctx));
   const grid = h('div', { class: 'grid cols-2' });
   root.append(grid);
+
+  const themeCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Theme')));
+  grid.append(themeCard);
+  try {
+    const themes = await ctx.api.get('/api/admin/settings/themes');
+    const choices = (themes.themes || []).filter((t) => t.id === 'default' || t.id === 'gorelo').map((t) => [t.id, t.name]);
+    const control = dropdown(choices, { value: themes.active || 'default', name: 'theme', ariaLabel: 'Theme' });
+    themeCard.append(h('div', { class: 'field' }, h('label', null, 'Theme'), control));
+    control.addEventListener('change', async () => {
+      const id = control.querySelector('input[name="theme"]')?.value;
+      if (!id || id === themes.active) return;
+      try {
+        await ctx.api.post(`/api/admin/settings/themes/${encodeURIComponent(id)}/use`, {});
+        themes.active = id;
+        const link = document.querySelector('link[rel="stylesheet"][href^="/theme.css"]');
+        if (link) link.href = '/theme.css?' + Date.now();
+        panelNote(themeCard, 'Theme saved.', 'success');
+      } catch (err) {
+        panelNote(themeCard, errorMessage(err));
+      }
+    });
+  } catch (err) {
+    themeCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
 
   // ---- SMTP
   const smtpCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Email')));

@@ -173,10 +173,9 @@ async function uninstall(ctx, id, button) {
 
 function revealRestart() {
   const scroller = document.getElementById('content');
-  const header = root?.querySelector(':scope > .page-header');
   requestAnimationFrame(() => {
+    // Leave the page padding above the heading. scrollIntoView would pin the button to the top edge.
     if (scroller) scroller.scrollTop = 0;
-    header?.scrollIntoView({ block: 'start' });
   });
 }
 

@@ -45,7 +45,7 @@ async function render(ctx) {
     h('h1', null, 'Plugins'),
     h('div', { class: 'btn-group' }, restartButton)));
 
-  if (data.restartRequired) root.append(h('div', { class: 'alert warning' }, 'The plugin set on disk has changed. Restart the dashboard to load the new set.'));
+  if (data.restartRequired) root.append(h('div', { class: 'alert warning', dataset: { restartNotice: '1' } }, 'The plugin set on disk has changed. Restart the dashboard to load the new set.'));
   if (data.failures.length > 0) {
     const failures = data.failures.map((f) => {
       const repair = dedupeReleases(data.available || []).find((offer) => offer.pluginId === f.id && (offer.action === 'reinstall' || offer.action === 'upgrade'));
@@ -182,7 +182,12 @@ function revealRestart() {
 async function restart(ctx, button) {
   if (!(await modal.confirm('Restart dashboard', 'The process stops gracefully and the container runtime restarts it. Users may see a brief interruption.', { danger: true, confirmLabel: 'Restart' }))) return;
   if (button) setBusy(button, true, 'Restarting…');
-  try { await ctx.api.post('/api/admin/restart'); pageNote(root, 'Restarting… this page will reload shortly.', 'success'); setTimeout(() => location.reload(), 8000); }
+  try {
+    await ctx.api.post('/api/admin/restart');
+    root?.querySelector(':scope > [data-restart-notice]')?.remove();
+    pageNote(root, 'Restarting… this page will reload shortly.', 'success');
+    setTimeout(() => location.reload(), 8000);
+  }
   catch (err) {
     if (button) setBusy(button, false);
     pageNote(root, errorMessage(err));

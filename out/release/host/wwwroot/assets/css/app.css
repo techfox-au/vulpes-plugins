@@ -423,7 +423,8 @@ table.table.cols-audit td { overflow-wrap: anywhere; }
 .alert.warning { background: var(--warning-bg); border-color: var(--warning-line); color: var(--warning); }
 .alert.success { background: var(--success-bg); border-color: var(--success-line); color: var(--success); }
 .alert.info { background: var(--info-bg); border-color: var(--info-line); color: var(--info); }
-.page-note { white-space: pre-wrap; overflow-wrap: break-word; margin-bottom: 20px; }
+.page-note { white-space: pre-wrap; overflow-wrap: break-word; }
+.content > .page-note { margin-bottom: 0; }
 
 /* ---------- misc components ---------- */
 .empty { padding: 36px 18px; text-align: center; color: var(--text-muted); }

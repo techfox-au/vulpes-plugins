@@ -326,7 +326,7 @@ async function render(ctx) {
   }
   try {
     const themes = await ctx.api.get('/api/admin/settings/themes');
-    const choices = (themes.themes || []).filter((t) => t.id === 'default' || t.id === 'gorelo').map((t) => [t.id, t.name]);
+    const choices = (themes.themes || []).filter((t) => t.id === 'default' || t.id === 'gorelo' || t.id === 'silver-fox').map((t) => [t.id, t.name]);
     const control = dropdown(choices, { value: themes.active || 'default', name: 'theme', ariaLabel: 'Theme' });
     infoCard.append(h('div', { class: 'field mt' }, h('label', null, 'Theme'), control));
     control.addEventListener('change', async () => {
@@ -337,6 +337,10 @@ async function render(ctx) {
         themes.active = id;
         const link = document.querySelector('link[rel="stylesheet"][href^="/theme.css"]');
         if (link) link.href = '/theme.css?' + Date.now();
+        document.querySelectorAll('link[rel="icon"]').forEach((icon) => {
+          const path = icon.getAttribute('href')?.split('?')[0];
+          if (path) icon.setAttribute('href', path + '?v=' + Date.now());
+        });
         panelNote(infoCard, 'Theme saved.', 'success');
       } catch (err) {
         panelNote(infoCard, errorMessage(err));

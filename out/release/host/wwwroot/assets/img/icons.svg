@@ -16,6 +16,7 @@
   <symbol id="exclamation-octagon" viewBox="0 0 24 24"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/><path d="M12 8v5"/><path d="M12 16.5v.5"/></symbol>
   <symbol id="warning" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.5v.5"/></symbol>
   <symbol id="building" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10"/><path d="M8 7h2M8 11h2M8 15h2M12 7h0M2 21h20"/></symbol>
+  <symbol id="box" viewBox="0 0 24 24"><path d="M12 3.5 20.5 8v8L12 20.5 3.5 16V8z"/><path d="M12 12.2 3.5 8"/><path d="M12 12.2 20.5 8"/><path d="M12 12.2v8.3"/><path d="M7.8 5.8 16.2 10.1"/></symbol>
   <symbol id="pulse" viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></symbol>
   <symbol id="funnel" viewBox="0 0 24 24"><path d="M4 4h16l-6 7v6l-4 2V11z"/></symbol>
   <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>

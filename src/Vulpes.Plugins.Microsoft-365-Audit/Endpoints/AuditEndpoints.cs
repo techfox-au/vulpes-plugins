@@ -386,14 +386,28 @@ public static class AuditEndpoints
             {
                 try
                 {
-                    foreach (var (tenantId, count) in await search.CountByTenantAsync(Normalizers.PluginId, collector.Source, ct))
+                    var counts = await search.AggregateAsync(new EventAggregationQuery
                     {
-                        stored[(collector.Source, tenantId)] = count;
+                        PluginId = Normalizers.PluginId,
+                        Source = collector.Source,
+                        Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", 50)],
+                    }, ct);
+                    if (!counts.Aggregations.TryGetValue("tenants", out var buckets))
+                    {
+                        continue;
+                    }
+
+                    foreach (var bucket in buckets)
+                    {
+                        if (bucket.Key.Length > 0)
+                        {
+                            stored[(collector.Source, bucket.Key)] = bucket.Count;
+                        }
                     }
                 }
-                catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // Leave this source unset. The page shows a dash instead of the collector's lifetime total.
+                    // A missing count API, or a failed count, must not take down the status page.
                 }
             }
         }

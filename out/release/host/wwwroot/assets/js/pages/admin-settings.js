@@ -78,30 +78,6 @@ async function render(ctx) {
   const grid = h('div', { class: 'grid cols-2' });
   root.append(grid);
 
-  const themeCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Theme')));
-  grid.append(themeCard);
-  try {
-    const themes = await ctx.api.get('/api/admin/settings/themes');
-    const choices = (themes.themes || []).filter((t) => t.id === 'default' || t.id === 'gorelo').map((t) => [t.id, t.name]);
-    const control = dropdown(choices, { value: themes.active || 'default', name: 'theme', ariaLabel: 'Theme' });
-    themeCard.append(h('div', { class: 'field' }, h('label', null, 'Theme'), control));
-    control.addEventListener('change', async () => {
-      const id = control.querySelector('input[name="theme"]')?.value;
-      if (!id || id === themes.active) return;
-      try {
-        await ctx.api.post(`/api/admin/settings/themes/${encodeURIComponent(id)}/use`, {});
-        themes.active = id;
-        const link = document.querySelector('link[rel="stylesheet"][href^="/theme.css"]');
-        if (link) link.href = '/theme.css?' + Date.now();
-        panelNote(themeCard, 'Theme saved.', 'success');
-      } catch (err) {
-        panelNote(themeCard, errorMessage(err));
-      }
-    });
-  } catch (err) {
-    themeCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
-  }
-
   // ---- SMTP
   const smtpCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Email')));
   grid.append(smtpCard);
@@ -345,6 +321,27 @@ async function render(ctx) {
       ['Notification outbox', `${status.notifications?.pending ?? 0} pending, ${status.notifications?.failed ?? 0} failed`],
     ]));
     // The Server card above overrides the container environment. This block is the live view.
+  } catch (err) {
+    infoCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
+  try {
+    const themes = await ctx.api.get('/api/admin/settings/themes');
+    const choices = (themes.themes || []).filter((t) => t.id === 'default' || t.id === 'gorelo').map((t) => [t.id, t.name]);
+    const control = dropdown(choices, { value: themes.active || 'default', name: 'theme', ariaLabel: 'Theme' });
+    infoCard.append(h('div', { class: 'field mt' }, h('label', null, 'Theme'), control));
+    control.addEventListener('change', async () => {
+      const id = control.querySelector('input[name="theme"]')?.value;
+      if (!id || id === themes.active) return;
+      try {
+        await ctx.api.post(`/api/admin/settings/themes/${encodeURIComponent(id)}/use`, {});
+        themes.active = id;
+        const link = document.querySelector('link[rel="stylesheet"][href^="/theme.css"]');
+        if (link) link.href = '/theme.css?' + Date.now();
+        panelNote(infoCard, 'Theme saved.', 'success');
+      } catch (err) {
+        panelNote(infoCard, errorMessage(err));
+      }
+    });
   } catch (err) {
     infoCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
   }

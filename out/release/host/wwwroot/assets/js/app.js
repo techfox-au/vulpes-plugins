@@ -12,7 +12,7 @@ const corePages = {
   '/account': () => import('./pages/account.js?v=shell258'),
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell370'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell289'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell372'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell371'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),

@@ -147,6 +147,7 @@ async function install(ctx, offer, button) {
     await render(ctx);
     const verb = offer.action === 'upgrade' ? 'Upgraded' : offer.action === 'reinstall' ? 'Reinstalled' : 'Installed';
     pageNote(root, `${verb} ${res.installed.id} ${res.installed.version}. Restart to load it.`, 'success');
+    revealRestart();
   } catch (err) {
     if (button && button.isConnected) setBusy(button, false);
     pageNote(root, errorMessage(err));
@@ -163,10 +164,20 @@ async function uninstall(ctx, id, button) {
     await ctx.api.delete(`/api/admin/plugins/${encodeURIComponent(id)}?purge=${purge.checked}`);
     await render(ctx);
     pageNote(root, 'Uninstalled. Restart to apply.', 'success');
+    revealRestart();
   } catch (err) {
     if (button && button.isConnected) setBusy(button, false);
     pageNote(root, errorMessage(err));
   }
+}
+
+function revealRestart() {
+  const scroller = document.getElementById('content');
+  const header = root?.querySelector(':scope > .page-header');
+  requestAnimationFrame(() => {
+    if (scroller) scroller.scrollTop = 0;
+    header?.scrollIntoView({ block: 'start' });
+  });
 }
 
 async function restart(ctx, button) {

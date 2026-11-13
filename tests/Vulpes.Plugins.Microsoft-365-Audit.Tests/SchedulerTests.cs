@@ -42,6 +42,7 @@ public sealed class SchedulerTests : IDisposable
         [_collector],
         new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
         _pipeline,
+        new ReadyStore(),
         options ?? new AuditOptions(),
         _time,
         NullLogger<CollectionScheduler>.Instance);
@@ -178,5 +179,10 @@ public sealed class SchedulerTests : IDisposable
     private sealed class NoHttp : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new RoutedGraphHandler());
+    }
+
+    private sealed class ReadyStore : IEventStoreReadiness
+    {
+        public bool IsReady => true;
     }
 }

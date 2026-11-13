@@ -205,8 +205,9 @@ body:has(.shell) { overflow: hidden; }
 .avatar-edit:hover .avatar-plus { opacity: 1; }
 .avatar-edit.plus-hidden .avatar-plus { opacity: 0; }
 .user-chip .truncate { min-width: 0; }
-.content { padding: 22px 22px 14px; display: flex; flex-direction: column; gap: 18px; width: 100%; flex: 1 1 auto; min-height: 0; overflow: auto; }
-.content > .stack { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.content { padding: 22px 22px 0; display: flex; flex-direction: column; gap: 18px; width: 100%; flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* Do not set min-height: 0 here. That lets the page shrink to the window and paint the last card over the bottom edge. */
+.content > .stack { flex: 1 0 auto; display: flex; flex-direction: column; padding-bottom: 14px; }
 .content > .stack > .table-wrap,
 .content > .stack > .console-log,
 .content > .stack > [data-role="explorer"],

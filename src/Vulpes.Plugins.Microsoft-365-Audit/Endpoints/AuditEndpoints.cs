@@ -38,6 +38,7 @@ public static class AuditEndpoints
         group.MapGet("/status", StatusAsync).RequireAuthorization(Policies.Analyst);
         group.MapGet("/tenants/{id:guid}", GetTenantAsync).RequireAuthorization(Policies.Analyst);
         group.MapPut("/tenants/{id:guid}/collection", UpdateCollectionAsync).RequireAuthorization(Policies.Admin);
+        group.MapPost("/tenants/{id:guid}/purge", PurgeTenantAsync).RequireAuthorization(Policies.Admin);
         group.MapGet("/settings", GetSettings).RequireAuthorization(Policies.Admin);
         group.MapPut("/settings", PutSettings).RequireAuthorization(Policies.Admin);
         group.MapGet("/statistics", StatisticsAsync).RequireAuthorization(Policies.Admin);
@@ -401,6 +402,47 @@ public static class AuditEndpoints
 
         var checkpoints = await db.Checkpoints.AsNoTracking().Where(c => c.TenantId == id).ToListAsync(ct);
         return Results.Json(TenantService.ToDto(tenant, checkpoints), Json);
+    }
+
+    private static async Task<IResult> PurgeTenantAsync(Guid id, AuditDbContext db, CollectionScheduler scheduler, IEventStoreMaintenance store, IEventStoreReadiness readiness, IHostAuditLog audit, CancellationToken ct)
+    {
+        var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == id, ct);
+        if (tenant is null)
+        {
+            return Error(404, "not_found", "Client not found.");
+        }
+
+        if (scheduler.Collectors.Keys.Any(source => scheduler.IsRunning(id, source)))
+        {
+            return Error(409, "busy", "A collector is still running for this client. Try again when it finishes.");
+        }
+
+        if (!readiness.IsReady)
+        {
+            return Error(503, "search_unavailable", "Elasticsearch is not ready.");
+        }
+
+        long? deleted;
+        try
+        {
+            deleted = await store.DeleteTenantAsync(Normalizers.PluginId, tenant.TenantId, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            return Error(400, "validation", ex.Message);
+        }
+        catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
+        {
+            return Error(503, "search_unavailable", "Elasticsearch could not delete the stored logs.");
+        }
+
+        var checkpoints = await db.Checkpoints.Where(c => c.TenantId == id).ToListAsync(ct);
+        db.Checkpoints.RemoveRange(checkpoints);
+        var runs = await db.RunLog.Where(r => r.TenantId == id).ToListAsync(ct);
+        db.RunLog.RemoveRange(runs);
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("audit.tenant.purged", tenant.DisplayName, $"directory={tenant.TenantId} deleted={deleted?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "0"}", cancellationToken: ct);
+        return Results.Json(new { deleted = deleted ?? 0 }, Json);
     }
 
     private static async Task<IResult> UpdateCollectionAsync(Guid id, CollectionRequest request, TenantService tenants, ITenantDirectory directory, IEntraApplication application, CancellationToken ct)

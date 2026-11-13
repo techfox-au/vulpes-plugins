@@ -14,6 +14,7 @@ public sealed class CollectionScheduler(
     IEnumerable<ICollector> collectors,
     GraphClientFactory graphFactory,
     IEventPipeline pipeline,
+    IEventStoreReadiness store,
     AuditOptions options,
     TimeProvider timeProvider,
     ILogger<CollectionScheduler> logger) : BackgroundService
@@ -65,6 +66,12 @@ public sealed class CollectionScheduler(
 
     private async Task DispatchDueJobsAsync(CancellationToken stoppingToken)
     {
+        if (!store.IsReady)
+        {
+            logger.LogDebug("Elasticsearch is not ready; collection is waiting");
+            return;
+        }
+
         var now = timeProvider.GetUtcNow();
         List<(Tenant Tenant, string Source)> due;
         await using (var scope = scopeFactory.CreateAsyncScope())

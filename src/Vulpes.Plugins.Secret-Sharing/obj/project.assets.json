@@ -318,7 +318,7 @@
     "/Users/lappy/.nuget/packages/": {}
   },
   "project": {
-    "version": "1.0.9",
+    "version": "1.0.10",
     "restore": {
       "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj",
       "projectName": "Vulpes.Plugins.Secret-Sharing",

@@ -359,6 +359,11 @@ async function appendMcp(ctx, parent) {
   const revealed = h('div');
   const name = h('input', { class: 'input', placeholder: 'Grok Bot', 'aria-label': 'Token name', maxlength: '80' });
   let enabledBox;
+  let origin = location.origin;
+  try {
+    const status = await ctx.api.get('/api/status');
+    if (status?.publicOrigin) origin = String(status.publicOrigin).replace(/\/$/, '');
+  } catch { /* the address bar origin is enough */ }
   try {
     const settings = await ctx.api.get('/api/mcp/settings');
     enabledBox = h('input', { type: 'checkbox', checked: settings.enabled === true, 'aria-label': 'MCP server enabled' });
@@ -371,7 +376,7 @@ async function appendMcp(ctx, parent) {
   card.append(
     h('div', { class: 'card-header' }, h('h2', null, 'MCP')),
     h('label', { class: 'checkbox' }, enabledBox, h('span', null, 'MCP server enabled')),
-    h('p', { class: 'muted' }, 'MCP endpoint: /api/mcp'),
+    h('p', { class: 'muted' }, 'MCP endpoint: ' + origin + '/api/mcp'),
     h('div', { class: 'form-row' }, name, h('button', { class: 'btn', type: 'button', onClick: () => createMcpToken(ctx, name, revealed, card, list) }, 'Create token')),
     revealed,
     list);

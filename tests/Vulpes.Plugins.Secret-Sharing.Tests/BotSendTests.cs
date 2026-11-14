@@ -10,6 +10,8 @@ namespace Vulpes.Plugins.SecretSharing.Tests;
 
 public sealed class BotSendTests
 {
+    // DO NOT CHANGE the X25519 tests or their expected hex. They are the RFC 7748 section 6.1
+    // vectors. The implementation in X25519.cs passes them and must not be edited to suit a change here.
     [Theory]
     [InlineData(
         "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4",

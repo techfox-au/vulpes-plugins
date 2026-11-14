@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload secret</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="/assets/css/app.css?v=shell237">
+  <link rel="stylesheet" href="/theme.css">
+</head>
+<body class="share-public-page">
+  <main class="share-public">
+    <h1 id="page-title">Upload secret</h1>
+    <p id="meta" class="muted"></p>
+    <div id="alert" class="alert hidden" role="status"></div>
+    <div id="upload-panel" class="modal-card" hidden>
+      <div id="collect-head" class="modal-header" hidden>
+        <h2 id="collect-name" class="upload-name"></h2>
+      </div>
+      <form id="upload-form" class="modal-body col">
+        <fieldset class="content-type">
+          <legend>Content type</legend>
+          <label><input type="radio" name="content-kind" value="text" checked> Text</label>
+          <label><input type="radio" name="content-kind" value="file"> File</label>
+        </fieldset>
+        <div id="panel-text" class="field">
+          <label for="secret-text">Secret text</label>
+          <textarea id="secret-text" class="input chalkboard" rows="6" maxlength="1000000" placeholder="Paste token, note, or other secret…" autocomplete="off" spellcheck="false" required></textarea>
+        </div>
+        <div id="panel-file" class="field" hidden>
+          <label>File (max 40 MB)</label>
+          <div class="file-picker">
+            <input id="secret-file" class="file-input-native" type="file" required>
+            <label for="secret-file" class="btn file-picker-btn">Choose file</label>
+            <span id="secret-file-name" class="file-picker-name">No file chosen</span>
+          </div>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button class="btn primary" type="submit" form="upload-form">Encrypt &amp; upload</button>
+      </div>
+    </div>
+  </main>
+  <script src="/assets/js/crypto/nacl-fast.js?v=crypto1"></script>
+  <script src="/assets/js/crypto/crypto.js?v=crypto1"></script>
+  <script src="/plugins/secret-sharing/public/transfer.js?v=crypto6"></script>
+  <script type="module" src="/plugins/secret-sharing/public/upload.js?v=pow4"></script>
+</body>
+</html>

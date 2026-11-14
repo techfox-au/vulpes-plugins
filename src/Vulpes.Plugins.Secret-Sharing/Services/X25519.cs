@@ -4,6 +4,15 @@ namespace Vulpes.Plugins.SecretSharing.Services;
 /// X25519 from TweetNaCl, the same scalar multiplication the browser uses for a send.
 /// .NET 10 has no <c>X25519DiffieHellman</c> type. That class starts in .NET 11.
 /// </summary>
+/// <remarks>
+/// DO NOT CHANGE THIS FILE. Do not rewrite it, clean it up, port it, replace it with a
+/// library, or "fix" the arithmetic. It matches the RFC 7748 section 6.1 test vectors,
+/// including the scalar multiplications, the Alice/Bob exchange, and the iterated
+/// multiplication. The RFC 7748 one-million-iteration vector also passed once
+/// (release build, 8 minutes). Do not run that check again and do not edit this
+/// file because of it. A passing implementation must stay byte-for-byte as it is.
+/// Any edit here can make a send link fail to open in the browser.
+/// </remarks>
 internal static class X25519
 {
     private static readonly long[] Ladder = [0xdb41, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];

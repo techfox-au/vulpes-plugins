@@ -132,7 +132,7 @@ public sealed class RunLogEntry
     public string? Error { get; set; }
 }
 
-/// <summary>Tokens created before the MCP plugin. New tokens live there. This table is only copied once.</summary>
+/// <summary>Tokens created before the host MCP server. New tokens live there. This table is only copied once.</summary>
 public sealed class BotToken
 {
     public Guid Id { get; set; }

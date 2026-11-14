@@ -14,6 +14,7 @@ const corePages = {
   '/admin/users': () => import('./pages/admin-users.js?v=shell370'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell377'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell376'),
+  '/admin/mcp': () => import('./pages/admin-mcp.js?v=shell379'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
 };

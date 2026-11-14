@@ -1,5 +1,5 @@
 import { confirmIdentity } from '../reauth.js?v=shell258';
-import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal } from '../ui.js?v=shell370';
+import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
 import { appendApplication } from './entra-application.js?v=shell370';
 
 let root;
@@ -348,5 +348,111 @@ async function render(ctx) {
     });
   } catch (err) {
     infoCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
+
+  await appendMcp(ctx, root);
+}
+
+async function appendMcp(ctx, parent) {
+  const card = h('div', { class: 'card' });
+  const list = h('div', { class: 'mt' });
+  const revealed = h('div');
+  const name = h('input', { class: 'input', placeholder: 'Grok Bot', 'aria-label': 'Token name', maxlength: '80' });
+  let enabledBox;
+  try {
+    const settings = await ctx.api.get('/api/mcp/settings');
+    enabledBox = h('input', { type: 'checkbox', checked: settings.enabled === true, 'aria-label': 'MCP server enabled' });
+  } catch (err) {
+    card.append(h('div', { class: 'card-header' }, h('h2', null, 'MCP')), h('div', { class: 'alert danger' }, errorMessage(err)));
+    parent.append(card);
+    return;
+  }
+  enabledBox.addEventListener('change', () => setMcpEnabled(ctx, enabledBox, card));
+  card.append(
+    h('div', { class: 'card-header' }, h('h2', null, 'MCP')),
+    h('label', { class: 'checkbox' }, enabledBox, h('span', null, 'MCP server enabled')),
+    h('p', { class: 'muted' }, 'MCP endpoint: /api/mcp'),
+    h('div', { class: 'form-row' }, name, h('button', { class: 'btn', type: 'button', onClick: () => createMcpToken(ctx, name, revealed, card, list) }, 'Create token')),
+    revealed,
+    list);
+  parent.append(card);
+  await loadMcpTokens(ctx, list);
+}
+
+function mcpExpiry(row) {
+  if (!row.expiresAt) return '—';
+  const when = new Date(row.expiresAt);
+  const label = fmt.date(row.expiresAt);
+  if (Number.isNaN(when.getTime())) return label;
+  const days = Math.ceil((when.getTime() - Date.now()) / 86400000);
+  if (days < 0) return h('span', null, label, ' ', badge('Expired', 'danger'));
+  if (days <= 10) return h('span', null, label, ' ', badge(days === 1 ? 'Expires in 1 day' : `Expires in ${days} days`, 'warning'));
+  return label;
+}
+
+async function setMcpEnabled(ctx, box, card) {
+  const enabled = box.checked;
+  try {
+    await ctx.api.put('/api/mcp/settings', { enabled });
+  } catch (err) {
+    if (err.code !== 'reauth_required') {
+      box.checked = !enabled;
+      panelNote(card, errorMessage(err));
+      return;
+    }
+    const me = await ctx.api.get('/api/account');
+    if (!(await confirmIdentity(ctx, me))) {
+      box.checked = false;
+      return;
+    }
+    try {
+      await ctx.api.put('/api/mcp/settings', { enabled: true });
+    } catch (again) {
+      box.checked = false;
+      panelNote(card, errorMessage(again));
+    }
+  }
+}
+
+async function loadMcpTokens(ctx, list) {
+  let rows;
+  try { rows = await ctx.api.get('/api/mcp/tokens'); }
+  catch (err) { clear(list).append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
+  clear(list).append(table({
+    columns: [
+      { title: 'Name', render: (r) => r.name },
+      { title: 'Prefix', render: (r) => r.prefix },
+      { title: 'Created', render: (r) => fmt.date(r.createdAt) },
+      { title: 'Expires', render: mcpExpiry },
+      { title: 'Last used', render: (r) => r.lastUsedAt ? fmt.relative(r.lastUsedAt) : 'never' },
+      { title: '', render: (r) => h('div', { class: 'flex' }, r.revoked ? badge('Revoked', 'danger') : null, h('button', { class: 'btn sm danger', type: 'button', onClick: () => removeMcpToken(ctx, list, r) }, 'Delete')) },
+    ],
+    rows,
+    emptyText: 'No tokens yet.',
+  }));
+}
+
+async function createMcpToken(ctx, name, revealed, card, list) {
+  clear(revealed);
+  try {
+    const created = await ctx.api.post('/api/mcp/tokens', { name: name.value.trim() || 'Grok Bot' });
+    revealed.append(h('div', { class: 'alert success' },
+      h('div', null, 'Copy this token now. It is not shown again.'),
+      h('code', null, created.token),
+      h('button', { class: 'btn ghost', type: 'button', onClick: () => copyToClipboard(created.token, card) }, 'Copy')));
+    name.value = '';
+    await loadMcpTokens(ctx, list);
+  } catch (err) {
+    panelNote(card, errorMessage(err));
+  }
+}
+
+async function removeMcpToken(ctx, list, row) {
+  if (!(await modal.confirm('Delete token', `Delete ${row.name}? Its token stops working.`, { danger: true, confirmLabel: 'Delete' }))) return;
+  try {
+    await ctx.api.delete(`/api/mcp/tokens/${row.id}`);
+    await loadMcpTokens(ctx, list);
+  } catch (err) {
+    panelNote(list, errorMessage(err));
   }
 }

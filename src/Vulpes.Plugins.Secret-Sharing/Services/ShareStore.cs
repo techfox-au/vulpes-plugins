@@ -371,7 +371,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, PrivateNoteCiphertext, AllowedCidr
+                SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, PrivateNoteCiphertext, AllowedCidr, HideTextByDefault
                 FROM secrets WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 100
                 """;
             cmd.Parameters.AddWithValue("@owner", ownerId);
@@ -383,6 +383,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
                 {
                     PrivateNoteCiphertext = reader.IsDBNull(9) ? null : reader.GetString(9),
                     IpRestricted = !string.IsNullOrWhiteSpace(cidr) && !string.Equals(cidr.Trim(), "*", StringComparison.Ordinal),
+                    HideText = !reader.IsDBNull(11) && reader.GetInt32(11) == 1,
                 };
                 if (item.Status is not ("expired" or "consumed")) items.Add(item);
             }
@@ -820,7 +821,7 @@ public sealed record CollectInput(string PublicKey, string? OwnerPrivateKeyProte
 
 public sealed record UploadInput(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename);
 
-public sealed record HomeItem(string Id, string Kind, string? EncryptedLabel, string Status, bool OneTime, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int AccessCount, int? MaxAccessCount, bool PasswordProtected, bool HasOwnerKey, string? PrivateNoteCiphertext = null, bool IpRestricted = false);
+public sealed record HomeItem(string Id, string Kind, string? EncryptedLabel, string Status, bool OneTime, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int AccessCount, int? MaxAccessCount, bool PasswordProtected, bool HasOwnerKey, string? PrivateNoteCiphertext = null, bool IpRestricted = false, bool HideText = false);
 
 public sealed record SendPublic(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename, bool OneTime, bool PasswordProtected, bool HideTextByDefault, string Status, DateTimeOffset ExpiresAt, int AccessCount = 0, int? MaxAccessCount = null, string? RecipientLabel = null);
 

@@ -110,6 +110,7 @@ public sealed class AuditPlugin : IPlugin
         services.AddSingleton<ICollector, RiskCollector>();
         services.AddSingleton<ICollector, SecureScoreCollector>();
 
+        services.AddScoped<IMcpToolSource, AuditMcp>();
         services.AddScoped<TenantService>();
         services.AddSingleton<CollectionScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<CollectionScheduler>());

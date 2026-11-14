@@ -132,7 +132,7 @@ public sealed class RunLogEntry
     public string? Error { get; set; }
 }
 
-/// <summary>A read-only bearer token for a machine client such as Grok Bot. Only the hash is stored.</summary>
+/// <summary>Tokens created before the MCP plugin. New tokens live there. This table is only copied once.</summary>
 public sealed class BotToken
 {
     public Guid Id { get; set; }

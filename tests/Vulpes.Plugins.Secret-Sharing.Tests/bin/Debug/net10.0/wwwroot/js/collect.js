@@ -16,7 +16,7 @@ const expiryChoices = [
 
 export async function mount(el, ctx) {
   const root = el.querySelector('#collect-root');
-  await loadScript(`${pub}/nacl-fast.js`).then(() => loadScript(`${pub}/crypto.js?v=crypto2`)).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
+  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
   const { h, dropdown, copyToClipboard } = ctx.ui;
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. Give me credentials', autocomplete: 'off' });
   const mode = dropdown([['true', 'One-time'], ['false', 'Multi-view until expiry']], { value: 'true', ariaLabel: 'Collect mode' });
@@ -26,7 +26,7 @@ export async function mount(el, ctx) {
   const hide = h('input', { type: 'checkbox' });
   const note = h('textarea', { class: 'input', rows: '3', maxlength: '5000000', placeholder: 'Only you see this on the dashboard (encrypted with your account key)' });
   const password = h('input', { class: 'input', type: 'password', maxlength: '256', placeholder: 'Leave blank for key-only collect link', autocomplete: 'new-password' });
-  const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password' });
+  const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password', required: true });
   const confirmWrap = h('div', { class: 'field', hidden: true }, h('label', null, 'Confirm link password'), confirm);
   const button = h('button', { class: 'btn primary', type: 'button', onClick: () => create() }, 'Create collect links');
   const errors = h('div');

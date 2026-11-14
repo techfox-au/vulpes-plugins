@@ -1,12 +1,11 @@
 # Vendored library
 
-Readable source. A production package minifies this file with the same script as the host
-(`vulpes/scripts/minify-frontend.py`): comments and whitespace only.
+This plugin does not vendor TweetNaCl or the payload cipher. Those files live on the host:
 
 | File | Package | Version | Purpose |
 |------|---------|---------|---------|
-| `wwwroot/public/nacl-fast.js` | tweetnacl | 1.0.3 | X25519 key agreement |
+| `vulpes/src/Vulpes.Host/wwwroot/assets/js/crypto/nacl-fast.js` | tweetnacl | 1.0.3 | X25519 key agreement |
 
-The file is byte-identical to `sendit/src/frontend/vendor/nacl-fast.js` and to tweetnacl@1.0.3 on npm.
+That host file is the TweetNaCl 1.0.3 library. A production host image minifies it with `vulpes/scripts/minify-frontend.py` (comments and whitespace only).
 
 AES-256-GCM and HKDF-SHA-256 use the browser Web Crypto API. There is no third-party AES.

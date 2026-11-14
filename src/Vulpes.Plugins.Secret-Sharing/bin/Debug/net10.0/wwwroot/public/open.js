@@ -226,9 +226,19 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     copy.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(text);
-        copy.title = 'Copied';
-        setTimeout(() => { copy.title = 'Copy secret'; }, 1500);
-      } catch { copy.title = 'Could not copy'; }
+      } catch {
+        copy.title = 'Could not copy';
+        return;
+      }
+      copy.classList.add('copied');
+      copy.title = 'Copied';
+      copy.setAttribute('aria-label', 'Copied');
+      copy.blur();
+      setTimeout(() => {
+        copy.classList.remove('copied');
+        copy.title = 'Copy secret';
+        copy.setAttribute('aria-label', 'Copy secret');
+      }, 1200);
     });
     tools.append(copy);
     paint();

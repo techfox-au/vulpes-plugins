@@ -49,6 +49,7 @@
           xhr.setRequestHeader("X-Sendit-Pow-Challenge", body.challengeId);
           xhr.setRequestHeader("X-Sendit-Pow-Nonce", String(body.nonce));
           if (body.hash) xhr.setRequestHeader("X-Sendit-Pow-Hash", body.hash);
+          if (body.clientTime) xhr.setRequestHeader("X-Sendit-Pow-Time", body.clientTime);
         }
         if (typeof onUploadProgress === "function") {
           xhr.upload.onprogress = function (ev) {

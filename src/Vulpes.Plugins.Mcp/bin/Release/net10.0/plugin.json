@@ -1,0 +1,15 @@
+{
+  "id": "mcp",
+  "name": "MCP",
+  "version": "1.0.3",
+  "description": "Shared MCP server. Grok Bot connects with a bearer token from Settings. Installed plugins register tools on this server.",
+  "entryAssembly": "Vulpes.Plugins.Mcp.dll",
+  "sdkVersion": "1.0.0",
+  "nav": [
+    { "page": "settings", "title": "Settings", "icon": "settings", "roles": ["Admin"], "order": 10, "section": "MCP" }
+  ],
+  "requirements": [
+    "Create a bearer token on Settings and send it as Authorization: Bearer to /api/plugins/mcp.",
+    "Microsoft 365 Audit, when installed, adds its log tools to this server."
+  ]
+}

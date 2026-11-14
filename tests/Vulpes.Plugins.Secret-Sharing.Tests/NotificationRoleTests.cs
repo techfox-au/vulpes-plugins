@@ -72,6 +72,9 @@ public sealed class NotificationRoleTests : IDisposable
             Sent = true;
             return Task.FromResult(true);
         }
+
+        public Task<bool> TrySendAsync(string to, string subject, string text, string html, IReadOnlyList<HostEmailAttachment> attachments, CancellationToken cancellationToken = default) =>
+            TrySendAsync(to, subject, text, html, cancellationToken);
     }
 
     private sealed class FakeAudit : IHostAuditLog

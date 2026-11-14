@@ -24,6 +24,10 @@ public sealed class SecretSharingPlugin : IPlugin
         services.AddHostedService<ShareExpiryService>();
         services.AddSingleton<NotificationMail>();
         services.AddSingleton<IUserSecretReset, SecretReset>();
+        services.AddSingleton<IMcpToolSource>(sp => new SecretSharingMcp(
+            sp.GetRequiredService<ShareStore>(),
+            sp.GetRequiredService<IHostEmail>(),
+            sp.GetRequiredService<IClientIpCapability>()));
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints, IPluginContext context)

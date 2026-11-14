@@ -1,4 +1,4 @@
-import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/assets/js/pow.js?v=shell211';
+import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
 
 (async function () {
   const params = new URLSearchParams(location.search);
@@ -14,7 +14,7 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
   if (!id) { fail('Missing secret id.'); return; }
   const hasFragment = !!(SenditCrypto.secretKeyFromLocationHash(location.hash) || SenditCrypto.secretKeyPackageFromLocationHash(location.hash));
   if (!hasFragment) { fail('Missing decryption key. Open the full link including the #sk= fragment.'); return; }
-  await syncServerTime();
+  await VulpesPow.sync();
 
   let meta;
   const opening = SecretTransfer.showProgress('Opening secret');
@@ -22,10 +22,10 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     opening.setStatus('Performing proof-of-work…');
     opening.setProgress(null);
     if (kind === 'collect') {
-      const solution = await solveRefreshing(() => fetchPow('collects'), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
+      const solution = await VulpesPow.solve(() => fetchPow('collects'), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
       meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/collects/' + encodeURIComponent(id) + '/meta', solution);
     } else {
-      const solution = await solveRefreshing(() => fetchPow('sends'), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
+      const solution = await VulpesPow.solve(() => fetchPow('sends'), { onProgress: (_t, attempt) => opening.setStatus(statusLabel('Performing proof-of-work…', attempt)) });
       meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id) + '/meta', solution);
     }
   } catch (err) {
@@ -56,8 +56,8 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     const when = meta.expiresAt ? new Date(meta.expiresAt).toLocaleString() : '';
     const mode = meta.oneTime ? 'One-time (destroyed after reveal)' : meta.maxAccessCount ? 'Multi-view (max ' + meta.maxAccessCount + ' opens)' : 'Multi-view until expiry';
     const bits = [];
-    if (displayName) bits.push('<p><strong>' + escapeHtml(displayName) + '</strong></p>');
-    else if (meta.passwordProtected && (meta.encryptedLabel || meta.publicLabel)) bits.push('<p><strong>Hidden</strong> <span class="muted">(enter the link password to reveal)</span></p>');
+    if (displayName) bits.push('<p class="upload-name">' + escapeHtml(displayName) + '</p>');
+    else if (meta.passwordProtected && (meta.encryptedLabel || meta.publicLabel)) bits.push('<p><span class="upload-name">Hidden</span> <span class="muted">(enter the link password to reveal)</span></p>');
     if (kind === 'collect' && !meta.hasPayload) bits.push('<p><strong>Status:</strong> ' + (meta.status === 'waiting' ? 'Waiting for upload' : 'Unavailable') + '</p>');
     if (!(meta.oneTime && extra)) bits.push('<p><strong>Expires:</strong> ' + escapeHtml(when) + '</p>');
     bits.push('<p><strong>Mode:</strong> ' + escapeHtml(mode) + '</p>');
@@ -84,7 +84,7 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     setAlert('info', 'This ' + (kind === 'collect' ? 'collect' : 'send') + ' allows up to ' + meta.maxAccessCount + ' opens (' + left + ' remaining).');
   }
   confirmBox.classList.remove('hidden');
-  const revealPow = createPowKeeper(() => fetchPow(kind === 'collect' ? 'collects' : 'sends'));
+  const revealPow = VulpesPow.keeper(() => fetchPow(kind === 'collect' ? 'collects' : 'sends'));
   revealPow.start();
   revealBtn.addEventListener('click', reveal);
   if (passwordEl) passwordEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); reveal(); } });
@@ -179,6 +179,12 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     if (!message) { alertEl.className = 'alert hidden'; alertEl.textContent = ''; return; }
     alertEl.className = 'alert ' + (kind || 'info');
     alertEl.textContent = message;
+    if (String(message).indexOf('not available from your IP') !== -1) {
+      metaBox.classList.add('hidden');
+      confirmBox.classList.add('hidden');
+      metaBox.hidden = true;
+      confirmBox.hidden = true;
+    }
   }
   function fail(message) {
     metaBox.classList.add('hidden');
@@ -220,9 +226,19 @@ import { solveRefreshing, createPowKeeper, syncServerTime, statusLabel } from '/
     copy.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(text);
-        copy.title = 'Copied';
-        setTimeout(() => { copy.title = 'Copy secret'; }, 1500);
-      } catch { copy.title = 'Could not copy'; }
+      } catch {
+        copy.title = 'Could not copy';
+        return;
+      }
+      copy.classList.add('copied');
+      copy.title = 'Copied';
+      copy.setAttribute('aria-label', 'Copied');
+      copy.blur();
+      setTimeout(() => {
+        copy.classList.remove('copied');
+        copy.title = 'Copy secret';
+        copy.setAttribute('aria-label', 'Copy secret');
+      }, 1200);
     });
     tools.append(copy);
     paint();

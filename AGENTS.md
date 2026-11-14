@@ -154,6 +154,7 @@ Register the implementation in `ConfigureServices`. The host discovers every reg
 - `ITenantConnectionTester` checks that the shared app can read this plugin's data in one tenant.
 - `IUserSecretReset` runs when an administrator sets a temporary password and the old user data key is destroyed.
 - `IIpRestrictedSecretQuery` answers whether this plugin still has an unexpired secret with an IP allow-list.
+- `IMcpToolSource` adds tools to the shared MCP server at `/api/plugins/mcp`. The MCP plugin collects every registration. A repeated tool name is offered as `{pluginId}.{name}`.
 
 A `SecurityEvent` sets `PluginId`, `Source`, `RecordId`, `TenantId`, and `Timestamp`. The host document id is derived from tenant, source, and record. Fill the envelope fields that apply (`Category`, `Action`, `Outcome`, `UserName`, `SourceIp`, and the rest on the type). Put extra keywords in `Labels` and the upstream record in `Data`.
 

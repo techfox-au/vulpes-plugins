@@ -2,7 +2,13 @@
 
 The browser encrypts. The plugin stores ciphertext and wrapped keys. It never decrypts a secret.
 
-Read the source, not a minified copy served from an installed package. `wwwroot/public/crypto.js` is the Sendit payload implementation with two edits: `GET /api/plugins/secret-sharing/crypto/params`, and rejection of a link-password package whose iteration count is not 893241. `wwwroot/public/nacl-fast.js` is byte-identical to Sendit. Proof of work is the host file `/assets/js/pow.js`, shared with sign-in. The user data key script matches the host file `wwwroot/assets/js/udk.js`. See [VENDOR.md](VENDOR.md).
+Read the host sources, not a minified copy served from an installed package. This plugin does not ship `crypto.js`, `nacl-fast.js`, or `pow.js`.
+
+The cipher is the host framework. Pages call `VulpesCrypto.ready()` or load `/assets/js/crypto/nacl-fast.js` and `/assets/js/crypto/crypto.js`, then use `window.SenditCrypto`. That cipher still reads `GET /api/plugins/secret-sharing/crypto/params` and rejects a link-password package whose iteration count is not 893241.
+
+Proof of work is the host client `VulpesPow` in `/assets/js/pow.js`, the same client sign-in uses. The worker is `/assets/js/pow-engine.js`. This plugin still stores its own challenges and checks them in `Services/PowService.cs` with the host `IPowPolicy` and `PowClock`.
+
+The user data key script is the host file `/assets/js/udk.js`. Dashboard pages load it after `VulpesCrypto.ready()`. See [VENDOR.md](VENDOR.md).
 
 The host user-data-key review is `vulpes/docs/CRYPTO.md`.
 
@@ -10,7 +16,7 @@ The host user-data-key review is `vulpes/docs/CRYPTO.md`.
 
 | Purpose | Algorithm | Parameters |
 |---------|-----------|------------|
-| Payload | AES-256-GCM | 12-byte IV, 128-bit tag, Web Crypto, one shot inside the blob worker in `crypto.js` |
+| Payload | AES-256-GCM | 12-byte IV, 128-bit tag, Web Crypto, one shot inside the blob worker in the host `crypto.js` |
 | Key agreement | X25519 | TweetNaCl `nacl.box.keyPair` / `nacl.scalarMult` |
 | Wrap KDF | HKDF-SHA-256 | salt = 32 zero bytes, info = `sendit-v1-wrap`, length 32 |
 | Key wrap | AES-256-GCM | 12-byte IV prepended to the wrap ciphertext |
@@ -28,6 +34,6 @@ Names, private notes, and the collect owner key are encrypted under the user dat
 
 ## Proof of work
 
-HMAC-SHA256, ASCII decimal nonce, leading zero bits. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 14 bits and 120 seconds for a send or collect challenge. The collect page mints a new ticket when half of that life has passed. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds.
+HMAC-SHA256, ASCII decimal nonce, leading zero bits. The page uses `VulpesPow`. The difficulty and the lifetimes come from the host setting **Manage → Settings → Proof of work** (`IPowPolicy`). The default is 14 bits and 120 seconds for a send or collect challenge. The page uses the issued `expiresAt` and mints the next ticket when half of that life has passed. The server accepts the ticket for that duration plus 7 seconds of clock skew. A challenge is deleted when it is consumed. A one-time payload is burned only after that consume succeeds. Invoice links do not use this proof.
 
 Public pages are `/send`, `/upload`, and `/collect`.

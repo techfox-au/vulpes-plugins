@@ -42,18 +42,6 @@ public static class AuditEndpoints
         group.MapGet("/settings", GetSettings).RequireAuthorization(Policies.Admin);
         group.MapPut("/settings", PutSettings).RequireAuthorization(Policies.Admin);
         group.MapGet("/statistics", StatisticsAsync).RequireAuthorization(Policies.Admin);
-        group.MapGet("/bot/tokens", ListBotTokensAsync).RequireAuthorization(Policies.Admin);
-        group.MapPost("/bot/tokens", CreateBotTokenAsync).RequireAuthorization(Policies.Admin);
-        group.MapDelete("/bot/tokens/{id:guid}", DeleteBotTokenAsync).RequireAuthorization(Policies.Admin);
-        group.MapPost("/mcp", AuditMcp.HandleAsync).AllowAnonymous();
-        // Streamable HTTP clients open a GET to listen for server messages. This server does not stream that way. 405 tells them to use POST, instead of the group auth turning the probe into a 401.
-        group.MapGet("/mcp", McpListen).AllowAnonymous();
-    }
-
-    private static IResult McpListen(HttpResponse response)
-    {
-        response.Headers.Append("Allow", "POST");
-        return Results.StatusCode(StatusCodes.Status405MethodNotAllowed);
     }
 
     private static IResult GetSettings(AuditSettingsStore store) => Results.Json(store.Current(), Json);
@@ -519,49 +507,6 @@ public static class AuditEndpoints
         var error = await tenants.UpdateCollectionAsync(id, request.LookbackDays, request.Settings, ct);
         return error is null ? Results.NoContent() : Error(400, "validation", error);
     }
-
-    private static async Task<IResult> ListBotTokensAsync(AuditDbContext db, CancellationToken ct) =>
-        Results.Json(await db.BotTokens.AsNoTracking().OrderByDescending(t => t.CreatedAt).Select(t => new { t.Id, t.Name, t.Prefix, t.CreatedAt, t.ExpiresAt, t.LastUsedAt, revoked = t.RevokedAt != null }).ToListAsync(ct), Json);
-
-    private static async Task<IResult> CreateBotTokenAsync(BotTokenName body, AuditDbContext db, IHostAuditLog audit, TimeProvider time, CancellationToken ct)
-    {
-        var name = body.Name?.Trim() ?? string.Empty;
-        if (name.Length is < 1 or > 80)
-        {
-            return Error(400, "validation", "Name must be 1 to 80 characters.");
-        }
-
-        if (await db.BotTokens.CountAsync(t => t.RevokedAt == null, ct) >= 10)
-        {
-            return Error(400, "validation", "Revoke an existing token before creating another. Ten active tokens is the limit.");
-        }
-
-        var secret = AuditMcp.CreateSecret();
-        var created = time.GetUtcNow();
-        var row = new BotToken { Id = Guid.NewGuid(), Name = name, Prefix = secret[..12], TokenHash = AuditMcp.Hash(secret), CreatedAt = created, ExpiresAt = created + AuditMcp.TokenLifetime };
-        db.BotTokens.Add(row);
-        await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("audit.bot_token.created", row.Id.ToString(), name, cancellationToken: ct);
-        return Results.Json(new { row.Id, row.Name, row.Prefix, token = secret }, Json);
-    }
-
-    internal static async Task<IResult> DeleteBotTokenAsync(Guid id, AuditDbContext db, IHostAuditLog audit, CancellationToken ct)
-    {
-        var row = await db.BotTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
-        if (row is null)
-        {
-            return Error(404, "not_found", "Token not found.");
-        }
-
-        var name = row.Name;
-        var prefix = row.Prefix;
-        db.BotTokens.Remove(row);
-        await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("audit.bot_token.deleted", id.ToString(), name + " " + prefix, cancellationToken: ct);
-        return Results.NoContent();
-    }
-
-    private sealed record BotTokenName(string? Name);
 
     internal static List<FieldFilter> MapFilters(IReadOnlyList<FilterDto>? filters)
     {

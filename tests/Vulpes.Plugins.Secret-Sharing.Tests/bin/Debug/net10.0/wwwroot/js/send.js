@@ -18,9 +18,10 @@ export async function mount(el, ctx) {
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. VPN credentials', autocomplete: 'off' });
   const textRadio = h('input', { type: 'radio', name: 'content-kind', value: 'text', checked: true });
   const fileRadio = h('input', { type: 'radio', name: 'content-kind', value: 'file' });
-  const secret = h('textarea', { class: 'input chalkboard', rows: '6', maxlength: '1000000', placeholder: 'Paste token, note, or other secret…' });
+  const secret = h('textarea', { class: 'input chalkboard', rows: '6', maxlength: '1000000', placeholder: 'Paste token, note, or other secret…', required: true });
   const filePickerRow = filePicker();
   const file = filePickerRow.querySelector('input');
+  file.required = true;
   const textPanel = field('Secret text', secret);
   const filePanel = field('File (max 40 MB)', filePickerRow);
   filePanel.hidden = true;
@@ -32,7 +33,7 @@ export async function mount(el, ctx) {
   const hideWrap = h('label', { class: 'checkbox' }, hide, h('span', null, 'Hide text by default'));
   const note = h('textarea', { class: 'input', rows: '3', maxlength: '5000000', placeholder: 'Only you see this on the dashboard (encrypted with your account key)' });
   const password = h('input', { class: 'input', type: 'password', maxlength: '256', placeholder: 'Leave blank for key-only link', autocomplete: 'new-password' });
-  const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password' });
+  const confirm = h('input', { class: 'input', type: 'password', maxlength: '256', autocomplete: 'new-password', required: true });
   const confirmWrap = h('div', { class: 'field', hidden: true }, h('label', null, 'Confirm link password'), confirm);
   const cidr = h('input', { class: 'input', maxlength: '5000000', placeholder: 'e.g. 203.0.113.10, 192.168.1.0/24, 2001:db8::/32', autocomplete: 'off', spellcheck: 'false' });
   const cidrField = field('Allowed IPs / CIDRs', cidr);
@@ -203,7 +204,7 @@ function ensureUdk() {
 }
 
 function loadCrypto() {
-  return loadScript(`${pub}/nacl-fast.js`).then(() => loadScript(`${pub}/crypto.js?v=crypto2`)).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
+  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
 }
 function downloadText(filename, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));

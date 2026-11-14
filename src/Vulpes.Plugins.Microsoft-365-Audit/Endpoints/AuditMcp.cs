@@ -1,8 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Normalization;
@@ -11,10 +8,16 @@ using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Endpoints;
 
-/// <summary>Read-only MCP endpoint. Grok Bot calls tools; it cannot change tenants, settings, or events.</summary>
-public static class AuditMcp
+/// <summary>Read-only audit tools registered on the shared MCP server. A caller cannot change tenants, settings, or events.</summary>
+public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertFieldCatalog catalog, CollectionScheduler scheduler, TimeProvider time) : IMcpToolSource
 {
-    public const string Instructions =
+    public string PluginId => Normalizers.PluginId;
+
+    public string Instructions => InstructionText;
+
+    public IReadOnlyList<McpTool> Tools => Catalog;
+
+    private const string InstructionText =
         """
         Read-only Microsoft 365 and Entra audit data collected by Vulpes. You cannot change tenants, settings, or events.
 
@@ -40,13 +43,14 @@ public static class AuditMcp
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private static readonly JsonArray Tools = new(
-        Tool("list_sources", "List the audit logs and the filter fields on each one.", new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
-        Tool("list_clients", "List the clients whose logs are collected. tenantId is the Entra directory id.", new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
-        Tool("ingestion_status", "Show whether each feed is caught up, still backfilling, or failing. Read this before concluding that an event did not happen.", new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
-        Tool("search_events", "Search one log. Returns a page of events and searchAfter for the next page.", SearchSchema()),
-        Tool("aggregate_events", "Count events in one log by a field or over time. kinds are terms and date_histogram.", AggregateSchema()),
-        Tool("get_event", "Fetch one stored event by source and id, including its raw record.", new JsonObject
+    private static readonly IReadOnlyList<McpTool> Catalog =
+    [
+        Define("list_sources", "List the audit logs and the filter fields on each one.", new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
+        Define("list_clients", "List the clients whose logs are collected. tenantId is the Entra directory id.", new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
+        Define("ingestion_status", "Show whether each feed is caught up, still backfilling, or failing. Read this before concluding that an event did not happen.", new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
+        Define("search_events", "Search one log. Returns a page of events and searchAfter for the next page.", SearchSchema()),
+        Define("aggregate_events", "Count events in one log by a field or over time. kinds are terms and date_histogram.", AggregateSchema()),
+        Define("get_event", "Fetch one stored event by source and id, including its raw record.", new JsonObject
         {
             ["type"] = "object",
             ["properties"] = new JsonObject
@@ -55,228 +59,37 @@ public static class AuditMcp
                 ["id"] = new JsonObject { ["type"] = "string", ["description"] = "The id returned by search_events." },
             },
             ["required"] = new JsonArray("source", "id"),
-        }));
+        }),
+    ];
 
-    private const int MaxBodyBytes = 32_768;
-    private const int CallsPerMinute = 60;
-    private static readonly Lock RateGate = new();
-    private static readonly Dictionary<Guid, Queue<long>> RecentCalls = [];
-
-    public static async Task<IResult> HandleAsync(HttpContext http, AuditDbContext db, IEventSearch search, IAlertFieldCatalog catalog, CollectionScheduler scheduler, TimeProvider time, IHostAuditLog audit, CancellationToken ct)
+    public async ValueTask<McpToolResult> CallAsync(string name, JsonElement arguments, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(http);
-        http.Response.Headers.CacheControl = "no-store";
-        if (!TryBearer(http, out var token))
-        {
-            return RpcError(null, 401, -32001, "Send Authorization: Bearer with a token from Microsoft 365 Audit settings.");
-        }
-
-        var hash = Hash(token);
-        var row = await db.BotTokens.FirstOrDefaultAsync(t => t.TokenHash == hash && t.RevokedAt == null, ct);
-        var now = time.GetUtcNow();
-        if (row is null || (row.ExpiresAt is { } expiry && expiry <= now))
-        {
-            return RpcError(null, 401, -32001, "The token was rejected.");
-        }
-
-        if (!AllowCall(row.Id, now))
-        {
-            await audit.RecordAsync("audit.mcp", "rate_limited", row.Name, actor: "bot:" + row.Prefix, cancellationToken: ct);
-            return RpcError(null, 429, -32029, "This token is being used too quickly. Wait a minute and try again.");
-        }
-
-        if (row.LastUsedAt is null || now - row.LastUsedAt > TimeSpan.FromMinutes(1))
-        {
-            row.LastUsedAt = now;
-            await db.SaveChangesAsync(ct);
-        }
-
-        JsonNode? id = null;
-        try
-        {
-            if (http.Request.ContentLength is > MaxBodyBytes)
-            {
-                return RpcError(null, 400, -32600, "The request is too large.");
-            }
-
-            var buffer = new byte[MaxBodyBytes + 1];
-            var read = 0;
-            while (read < buffer.Length)
-            {
-                var n = await http.Request.Body.ReadAsync(buffer.AsMemory(read), ct);
-                if (n == 0)
-                {
-                    break;
-                }
-
-                read += n;
-            }
-
-            if (read > MaxBodyBytes)
-            {
-                return RpcError(null, 400, -32600, "The request is too large.");
-            }
-
-            using var document = JsonDocument.Parse(buffer.AsMemory(0, read));
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("method", out var methodEl) || methodEl.ValueKind != JsonValueKind.String)
-            {
-                return RpcError(null, 400, -32600, "A JSON-RPC request needs a method.");
-            }
-
-            var method = methodEl.GetString() ?? string.Empty;
-            if (method.Length > 64)
-            {
-                return RpcError(null, 400, -32601, "Unknown method.");
-            }
-
-            var hasId = root.TryGetProperty("id", out var idEl) && idEl.ValueKind is JsonValueKind.String or JsonValueKind.Number;
-            if (hasId && idEl.GetRawText().Length > 64)
-            {
-                return RpcError(null, 400, -32600, "The request id is too long.");
-            }
-
-            id = hasId ? JsonNode.Parse(idEl.GetRawText()) : null;
-            if (method.StartsWith("notifications/", StringComparison.Ordinal))
-            {
-                return Results.StatusCode(StatusCodes.Status202Accepted);
-            }
-
-            if (!hasId)
-            {
-                return RpcError(null, 400, -32600, "A request needs an id.");
-            }
-
-            var arguments = root.TryGetProperty("params", out var paramsEl) ? paramsEl : default;
-            if (method == "tools/call")
-            {
-                var toolName = arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty("name", out var called) && called.ValueKind == JsonValueKind.String ? called.GetString() : "unknown";
-                await audit.RecordAsync("audit.mcp", toolName, CallDetail(arguments), actor: "bot:" + row.Prefix, cancellationToken: ct);
-            }
-
-            var result = method switch
-            {
-                "initialize" => Initialize(arguments),
-                "ping" => new JsonObject(),
-                "tools/list" => new JsonObject { ["tools"] = Tools.DeepClone() },
-                "tools/call" => await CallToolAsync(arguments, search, catalog, db, scheduler, time, ct),
-                _ => null,
-            };
-            if (result is null)
-            {
-                return RpcError(id, 200, -32601, $"Unknown method '{method}'.");
-            }
-
-            return Results.Text(Envelope(id, result), "application/json");
-        }
-        catch (JsonException)
-        {
-            return RpcError(id, 400, -32700, "The body is not JSON.");
-        }
-    }
-
-    internal static string Hash(string token) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
-
-    private static string ServerVersion()
-    {
-        var version = typeof(AuditMcp).Assembly.GetName().Version;
-        return version is null ? "0" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}.{version.Build}");
-    }
-
-    internal static string CreateSecret() => "vba_" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
-
-    internal static readonly TimeSpan TokenLifetime = TimeSpan.FromDays(90);
-
-    private static bool AllowCall(Guid id, DateTimeOffset now)
-    {
-        var tick = now.UtcTicks;
-        var window = TimeSpan.FromMinutes(1).Ticks;
-        lock (RateGate)
-        {
-            if (!RecentCalls.TryGetValue(id, out var queue))
-            {
-                RecentCalls[id] = queue = new Queue<long>();
-            }
-
-            while (queue.Count > 0 && tick - queue.Peek() > window)
-            {
-                queue.Dequeue();
-            }
-
-            if (queue.Count >= CallsPerMinute)
-            {
-                return false;
-            }
-
-            queue.Enqueue(tick);
-            return true;
-        }
-    }
-
-    private static string CallDetail(JsonElement arguments)
-    {
-        if (arguments.ValueKind != JsonValueKind.Object || !arguments.TryGetProperty("arguments", out var args) || args.ValueKind != JsonValueKind.Object)
-        {
-            return string.Empty;
-        }
-
-        var source = args.TryGetProperty("source", out var sourceEl) && sourceEl.ValueKind == JsonValueKind.String ? sourceEl.GetString() : null;
-        var tenant = args.TryGetProperty("tenantId", out var tenantEl) && tenantEl.ValueKind == JsonValueKind.String ? tenantEl.GetString() : null;
-        var detail = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"source={source ?? "-"} tenant={tenant ?? "-"}");
-        return detail.Length <= 200 ? detail : detail[..200];
-    }
-
-    private static JsonObject Initialize(JsonElement parameters)
-    {
-        var requested = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("protocolVersion", out var version) && version.ValueKind == JsonValueKind.String
-            ? version.GetString()
-            : null;
-        var protocol = requested is "2025-03-26" or "2025-06-18" ? requested : "2025-03-26";
-        return new JsonObject
-        {
-            ["protocolVersion"] = protocol,
-            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-            ["serverInfo"] = new JsonObject { ["name"] = "vulpes-audit", ["version"] = ServerVersion() },
-            ["instructions"] = Instructions,
-        };
-    }
-
-    private static async Task<JsonNode> CallToolAsync(JsonElement parameters, IEventSearch search, IAlertFieldCatalog catalog, AuditDbContext db, CollectionScheduler scheduler, TimeProvider time, CancellationToken ct)
-    {
-        if (parameters.ValueKind != JsonValueKind.Object || !parameters.TryGetProperty("name", out var nameEl) || nameEl.ValueKind != JsonValueKind.String)
-        {
-            return ToolError("tools/call needs a tool name.");
-        }
-
-        var name = nameEl.GetString() ?? string.Empty;
-        var args = parameters.TryGetProperty("arguments", out var argsEl) && argsEl.ValueKind == JsonValueKind.Object ? argsEl : default;
         try
         {
             var payload = name switch
             {
                 "list_sources" => ListSources(catalog),
-                "list_clients" => await ListClientsAsync(db, ct),
-                "ingestion_status" => await IngestionAsync(db, scheduler, ct),
-                "search_events" => await SearchAsync(args, search, time, ct),
-                "aggregate_events" => await AggregateAsync(args, search, time, ct),
-                "get_event" => await GetAsync(args, search, ct),
+                "list_clients" => await ListClientsAsync(db, cancellationToken),
+                "ingestion_status" => await IngestionAsync(db, scheduler, cancellationToken),
+                "search_events" => await SearchAsync(arguments, search, time, cancellationToken),
+                "aggregate_events" => await AggregateAsync(arguments, search, time, cancellationToken),
+                "get_event" => await GetAsync(arguments, search, cancellationToken),
                 _ => throw new ArgumentException($"Unknown tool '{name}'."),
             };
-            return new JsonObject
-            {
-                ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = payload.ToJsonString(Json) }),
-                ["structuredContent"] = payload,
-            };
+            var json = payload.ToJsonString(Json);
+            return new McpToolResult(json, json);
         }
         catch (ArgumentException ex)
         {
-            return ToolError(ex.Message);
+            return new McpToolResult(ex.Message, IsError: true);
         }
         catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
         {
-            return ToolError("Elasticsearch is not reachable, so the stored events cannot be read.");
+            return new McpToolResult("Elasticsearch is not reachable, so the stored events cannot be read.", IsError: true);
         }
     }
+
+    private static McpTool Define(string name, string description, JsonObject schema) => new(name, description, schema.ToJsonString(Json));
 
     private static JsonObject ListSources(IAlertFieldCatalog catalog)
     {
@@ -588,26 +401,6 @@ public static class AuditMcp
         _ => throw new ArgumentException($"Unknown aggregation kind '{kind}'."),
     };
 
-    private static bool TryBearer(HttpContext http, out string token)
-    {
-        token = string.Empty;
-        var header = http.Request.Headers.Authorization.ToString();
-        if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        token = header["Bearer ".Length..].Trim();
-        return token.Length is > 0 and <= 200;
-    }
-
-    private static JsonObject Tool(string name, string description, JsonObject schema) => new()
-    {
-        ["name"] = name,
-        ["description"] = description,
-        ["inputSchema"] = schema,
-    };
-
     private static JsonObject SearchSchema() => new()
     {
         ["type"] = "object",
@@ -643,18 +436,4 @@ public static class AuditMcp
         ["required"] = new JsonArray("source", "aggregations"),
     };
 
-    private static JsonObject ToolError(string message) => new()
-    {
-        ["isError"] = true,
-        ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = message }),
-    };
-
-    private static string Envelope(JsonNode? id, JsonNode result) =>
-        new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result }.ToJsonString(Json);
-
-    private static IResult RpcError(JsonNode? id, int status, int code, string message)
-    {
-        var body = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["error"] = new JsonObject { ["code"] = code, ["message"] = message } };
-        return Results.Text(body.ToJsonString(Json), "application/json", statusCode: status);
-    }
 }

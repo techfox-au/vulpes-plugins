@@ -52,7 +52,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         using var conn = database.Open();
         LogExpired(PurgeExpired(conn, now));
         InsertChallenge(conn, id, resourceKind, resourceId, clientId, key, bits, exp);
-        logger?.LogInformation("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
+        logger?.LogDebug("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
         return new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"), PowClock.Stamp(now));
     }
 
@@ -106,7 +106,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
             done.CommandText = "COMMIT";
             done.ExecuteNonQuery();
             LogExpired(expired);
-            logger?.LogInformation("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
+            logger?.LogDebug("PoW issued {Kind} {ChallengeId} resource={ResourceId} difficulty={Difficulty} expires={ExpiresAt}", resourceKind, id, resourceId, bits, exp.ToString("O"));
             challenge = new Challenge(id, Base64Url.Encode(key), bits, exp.ToString("O"), PowClock.Stamp(now));
             return true;
         }
@@ -176,7 +176,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         {
             Delete(conn, tx, challengeId);
             tx.Commit();
-            logger?.LogInformation("PoW expired {Kind} {ChallengeId} expires={ExpiresAt}", kind, challengeId, exp.ToString("O"));
+            logger?.LogDebug("PoW expired {Kind} {ChallengeId} expires={ExpiresAt}", kind, challengeId, exp.ToString("O"));
             return "Proof-of-work challenge expired.";
         }
 
@@ -237,7 +237,7 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
         }
 
         tx.Commit();
-        logger?.LogInformation("PoW valid {Kind} {ChallengeId} difficulty={Difficulty} consumed={Consumed}", resourceKind, challengeId, bits, consume);
+        logger?.LogDebug("PoW valid {Kind} {ChallengeId} difficulty={Difficulty} consumed={Consumed}", resourceKind, challengeId, bits, consume);
         return null;
     }
 
@@ -359,12 +359,12 @@ public sealed class PowService(ShareDatabase database, IPowPolicy? policy = null
     {
         foreach (var row in rows)
         {
-            logger?.LogInformation("PoW expired {Kind} {ChallengeId} unused", row.Kind, row.Id);
+            logger?.LogDebug("PoW expired {Kind} {ChallengeId} unused", row.Kind, row.Id);
         }
     }
 
     private void LogInvalid(string kind, string? challengeId, string reason) =>
-        logger?.LogInformation("PoW invalid {Kind} {ChallengeId} {Reason}", kind, string.IsNullOrWhiteSpace(challengeId) ? "-" : challengeId, reason);
+        logger?.LogDebug("PoW invalid {Kind} {ChallengeId} {Reason}", kind, string.IsNullOrWhiteSpace(challengeId) ? "-" : challengeId, reason);
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

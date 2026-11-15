@@ -92,7 +92,7 @@ public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = 
         challenges.ExecuteNonQuery();
         foreach (var row in expired)
         {
-            logger?.LogInformation("PoW expired {Kind} {ChallengeId} unused", row.Kind, row.Id);
+            logger?.LogDebug("PoW expired {Kind} {ChallengeId} unused", row.Kind, row.Id);
         }
     }
 

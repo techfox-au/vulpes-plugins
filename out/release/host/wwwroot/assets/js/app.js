@@ -1,6 +1,7 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell386';
+import './pwa.js?v=shell387';
 
 const content = document.getElementById('content');
 const navEl = document.getElementById('nav');

@@ -2,6 +2,7 @@ import { api, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage, fmt } from './ui.js';
 import * as webauthn from './webauthn.js?v=shell125';
 import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell133';
+import './pwa.js?v=shell387';
 
 setRedirectOnUnauthorized(false);
 const $ = (id) => document.getElementById(id);

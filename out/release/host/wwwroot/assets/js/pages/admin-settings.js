@@ -327,7 +327,7 @@ async function render(ctx) {
   try {
     const themes = await ctx.api.get('/api/admin/settings/themes');
     const choices = (themes.themes || []).filter((t) => t.id === 'default' || t.id === 'gorelo' || t.id === 'silver-fox').map((t) => [t.id, t.name]);
-    const control = dropdown(choices, { value: themes.active || 'default', name: 'theme', ariaLabel: 'Theme' });
+    const control = dropdown(choices, { value: themes.active || 'gorelo', name: 'theme', ariaLabel: 'Theme' });
     infoCard.append(h('div', { class: 'field mt' }, h('label', null, 'Theme'), control));
     control.addEventListener('change', async () => {
       const id = control.querySelector('input[name="theme"]')?.value;

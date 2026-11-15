@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell370';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell386';
 
 const content = document.getElementById('content');
 const navEl = document.getElementById('nav');
@@ -309,7 +309,7 @@ async function mountPluginPage(pluginId, page, query) {
     return;
   }
 
-  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell370`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell385`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Page not found (${res.status})`);
   const html = await res.text();
   // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
@@ -317,7 +317,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell370`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell385`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

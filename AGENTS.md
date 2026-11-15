@@ -82,7 +82,7 @@ A new package also needs a line in `Directory.Packages.props`. Host-shared packa
 
 `nav` has at most 50 entries. Each `page` is unique and matches `^[a-z][a-z0-9-]{0,63}$`. `title` is at most 60 characters. `icon` and `section` are at most 40. `roles` is a non-empty subset of `Admin`, `Analyst`, and `Viewer`. `section` is the sidebar heading; the shell shows it in capitals. `requirements` is documentation only: at most 100 strings, each at most 200 characters.
 
-Icons are symbol ids in the host sprite `wwwroot/assets/img/icons.svg`: `home`, `bell`, `user`, `users`, `puzzle`, `plug`, `settings`, `list`, `terminal`, `chart`, `login`, `directory`, `activity`, `shield`, `exclamation-octagon`, `warning`, `building`, `pulse`, `funnel`, `lock`, `key`, `sparkles`, `sun`, `moon`, `logout`, `x`, `check`, `search`, `refresh`, `plus`, `trash`, `edit`, `copy`, `download`, `upload`, `external`, `info`, `dot`, `mail`, `send-up`, `send-down`, `play`, `eye`.
+Icons are symbol ids in the host sprite `wwwroot/assets/img/icons.svg`: `home`, `bell`, `user`, `users`, `puzzle`, `plug`, `settings`, `list`, `terminal`, `chart`, `login`, `directory`, `activity`, `shield`, `exclamation-octagon`, `warning`, `building`, `pulse`, `funnel`, `lock`, `key`, `sparkles`, `sun`, `moon`, `logout`, `x`, `check`, `search`, `refresh`, `plus`, `trash`, `edit`, `copy`, `download`, `upload`, `external`, `info`, `dot`, `mail`, `send-up`, `send-down`, `play`, `eye`, `handshake`.
 
 Also add `latest/Vulpes.Plugins.Example.txt`. The file name is the assembly name. The host shows that text on Manage → Plugins next to the release. Write a few plain sentences, the way `latest/Vulpes.Plugins.Microsoft-365-Audit.txt` does. `plugin.json` `description` is a separate, shorter field.
 

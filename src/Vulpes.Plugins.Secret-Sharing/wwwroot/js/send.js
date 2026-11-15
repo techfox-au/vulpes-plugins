@@ -1,4 +1,4 @@
-import { requireUserDataKey } from '/assets/js/data-key.js?v=shell154';
+import { requireUserDataKey } from '/assets/js/data-key.js?v=shell389';
 
 const pub = '/plugins/secret-sharing/public';
 const FILE_LIMIT = 40 * 1024 * 1024;

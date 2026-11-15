@@ -86,11 +86,15 @@ export async function requireUserDataKey() {
   await loadScript();
   const existing = window.SecretUdk.loadUserDataKey();
   if (existing) return existing;
-  const wraps = wrapsOf(await api.get(BASE));
-  const hasPassword = wraps.some((wrap) => wrap.kind === 'password' || wrap.kind === 'legacy');
-  const hasPasskey = wraps.some((wrap) => wrap.kind === 'passkey');
+  const [pack, me] = await Promise.all([api.get(BASE), api.get('/api/account')]);
+  const wraps = wrapsOf(pack);
+  const passwordAllowed = me.passwordLoginEnabled === true;
+  const hasPassword = passwordAllowed && wraps.some((wrap) => wrap.kind === 'password' || wrap.kind === 'legacy');
+  const hasPasskey = me.passkeyCount > 0 || wraps.some((wrap) => wrap.kind === 'passkey');
   if (!hasPassword && !hasPasskey) {
-    throw new Error('This account has no encryption key. Add a password or passkey on the account page, then try again.');
+    throw new Error(passwordAllowed
+      ? 'This account has no encryption key. Add a password or passkey on the account page, then try again.'
+      : 'This account has no passkey that can unlock encryption.');
   }
   if (hasPassword) {
     const { modal } = await import('./ui.js?v=shell104');

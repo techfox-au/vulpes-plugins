@@ -1,5 +1,5 @@
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell154';
+import { requireUserDataKey } from '../data-key.js?v=shell389';
 
 let status = null;
 let shareTimer = null;
@@ -194,7 +194,7 @@ async function shareItem(ctx, panel, item) {
       h('div', { class: 'share-item-title' }, title == null ? '(unlock encryption to view name)' : title),
       h('div', { class: 'share-item-tags' }, chip(item.id, 'id', 'ID'), statusBadge(shown))),
     h('div', { class: 'share-meta' }, meta),
-    item.privateNoteCiphertext ? h('div', { class: 'share-note' }, h('strong', null, 'Private note: '), note == null ? '(unlock encryption with your account password)' : note) : null,
+    item.privateNoteCiphertext ? h('div', { class: 'share-note' }, h('strong', null, 'Private note: '), note == null ? '(unlock encryption to view the note)' : note) : null,
     h('div', { class: 'share-actions' }, actions),
   ].filter(Boolean);
   article.append(...parts);

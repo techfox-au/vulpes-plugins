@@ -178,9 +178,23 @@ public sealed class AuditPackagingTests : IDisposable
     {
         Directory.CreateDirectory(_temp);
         var (pluginDir, hostDir) = OutputDirectories();
+        // The plugin references the SDK with Private=false, so the build output does not contain it.
+        // Plant the host copy so this test still proves the packer removes host-shared assemblies.
+        var staged = Path.Combine(_temp, "plugin");
+        CopyDirectory(pluginDir, staged);
+        foreach (var name in new[] { "Vulpes.Sdk.dll", "Microsoft.EntityFrameworkCore.dll" })
+        {
+            var source = Path.Combine(hostDir, name);
+            var target = Path.Combine(staged, name);
+            if (File.Exists(source) && !File.Exists(target))
+            {
+                File.Copy(source, target);
+            }
+        }
+
         var result = PluginPackager.Pack(new PackOptions
         {
-            PluginDirectory = pluginDir,
+            PluginDirectory = staged,
             OutputPath = Path.Combine(_temp, "dist", "audit.7z"),
             HostDirectory = hostDir, // everything the real host ships is stripped; plugin-private deps (Azure.Identity) stay
         });
@@ -202,7 +216,7 @@ public sealed class AuditPackagingTests : IDisposable
         var catalog = PluginLoader.LoadAll(options.Directory!, new ConfigurationBuilder().Build(), installer, pins, NullLogger.Instance);
         Assert.Empty(catalog.Failures);
         var plugin = Assert.Single(catalog.Plugins);
-        Assert.Equal(9, plugin.Manifest.Nav.Count);
+        Assert.Equal(11, plugin.Manifest.Nav.Count);
         Assert.True(File.Exists(Path.Combine(plugin.Context.WebRoot, "pages", "overview.html")));
         Assert.True(File.Exists(Path.Combine(plugin.Context.WebRoot, "js", "common.js")));
 
@@ -228,6 +242,18 @@ public sealed class AuditPackagingTests : IDisposable
         // Endpoints map without throwing on a real route builder.
         var app = WebApplication.CreateBuilder().Build();
         plugin.Instance.MapEndpoints(app.MapGroup("/api/plugins/microsoft-365-audit"), plugin.Context);
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, file);
+            var target = Path.Combine(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
     }
 
     private static ReleaseManifest ManifestFor(string packagePath, string version)

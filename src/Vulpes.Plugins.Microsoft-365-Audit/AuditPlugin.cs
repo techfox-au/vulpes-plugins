@@ -126,7 +126,7 @@ public sealed class AuditPlugin : IPlugin
         Directory.CreateDirectory(context.DataDirectory);
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
-        await db.Database.MigrateAsync(cancellationToken);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken);
         services.GetRequiredService<AuditSettingsStore>().Load();
         scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<AuditPlugin>().LogInformation("Audit plugin database ready at {Path}", context.DatabasePath);

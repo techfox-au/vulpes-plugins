@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell401';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell402';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -13,7 +13,7 @@ const corePages = {
   '/account': () => import('./pages/account.js?v=shell398'),
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell399'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell377'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell402'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell398'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
@@ -318,7 +318,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell401`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell402`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

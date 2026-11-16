@@ -36,9 +36,6 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             db.Tenants.Remove(gone);
         }
 
-        string? Migrate(string? stored) =>
-            string.IsNullOrEmpty(stored) || SealedColumn.TryOpen(data, stored, out _) ? stored : null;
-
         foreach (var remote in tenants)
         {
             var row = local.FirstOrDefault(t => t.Id == remote.Id);
@@ -62,9 +59,6 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
 
             row.DisplayName = remote.DisplayName;
             row.Enabled = remote.Enabled;
-            row.ProtectedSecret = Migrate(row.ProtectedSecret);
-            row.ProtectedCertificate = Migrate(row.ProtectedCertificate);
-            row.ProtectedCertificatePassword = Migrate(row.ProtectedCertificatePassword);
             if (!string.IsNullOrWhiteSpace(remote.DiscoveredName))
             {
                 row.DiscoveredName = remote.DiscoveredName;

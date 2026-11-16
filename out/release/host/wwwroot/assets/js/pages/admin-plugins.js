@@ -1,7 +1,8 @@
-import { h, badge, fmt, modal, errorMessage, clear, kv, pageNote, setBusy } from '../ui.js?v=shell84';
+import { h, badge, fmt, modal, errorMessage, clear, kv, pageNote, setBusy } from '../ui.js?v=shell402';
 
 let root;
 let renderToken = 0;
+const pendingInstalls = new Set();
 export async function mount(el, ctx) { root = el; ctx.setTitle(['Plugins']); await render(ctx); }
 export function unmount() { renderToken += 1; root = null; }
 
@@ -56,11 +57,7 @@ async function render(ctx) {
           h('strong', null, f.id || f.directory),
           '. ',
           f.error),
-        repair ? h('button', {
-          class: 'btn sm',
-          dataset: { pluginAction: repair.action, asset: repair.asset },
-          onClick: (event) => install(ctx, repair, event.currentTarget),
-        }, repair.action === 'upgrade' ? 'Upgrade' : 'Reinstall') : null);
+        repair ? installButton(ctx, repair, 'btn sm', repair.action === 'upgrade' ? 'Upgrade' : 'Reinstall') : null);
     });
     root.append(h('div', { class: 'card' }, h('h2', null, 'Failed to load'), h('div', { class: 'col' }, failures)));
   }
@@ -96,11 +93,7 @@ async function render(ctx) {
       h('div', { class: 'card-header' }, h('h2', null, offer.name), offer.version ? badge(versionLabel(offer.version)) : null),
       offer.description ? h('p', null, offer.description) : null,
       h('p', { class: 'muted small' }, fmt.bytes(offer.size)),
-      h('button', {
-        class: 'btn sm primary',
-        dataset: { pluginAction: action, asset: offer.asset },
-        onClick: (event) => install(ctx, offer, event.currentTarget),
-      }, action === 'upgrade' ? 'Upgrade' : action === 'reinstall' ? 'Reinstall' : 'Install')));
+      installButton(ctx, offer, 'btn sm primary', action === 'upgrade' ? 'Upgrade' : action === 'reinstall' ? 'Reinstall' : 'Install')));
   }
   if (!data.catalogError && releases.length === 0) offers.append(h('div', { class: 'card muted' }, (data.available || []).length === 0 ? 'No plugins available.' : 'No updates or new plugins.'));
   const refreshButton = h('button', { class: 'btn', onClick: (event) => refreshCatalog(ctx, event.currentTarget) }, 'Refresh');
@@ -139,17 +132,38 @@ async function refreshCatalog(ctx, button) {
   }
 }
 
+function installKey(offer) {
+  return String(offer.asset || offer.pluginId || '');
+}
+
+function installButton(ctx, offer, className, label) {
+  const pending = pendingInstalls.has(installKey(offer));
+  const button = h('button', {
+    class: className,
+    disabled: pending,
+    dataset: { pluginAction: offer.action === 'upgrade' ? 'upgrade' : offer.action === 'reinstall' ? 'reinstall' : 'install', asset: offer.asset },
+    onClick: (event) => install(ctx, offer, event.currentTarget),
+  }, label);
+  if (pending) setBusy(button, true);
+  return button;
+}
+
 async function install(ctx, offer, button) {
-  if (button?.disabled) return;
+  const key = installKey(offer);
+  if (!key || pendingInstalls.has(key) || button?.disabled) return;
+  pendingInstalls.add(key);
   if (button) setBusy(button, true);
   try {
     const res = await ctx.api.post('/api/admin/plugins/install', { asset: offer.asset, source: offer.source || 'public' });
+    pendingInstalls.delete(key);
     await render(ctx);
     const verb = offer.action === 'upgrade' ? 'Upgraded' : offer.action === 'reinstall' ? 'Reinstalled' : 'Installed';
     pageNote(root, `${verb} ${res.installed.id} ${res.installed.version}. Restart to load it.`, 'success');
     revealRestart();
   } catch (err) {
+    pendingInstalls.delete(key);
     if (button && button.isConnected) setBusy(button, false);
+    else if (root) await render(ctx);
     pageNote(root, errorMessage(err));
   }
 }

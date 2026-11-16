@@ -429,18 +429,6 @@ public sealed class ShareBurnTests : IDisposable
         Assert.DoesNotContain(ownerKey, stored, StringComparison.Ordinal);
         Assert.Equal(ownerKey, store.OwnerKey("owner", id));
         Assert.Equal("{\"v\":1}", Assert.Single(store.ListWraps("owner")).Wrapped);
-
-        using var legacy = conn.CreateCommand();
-        legacy.CommandText = "UPDATE collects SET OwnerPrivateKeyProtected = @value WHERE Id = @id";
-        legacy.Parameters.AddWithValue("@value", ownerKey);
-        legacy.Parameters.AddWithValue("@id", id);
-        legacy.ExecuteNonQuery();
-        store.SealExistingKeyMaterial();
-        Assert.Equal(ownerKey, store.OwnerKey("owner", id));
-        using var again = conn.CreateCommand();
-        again.CommandText = "SELECT OwnerPrivateKeyProtected FROM collects WHERE Id = @id";
-        again.Parameters.AddWithValue("@id", id);
-        Assert.StartsWith(DataAtRestProtector.Prefix, (string)again.ExecuteScalar()!, StringComparison.Ordinal);
     }
 
     private string? SendCiphertext(string id)

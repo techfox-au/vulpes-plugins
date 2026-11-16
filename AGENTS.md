@@ -17,7 +17,7 @@ Two plugins are already here. Microsoft 365 Audit collects logs into Elasticsear
 - Set `<Version>` in the plugin project to the same semantic version as `plugin.json`. `Directory.Build.props` would otherwise stamp the assembly `0.1.0`.
 - Warnings are errors, nullable is on, and NuGet audit fails the build on known-vulnerable packages. Fix the warning. Leave the `NoWarn` list in `Directory.Build.props` as it is.
 - Store secrets with the protectors below. Leave passwords, tokens, and key material out of logs, exceptions, and JSON responses.
-- A value already sealed with the master key stays on that key. Every other value written to a plugin database is sealed with `SealedColumn` (`vd1.`). `Seal` always wraps the plaintext. `Open` decrypts a real envelope and does not throw on a `vd1.` prefix that is not one. Do not add a new plaintext column for stored data. Primary keys, foreign keys, timestamps, status values used as SQL predicates, and lookup keys such as the notification email budget address stay queryable. Secret Sharing payload ciphertext stays sealed only by the client key.
+- A value written to a plugin database is sealed with `SealedColumn` (`vd1.`). `Seal` wraps the plaintext. `Open` decrypts a real envelope and does not throw on a `vd1.` prefix that is not one. Do not add a new plaintext column for stored data. Primary keys, foreign keys, timestamps, status values used as SQL predicates, and lookup keys such as the notification email budget address stay queryable. Secret Sharing payload ciphertext stays sealed only by the client key.
 - `./build.sh` publishes every plugin. It replaces a `latest/*.7z` only when the files that would be packed differ from that archive's `files.sha256`, and clear-signs `latest/manifest` only then. Run it only when cutting a release. It needs `gpg`, `python3`, and the release key.
 - The dashboard image includes PowerShell 7 as `pwsh`. It is the Alpine community package for that image's architecture, both amd64 and arm64. `dotnet` on `PATH` remains the ASP.NET runtime.
 
@@ -109,16 +109,16 @@ public sealed class ExamplePlugin : IPlugin
     public async Task InitializeAsync(IServiceProvider services, IPluginContext context, CancellationToken cancellationToken)
     {
         await using var scope = services.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<ExampleDbContext>().Database.MigrateAsync(cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<ExampleDbContext>().Database.EnsureCreatedAsync(cancellationToken);
     }
 }
 ```
 
-`ConfigureServices` runs while the host is still building its container. `MapEndpoints` receives a group rooted at `/api/plugins/{id}`. That group already requires an authenticated user and the API rate limit. Tighten a route with `RequireAuthorization(Policies.Admin)`, `Policies.Analyst`, or `Policies.Viewer`. `InitializeAsync` runs once during startup, after the host database and search schema are ready, and before the process serves traffic. Migrate the plugin database there.
+`ConfigureServices` runs while the host is still building its container. `MapEndpoints` receives a group rooted at `/api/plugins/{id}`. That group already requires an authenticated user and the API rate limit. Tighten a route with `RequireAuthorization(Policies.Admin)`, `Policies.Analyst`, or `Policies.Viewer`. `InitializeAsync` runs once during startup, after the host database and search schema are ready, and before the process serves traffic. Create the plugin database there.
 
 `IPluginContext` gives `Manifest`, `InstallDirectory` (read-only package files), `DataDirectory` (writable, kept across upgrades), `DatabasePath` (`{DataDirectory}/{id}.db`), `Configuration` (the `Plugins:Settings:{id}` section), and `ApiPrefix`.
 
-An upgrade replaces the `pkg/` directory only. The data directory and SQLite file stay. Change the schema with EF Core migrations. Uninstall keeps that data unless an administrator chooses to purge it.
+An upgrade replaces the `pkg/` directory only. The data directory and SQLite file stay. The database is created from one schema and is not upgraded in place. Uninstall keeps that data unless an administrator chooses to purge it.
 
 ## Services the host provides
 

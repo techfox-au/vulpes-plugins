@@ -58,7 +58,8 @@ public sealed class ShareDatabase
                 ResourceId TEXT NOT NULL,
                 HmacKey BLOB NOT NULL,
                 DifficultyBits INTEGER NOT NULL,
-                ExpiresAt TEXT NOT NULL
+                ExpiresAt TEXT NOT NULL,
+                ClientId TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS scan_events (
@@ -88,7 +89,8 @@ public sealed class ShareDatabase
                 PasswordProtected INTEGER NOT NULL DEFAULT 0,
                 HideTextByDefault INTEGER NOT NULL DEFAULT 0,
                 AllowedCidr TEXT NULL,
-                RecipientLabel TEXT NULL
+                RecipientLabel TEXT NULL,
+                EmailedTo TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_secrets_owner ON secrets(OwnerUserId);
 
@@ -119,81 +121,6 @@ public sealed class ShareDatabase
             CREATE INDEX IF NOT EXISTS ix_collects_owner ON collects(OwnerUserId);
             """;
         cmd.ExecuteNonQuery();
-        EnsurePowClientId(conn);
-        EnsurePublicLabel(conn);
-        EnsureAllowedCidr(conn);
-        EnsureRecipientLabel(conn);
-        EnsureEmailedTo(conn);
-    }
-
-    private static void EnsureEmailedTo(SqliteConnection conn)
-    {
-        using var check = conn.CreateCommand();
-        check.CommandText = "SELECT 1 FROM pragma_table_info('secrets') WHERE name = 'EmailedTo' LIMIT 1";
-        if (check.ExecuteScalar() is not null)
-        {
-            return;
-        }
-
-        using var alter = conn.CreateCommand();
-        alter.CommandText = "ALTER TABLE secrets ADD COLUMN EmailedTo TEXT NULL";
-        alter.ExecuteNonQuery();
-    }
-
-    private static void EnsurePowClientId(SqliteConnection conn)
-    {
-        using var check = conn.CreateCommand();
-        check.CommandText = "SELECT 1 FROM pragma_table_info('pow_challenges') WHERE name = 'ClientId' LIMIT 1";
-        if (check.ExecuteScalar() is not null)
-        {
-            return;
-        }
-
-        using var alter = conn.CreateCommand();
-        alter.CommandText = "ALTER TABLE pow_challenges ADD COLUMN ClientId TEXT NOT NULL DEFAULT ''";
-        alter.ExecuteNonQuery();
-    }
-
-    private static void EnsurePublicLabel(SqliteConnection conn)
-    {
-        using var check = conn.CreateCommand();
-        check.CommandText = "SELECT 1 FROM pragma_table_info('collects') WHERE name = 'PublicLabel' LIMIT 1";
-        if (check.ExecuteScalar() is not null)
-        {
-            return;
-        }
-
-        using var alter = conn.CreateCommand();
-        alter.CommandText = "ALTER TABLE collects ADD COLUMN PublicLabel TEXT NULL";
-        alter.ExecuteNonQuery();
-    }
-
-    private static void EnsureAllowedCidr(SqliteConnection conn)
-    {
-        using var check = conn.CreateCommand();
-        check.CommandText = "SELECT 1 FROM pragma_table_info('secrets') WHERE name = 'AllowedCidr' LIMIT 1";
-        if (check.ExecuteScalar() is not null)
-        {
-            return;
-        }
-
-        using var alter = conn.CreateCommand();
-        alter.CommandText = "ALTER TABLE secrets ADD COLUMN AllowedCidr TEXT NULL";
-        alter.ExecuteNonQuery();
-    }
-
-    private static void EnsureRecipientLabel(SqliteConnection conn)
-    {
-        using var check = conn.CreateCommand();
-        check.CommandText = "SELECT 1 FROM pragma_table_info('secrets') WHERE name = 'RecipientLabel' LIMIT 1";
-        if (check.ExecuteScalar() is not null)
-        {
-            return;
-        }
-
-        using var alter = conn.CreateCommand();
-        alter.CommandText = "ALTER TABLE secrets ADD COLUMN RecipientLabel TEXT NULL";
-        alter.ExecuteNonQuery();
     }
 
     public SqliteConnection Open()

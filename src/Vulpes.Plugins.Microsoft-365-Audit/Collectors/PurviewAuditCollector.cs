@@ -164,6 +164,11 @@ public sealed class PurviewAuditCollector : ICollector
         var last = await context.PublishAsync(buffer, cancellationToken);
         totals = (totals.Indexed + last.Indexed, totals.Duplicates + last.Duplicates, totals.Failed + last.Failed, totals.Alerts + last.Alerts);
 
+        if (totals.Failed > 0)
+        {
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} index rejected records; the watermark was not moved") { QueryId = queryId };
+        }
+
         if (!complete)
         {
             // Keep the query and the next page. The following run continues there instead of downloading page 1 again.
@@ -176,11 +181,6 @@ public sealed class PurviewAuditCollector : ICollector
                 [PendingNextKey] = resume,
             });
             return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run") { QueryId = queryId };
-        }
-
-        if (totals.Failed > 0)
-        {
-            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} index rejected records; the watermark was not moved") { QueryId = queryId };
         }
 
         context.SaveState([]);

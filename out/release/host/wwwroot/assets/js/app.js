@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell391';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell401';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -318,7 +318,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell400`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell401`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }

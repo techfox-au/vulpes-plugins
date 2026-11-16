@@ -34,12 +34,18 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     const file = selectedKind() === 'file';
     textPanel.hidden = file;
     filePanel.hidden = !file;
+    textEl.required = !file;
+    textEl.disabled = file;
+    fileEl.required = file;
+    fileEl.disabled = !file;
   }
 
   form.querySelectorAll('input[name="content-kind"]').forEach((radio) => radio.addEventListener('change', applyKind));
   applyKind();
 
   if (!id) { setAlert('error', 'Missing collect id.'); return; }
+  const linkKey = SenditCrypto.publicKeyFromLocationHash(location.hash);
+  if (!linkKey) { setAlert('error', 'This upload link is missing its public key. Open the full link, including the #pk= fragment.'); return; }
   await VulpesPow.sync();
 
   let meta;
@@ -56,6 +62,14 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     opening.close();
   }
 
+  let serverKey = null;
+  try { serverKey = SenditCrypto.b64urlDecode(meta.publicKey); } catch { serverKey = null; }
+  if (!serverKey || serverKey.length !== linkKey.length || !equalBytes(linkKey, serverKey)) {
+    panel.hidden = true;
+    setAlert('error', 'This upload link does not match this collect.');
+    return;
+  }
+
   let when = '';
   try { when = new Date(meta.expiresAt).toLocaleString(); } catch { when = ''; }
   metaEl.textContent = 'Expires ' + when + (meta.oneTime ? ' · one-time collect' : '');
@@ -66,11 +80,10 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     return;
   }
 
-  const publicKey = SenditCrypto.b64urlDecode(meta.publicKey);
   if (meta.publicLabel) {
     try {
       const wire = typeof meta.publicLabel === 'string' ? JSON.parse(meta.publicLabel) : meta.publicLabel;
-      const title = await SenditCrypto.plainToText(await SenditCrypto.decryptCollectName(wire, publicKey));
+      const title = await SenditCrypto.plainToText(await SenditCrypto.decryptCollectName(wire, linkKey));
       if (title) { nameEl.textContent = title; document.getElementById('collect-head').hidden = false; document.title = title + ' · Upload secret'; }
     } catch { /* name stays hidden */ }
   }
@@ -100,7 +113,7 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
       progress.setStatus('Reading and encrypting…');
       progress.setProgress(null);
       const input = await readSecret();
-      const payload = await SenditCrypto.encryptForRecipient(input.plain, publicKey, (msg, frac) => {
+      const payload = await SenditCrypto.encryptForRecipient(input.plain, linkKey, (msg, frac) => {
         progress.setStatus(msg || 'Encrypting…');
         progress.setProgress(frac == null || !Number.isFinite(frac) ? null : frac);
       });
@@ -139,6 +152,12 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
       button.disabled = false;
     }
   });
+
+  function equalBytes(left, right) {
+    let diff = 0;
+    for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
+    return diff === 0;
+  }
 
   async function readJson(res) {
     const text = await res.text();

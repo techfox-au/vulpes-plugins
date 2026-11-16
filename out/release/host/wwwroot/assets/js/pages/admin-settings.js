@@ -1,6 +1,6 @@
-import { confirmIdentity } from '../reauth.js?v=shell258';
+import { confirmIdentity } from '../reauth.js?v=shell398';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
-import { appendApplication } from './entra-application.js?v=shell370';
+import { appendApplication } from './entra-application.js?v=shell398';
 
 let root;
 let pageCtx;

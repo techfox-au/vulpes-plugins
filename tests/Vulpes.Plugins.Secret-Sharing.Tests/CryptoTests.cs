@@ -337,7 +337,7 @@ public sealed class ShareBurnTests : IDisposable
     public void One_time_collect_can_be_retrieved_without_the_owner_and_then_burns()
     {
         var id = _store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
-        Assert.Null(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
+        Assert.True(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
         Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
         Assert.Null(_store.TakeCollect(id));
         Assert.Null(CollectCiphertext(id));
@@ -347,7 +347,7 @@ public sealed class ShareBurnTests : IDisposable
     public void Capped_collect_burns_on_the_last_allowed_open()
     {
         var id = _store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, false, 60, 2, false, false, null));
-        Assert.Null(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
+        Assert.True(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
         Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
         Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
         Assert.Null(_store.TakeCollect(id));

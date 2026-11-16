@@ -27,6 +27,8 @@ public sealed class CollectUploadGateTests : IDisposable
         var (nonce, hash) = Solve(challenge);
 
         var unproven = await RunAsync(database, pow, store, id, browser, null, null, null);
+        var slashed = await RunAsync(database, pow, store, id, browser, null, null, null, "/api/plugins/secret-sharing/public/collects/" + id + "/");
+        Assert.Equal(PowService.SmallBodyBytes, slashed.MaxRequestBodySize);
         Assert.Equal(PowService.SmallBodyBytes, unproven.MaxRequestBodySize);
         Assert.False(unproven.Consumed);
 
@@ -41,9 +43,25 @@ public sealed class CollectUploadGateTests : IDisposable
         Assert.NotNull(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
     }
 
+    [Fact]
+    public async Task A_valid_proof_burns_before_the_collect_is_looked_up()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "missing.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var proven = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash);
+        Assert.Equal(PowService.LargeBodyBytes, proven.MaxRequestBodySize);
+        Assert.True(proven.Consumed);
+        Assert.Null(store.CollectMeta(id));
+    }
+
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
-    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash)
+    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(database);
@@ -52,7 +70,7 @@ public sealed class CollectUploadGateTests : IDisposable
         var provider = services.BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = provider };
         context.Request.Method = HttpMethods.Post;
-        context.Request.Path = "/api/plugins/secret-sharing/public/collects/" + id;
+        context.Request.Path = path ?? "/api/plugins/secret-sharing/public/collects/" + id;
         context.Request.Headers.Cookie = PowBrowser.CookieName + "=" + browser;
         if (challenge is not null)
         {

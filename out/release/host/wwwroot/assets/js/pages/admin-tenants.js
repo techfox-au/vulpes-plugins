@@ -1,4 +1,4 @@
-import { confirmIdentity } from '../reauth.js?v=shell258';
+import { confirmIdentity } from '../reauth.js?v=shell398';
 import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell370';
 
 let root;

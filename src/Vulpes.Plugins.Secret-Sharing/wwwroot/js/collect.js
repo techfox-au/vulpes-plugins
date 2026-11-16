@@ -1,4 +1,4 @@
-import { requireUserDataKey } from '/assets/js/data-key.js?v=shell389';
+import { requireUserDataKey } from '/assets/js/data-key.js?v=shell391';
 
 const pub = '/plugins/secret-sharing/public';
 const expiryChoices = [
@@ -16,7 +16,7 @@ const expiryChoices = [
 
 export async function mount(el, ctx) {
   const root = el.querySelector('#collect-root');
-  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
+  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk6`)).then(() => window.SecretUdk.ready());
   const { h, dropdown, copyToClipboard } = ctx.ui;
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. Give me credentials', autocomplete: 'off' });
   const mode = dropdown([['true', 'One-time'], ['false', 'Multi-view until expiry']], { value: 'true', ariaLabel: 'Collect mode' });
@@ -64,7 +64,7 @@ export async function mount(el, ctx) {
       let maxAccessCount = null;
       if (!oneTime && max.value.trim()) {
         const n = parseInt(max.value.trim(), 10);
-        if (!Number.isFinite(n) || n < 1 || n > 100000) throw new Error('Maximum access count must be between 1 and 100000.');
+        if (!Number.isFinite(n) || n < 1 || n > 100000) throw new Error('Maximum access count must be a whole number from 1 to 100000.');
         maxAccessCount = n;
       }
       const linkPassword = password.value;
@@ -74,14 +74,23 @@ export async function mount(el, ctx) {
       const privateNote = note.value.trim();
       if (privateNote.length > 5000000) throw new Error('Private note is too long.');
       const pair = SenditCrypto.generateKeyPair();
-      let storedKey = pair.secretKey;
-      let fragment = SenditCrypto.buildFragment(pair.secretKey);
-      if (linkPassword) {
-        const pkg = await SenditCrypto.wrapSecretKeyWithPassword(pair.secretKey, linkPassword);
-        fragment = SenditCrypto.buildPasswordProtectedFragment(pkg);
-        storedKey = new TextEncoder().encode(pkg);
+      const rawKey = new Uint8Array(pair.secretKey);
+      pair.secretKey.fill(0);
+      let storedKey = rawKey;
+      let fragment;
+      let protectedKey;
+      try {
+        fragment = SenditCrypto.buildFragment(rawKey);
+        if (linkPassword) {
+          const pkg = await SenditCrypto.wrapSecretKeyWithPassword(rawKey, linkPassword);
+          fragment = SenditCrypto.buildPasswordProtectedFragment(pkg);
+          storedKey = new TextEncoder().encode(pkg);
+        }
+        protectedKey = await SecretUdk.encryptWithUserDataKey(storedKey, udk);
+      } finally {
+        rawKey.fill(0);
+        storedKey.fill(0);
       }
-      const protectedKey = await SecretUdk.encryptWithUserDataKey(storedKey, udk);
       const ownerLabel = label ? await SecretUdk.encryptWithUserDataKey(new TextEncoder().encode(label), udk) : null;
       const publicLabel = label ? await SenditCrypto.encryptCollectName(new TextEncoder().encode(label), pair.publicKey) : null;
       const noteCipher = privateNote ? await SecretUdk.encryptWithUserDataKey(new TextEncoder().encode(privateNote), udk) : null;
@@ -97,7 +106,7 @@ export async function mount(el, ctx) {
         passwordProtected: !!linkPassword,
         hideTextByDefault: hide.checked,
       });
-      const upload = `${location.origin}/upload?id=${encodeURIComponent(created.id)}`;
+      const upload = `${location.origin}/upload?id=${encodeURIComponent(created.id)}${SenditCrypto.buildPublicKeyFragment(pair.publicKey)}`;
       const owner = `${location.origin}/collect?id=${encodeURIComponent(created.id)}${fragment}`;
       errors.replaceChildren();
       linkCount += 1;
@@ -106,8 +115,8 @@ export async function mount(el, ctx) {
         results.append(banner);
       }
       banner.textContent = linkCount > 1
-        ? 'Save the collect links now — they contain your private key in the # fragment. Send only the upload link to the other party.'
-        : 'Save the collect link now — it contains your private key in the # fragment. Send only the upload link to the other party.';
+        ? 'Save the collect links now. Each collect link’s # fragment is your private key. Send only the upload link.'
+        : 'Save the collect link now. Its # fragment is your private key. Send only the upload link.';
       const copyUpload = h('button', { class: 'btn primary', type: 'button' }, 'Copy upload link');
       const copyCollect = h('button', { class: 'btn primary', type: 'button' }, 'Copy collect link');
       const download = h('button', { class: 'btn', type: 'button' }, 'Download .txt');

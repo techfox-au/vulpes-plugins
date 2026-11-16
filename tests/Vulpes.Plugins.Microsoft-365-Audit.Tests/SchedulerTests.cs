@@ -41,7 +41,7 @@ public sealed class SchedulerTests : IDisposable
     private CollectionScheduler CreateScheduler(AuditOptions? options = null) => new(
         _provider.GetRequiredService<IServiceScopeFactory>(),
         [_collector],
-        new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
+        new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, _time),
         _pipeline,
         new ReadyStore(),
         options ?? new AuditOptions(),
@@ -146,7 +146,7 @@ public sealed class SchedulerTests : IDisposable
         var scheduler = new CollectionScheduler(
             _provider.GetRequiredService<IServiceScopeFactory>(),
             [new ScriptedCollector { Source = Sources.SecureScore }, new ScriptedCollector { Source = Sources.SignIns }],
-            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
+            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, _time),
             _pipeline,
             store,
             new AuditOptions(),
@@ -177,7 +177,7 @@ public sealed class SchedulerTests : IDisposable
         var afterWait = new CollectionScheduler(
             _provider.GetRequiredService<IServiceScopeFactory>(),
             [new ScriptedCollector { Source = Sources.SecureScore }, new ScriptedCollector { Source = Sources.SignIns }],
-            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector(), new FakeProtector()), NullLoggerFactory.Instance, _time),
+            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, _time),
             _pipeline,
             waiting,
             new AuditOptions(),

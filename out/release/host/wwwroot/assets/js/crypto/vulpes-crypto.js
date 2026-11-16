@@ -4,7 +4,7 @@
  */
 (function (global) {
   "use strict";
-  const version = "crypto1";
+  const version = "crypto3";
   const naclSrc = "/assets/js/crypto/nacl-fast.js?v=" + version;
   const cryptoSrc = "/assets/js/crypto/crypto.js?v=" + version;
   let loading = null;
@@ -20,7 +20,7 @@
   }
 
   function ready() {
-    if (global.nacl && global.nacl.box && global.SenditCrypto && global.SenditCrypto.generateKeyPair) {
+    if (global.nacl && global.nacl.box && global.SenditCrypto && global.SenditCrypto.buildPublicKeyFragment) {
       return Promise.resolve(global.SenditCrypto);
     }
     if (!loading) {

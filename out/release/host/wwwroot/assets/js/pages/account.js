@@ -1,8 +1,8 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
 import * as webauthn from '../webauthn.js?v=shell127';
-import { preparePasswordWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell213';
-import { confirmIdentity as reauth } from '../reauth.js?v=shell258';
+import { preparePasswordWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell398';
+import { confirmIdentity as reauth } from '../reauth.js?v=shell398';
 
 let root;
 let flash;
@@ -195,18 +195,24 @@ async function render(ctx) {
     form.append(field('New password', 'newPassword', 'new-password'), field('Repeat new password', 'repeat', 'new-password'));
     const submit = h('button', { class: 'btn primary', type: 'submit' }, me.passwordSet ? 'Change password' : 'Set password');
     form.append(h('div', { class: 'form-actions' }, submit));
+    let appliedPassword = null;
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const v = formValues(form);
       panelNote(passwordCard, '');
-      if (v.newPassword.length < 12) { panelNote(passwordCard, 'Use at least 12 characters.'); return; }
-      if (v.newPassword !== v.repeat) { panelNote(passwordCard, 'The passwords do not match.'); return; }
+      if (!appliedPassword) {
+        if (v.newPassword.length < 12) { panelNote(passwordCard, 'Use at least 12 characters.'); return; }
+        if (v.newPassword !== v.repeat) { panelNote(passwordCard, 'The passwords do not match.'); return; }
+      }
       setBusy(submit, true, 'Saving…');
       try {
-        if (me.mustChangePassword) await replaceAfterTemporaryPassword(v.newPassword);
-        else await preparePasswordWrap(v.currentPassword || null);
-        await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
-        if (!me.mustChangePassword) await commitPasswordWrap(v.newPassword);
+        if (!appliedPassword && !me.mustChangePassword) await preparePasswordWrap(v.currentPassword || null, { createIfMissing: !me.passwordSet });
+        if (!appliedPassword) {
+          await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
+          appliedPassword = v.newPassword;
+        }
+        if (me.mustChangePassword) await replaceAfterTemporaryPassword(appliedPassword);
+        else await commitPasswordWrap(appliedPassword);
         if (me.mustChangePassword) { location.assign('/'); return; }
         flash = { panel: 'password', message: 'Password updated.', kind: 'success' };
         await render(ctx);

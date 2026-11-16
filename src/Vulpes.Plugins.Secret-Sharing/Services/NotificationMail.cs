@@ -59,9 +59,9 @@ public sealed class NotificationMail(ShareStore store, IHostEmail email, IHostAu
     {
         try
         {
-            if (!store.TryAllowNotifyEmail(target.Email, out var retryAfter))
+            if (!store.TryReserveNotifyEmail(target.Email))
             {
-                logger.LogWarning("Notification {Kind} throttled for {UserId} (retry in {Retry:0}s).", kind, target.UserId, retryAfter.TotalSeconds);
+                logger.LogWarning("Notification {Kind} throttled for {UserId}.", kind, target.UserId);
                 return;
             }
 
@@ -74,7 +74,6 @@ public sealed class NotificationMail(ShareStore store, IHostEmail email, IHostAu
                 return;
             }
 
-            store.NoteNotifyEmailSent(target.Email);
             await audit.RecordAsync("secret.notify.sent", id, "kind=" + kind, actor: target.UserId);
             logger.LogInformation("Notification {Kind} sent for user {UserId}", kind, target.UserId);
         }

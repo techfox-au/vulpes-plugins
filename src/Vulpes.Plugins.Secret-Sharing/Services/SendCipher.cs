@@ -161,6 +161,31 @@ internal static class SendCipher
         }.ToJsonString();
     }
 
+    internal static bool ContributoryPublicKey(ReadOnlySpan<byte> publicKey)
+    {
+        if (publicKey.Length != 32)
+        {
+            return false;
+        }
+
+        Span<byte> scalar = stackalloc byte[32];
+        scalar[0] = 9;
+        return Contributes(X25519.ScalarMult(scalar, publicKey));
+    }
+
+    private static bool Contributes(ReadOnlySpan<byte> shared)
+    {
+        foreach (var b in shared)
+        {
+            if (b != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static (byte[] Packed, byte[] EphemeralPublic) Wrap(ReadOnlySpan<byte> aesKey, ReadOnlySpan<byte> recipientPublic)
     {
         var ephemeralSecret = RandomNumberGenerator.GetBytes(32);
@@ -168,6 +193,12 @@ internal static class SendCipher
         {
             var ephemeralPublic = X25519.ScalarMultBase(ephemeralSecret);
             var shared = X25519.ScalarMult(ephemeralSecret, recipientPublic);
+            if (!Contributes(shared))
+            {
+                CryptographicOperations.ZeroMemory(shared);
+                throw new CryptographicException("Recipient public key is not usable.");
+            }
+
             var wrapKey = HKDF.DeriveKey(HashAlgorithmName.SHA256, shared, 32, new byte[32], WrapInfo);
             CryptographicOperations.ZeroMemory(shared);
             try

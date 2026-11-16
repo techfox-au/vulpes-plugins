@@ -99,6 +99,9 @@
     for (var z = 0; z < mid; z++) groups.push(0);
     for (var j = 0; j < tail.length; j++) if (!pushGroup(tail[j])) return { ok: false, error: "Invalid IPv6 address." };
     if (groups.length !== 8) return { ok: false, error: "Invalid IPv6 address." };
+    if (groups[0] === 0 && groups[1] === 0 && groups[2] === 0 && groups[3] === 0 && groups[4] === 0 && groups[5] === 0xffff) {
+      return { ok: false, error: "Use a plain IPv4 address, not an IPv4-mapped IPv6 form." };
+    }
     return { ok: true, family: 6, bytes: [], canonical: compressIPv6(groups) };
   }
 

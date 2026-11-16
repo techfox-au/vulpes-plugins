@@ -1,11 +1,12 @@
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using Vulpes.Plugins.SecretSharing.Data;
 using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.SecretSharing.Services;
 
-public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dataAtRest = null) : IIpRestrictedSecretQuery
+public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dataAtRest = null, ILogger<ShareStore>? log = null) : IIpRestrictedSecretQuery
 {
     /// <summary>Base64url length of Sendit's 60 MiB × 1.05 ciphertext cap. A 40 MiB file encrypts to about 56 million characters.</summary>
     public const int MaxCipherChars = 88_080_384;
@@ -81,7 +82,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
             return new NotificationPrefs("", false, false);
         }
 
-        return new NotificationPrefs(reader.GetString(0), reader.GetInt32(1) == 1, reader.GetInt32(2) == 1);
+        return new NotificationPrefs(Open(reader.GetString(0)) ?? "", reader.GetInt32(1) == 1, reader.GetInt32(2) == 1);
     }
 
     public void SaveNotifications(string userId, string email, bool collectReady, bool sendOpened)
@@ -94,7 +95,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
             ON CONFLICT(UserId) DO UPDATE SET Email = excluded.Email, NotifyCollectReady = excluded.NotifyCollectReady, NotifySendOpened = excluded.NotifySendOpened
             """;
         cmd.Parameters.AddWithValue("@id", userId);
-        cmd.Parameters.AddWithValue("@email", email);
+        cmd.Parameters.AddWithValue("@email", Seal(email) ?? "");
         cmd.Parameters.AddWithValue("@collect", collectReady ? 1 : 0);
         cmd.Parameters.AddWithValue("@send", sendOpened ? 1 : 0);
         cmd.ExecuteNonQuery();
@@ -103,12 +104,30 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
     public void RememberEmail(string userId, string email)
     {
         using var conn = database.Open();
+        using var read = conn.CreateCommand();
+        read.CommandText = "SELECT Email FROM notification_prefs WHERE UserId = @id";
+        read.Parameters.AddWithValue("@id", userId);
+        var stored = read.ExecuteScalar() as string;
+        if (stored is not null && string.Equals(Open(stored), email, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE notification_prefs SET Email = @email WHERE UserId = @id AND Email <> @email
-            """;
+        if (stored is null)
+        {
+            cmd.CommandText = """
+                INSERT INTO notification_prefs (UserId, Email, NotifyCollectReady, NotifySendOpened)
+                VALUES (@id, @email, 0, 0)
+                """;
+        }
+        else
+        {
+            cmd.CommandText = "UPDATE notification_prefs SET Email = @email WHERE UserId = @id";
+        }
+
         cmd.Parameters.AddWithValue("@id", userId);
-        cmd.Parameters.AddWithValue("@email", email);
+        cmd.Parameters.AddWithValue("@email", Seal(email) ?? "");
         cmd.ExecuteNonQuery();
     }
 
@@ -116,56 +135,46 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
 
     public NotifyTarget? SendOpenedTarget(string sendId) => Target(collect: false, sendId);
 
-    public bool TryAllowNotifyEmail(string email, out TimeSpan retryAfter)
-    {
-        email = email.Trim().ToLowerInvariant();
-        retryAfter = TimeSpan.Zero;
-        using var conn = database.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT SendCount, LastSendMs FROM notify_email_budget WHERE Email = @email";
-        cmd.Parameters.AddWithValue("@email", email);
-        using var reader = cmd.ExecuteReader();
-        if (!reader.Read())
-        {
-            return true;
-        }
-
-        var count = reader.GetInt32(0);
-        if (count <= 0)
-        {
-            return true;
-        }
-
-        var min = count < 24 ? TimeSpan.FromMilliseconds(2500) : TimeSpan.FromSeconds(15);
-        var elapsed = TimeSpan.FromMilliseconds(Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - reader.GetInt64(1)));
-        if (elapsed >= min)
-        {
-            return true;
-        }
-
-        retryAfter = min - elapsed;
-        return false;
-    }
-
-    public void NoteNotifyEmailSent(string email)
+    /// <summary>Claims the next notification slot before the message is sent. Parallel callers cannot all pass.</summary>
+    public bool TryReserveNotifyEmail(string email)
     {
         email = email.Trim().ToLowerInvariant();
         using var conn = database.Open();
+        using var transaction = conn.BeginTransaction(deferred: false);
         using var read = conn.CreateCommand();
-        read.CommandText = "SELECT SendCount FROM notify_email_budget WHERE Email = @email";
+        read.Transaction = transaction;
+        read.CommandText = "SELECT SendCount, LastSendMs FROM notify_email_budget WHERE Email = @email";
         read.Parameters.AddWithValue("@email", email);
-        var existing = read.ExecuteScalar();
-        var count = existing is null or DBNull ? 1 : Convert.ToInt32(existing, System.Globalization.CultureInfo.InvariantCulture) + 1;
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        using var reader = read.ExecuteReader();
+        var exists = reader.Read();
+        var count = exists ? reader.GetInt32(0) : 0;
+        var last = exists ? reader.GetInt64(1) : 0L;
+        reader.Close();
+        if (exists && count > 0)
+        {
+            var min = count < 24 ? TimeSpan.FromMilliseconds(2500) : TimeSpan.FromSeconds(15);
+            var elapsed = TimeSpan.FromMilliseconds(Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - last));
+            if (elapsed < min)
+            {
+                transaction.Rollback();
+                return false;
+            }
+        }
+
+        using var write = conn.CreateCommand();
+        write.Transaction = transaction;
+        write.CommandText = """
             INSERT INTO notify_email_budget (Email, SendCount, LastSendMs)
-            VALUES (@email, @count, @at)
-            ON CONFLICT(Email) DO UPDATE SET SendCount = excluded.SendCount, LastSendMs = excluded.LastSendMs
+            VALUES (@email, 1, @at)
+            ON CONFLICT(Email) DO UPDATE SET
+                SendCount = notify_email_budget.SendCount + 1,
+                LastSendMs = excluded.LastSendMs
             """;
-        cmd.Parameters.AddWithValue("@email", email);
-        cmd.Parameters.AddWithValue("@count", count);
-        cmd.Parameters.AddWithValue("@at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        cmd.ExecuteNonQuery();
+        write.Parameters.AddWithValue("@email", email);
+        write.Parameters.AddWithValue("@at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        write.ExecuteNonQuery();
+        transaction.Commit();
+        return true;
     }
 
     private NotifyTarget? Target(bool collect, string id)
@@ -192,7 +201,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         }
         cmd.Parameters.AddWithValue("@id", id);
         using var reader = cmd.ExecuteReader();
-        return reader.Read() ? new NotifyTarget(reader.GetString(0), reader.GetString(1)) : null;
+        return reader.Read() ? new NotifyTarget(reader.GetString(0), Open(reader.GetString(1)) ?? "") : null;
     }
 
     public (int Sends, int Collects) ResetUser(string userId)
@@ -239,6 +248,12 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
 
     public bool HasAccessibleIpRestrictedSecret()
     {
+        var collectList = CollectRetrieveAllowedIps();
+        if (!string.IsNullOrWhiteSpace(collectList) && collectList.Trim() != "*")
+        {
+            log?.LogWarning("Collect retrieval has an IP allow-list. Collected submissions stay closed until a public client address is visible.");
+        }
+
         using var conn = database.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -274,6 +289,22 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         BindCommon(cmd, id, ownerId, input, now);
         cmd.ExecuteNonQuery();
         return id;
+    }
+
+    /// <summary>Records the first recipient list for a send. A later list is refused.</summary>
+    public bool SealEmailRecipients(string id, string addresses)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(addresses);
+        using var conn = database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE secrets SET EmailedTo = @addresses
+            WHERE Id = @id AND EmailedTo IS NULL
+            """;
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@addresses", Seal(addresses) ?? addresses);
+        return cmd.ExecuteNonQuery() == 1;
     }
 
     public string CreateCollect(string ownerId, CollectInput input)
@@ -392,7 +423,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, Uploaded, OwnerPrivateKeyProtected, PrivateNoteCiphertext
+                SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, Uploaded, OwnerPrivateKeyProtected, PrivateNoteCiphertext, PublicKey
                 FROM collects WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 100
                 """;
             cmd.Parameters.AddWithValue("@owner", ownerId);
@@ -404,6 +435,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
                 {
                     HasOwnerKey = !reader.IsDBNull(10),
                     PrivateNoteCiphertext = reader.IsDBNull(11) ? null : reader.GetString(11),
+                    PublicKey = reader.IsDBNull(12) ? null : reader.GetString(12),
                 };
                 if (item.Status is not ("expired" or "consumed")) items.Add(item);
             }
@@ -483,17 +515,12 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         return new CollectPublic(reader.GetString(0), expires, status, reader.GetInt32(3) == 1, reader.GetInt32(4) == 1, reader.IsDBNull(6) ? null : reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8), access, max, reader.GetInt32(11) == 1);
     }
 
-    public string? SaveUpload(string id, UploadInput input)
+    public bool SaveUpload(string id, UploadInput input)
     {
         var meta = CollectMeta(id);
-        if (meta is null)
+        if (meta is null || meta.Status != "waiting")
         {
-            return "Collect not found.";
-        }
-
-        if (meta.Status != "waiting")
-        {
-            return "This collect is not open for upload.";
+            return false;
         }
 
         using var conn = database.Open();
@@ -510,10 +537,10 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         cmd.Parameters.AddWithValue("@type", input.ContentType);
         cmd.Parameters.AddWithValue("@file", (object?)input.Filename ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@id", id);
-        return cmd.ExecuteNonQuery() == 1 ? null : "This collect is not open for upload.";
+        return cmd.ExecuteNonQuery() == 1;
     }
 
-    /// <summary>Anyone with the link. The caller burns the upload. Collect retrieval does not require a proof.</summary>
+    /// <summary>Releases a ready collect. The caller must already have burned a proof. Check the retrieval allow-list before calling this, so a blocked address does not consume the upload.</summary>
     public SendPublic? TakeCollect(string id)
     {
         using var conn = database.Open();
@@ -587,6 +614,50 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         SealCollectOwnerKeys(conn);
         SealLegacyUserDataKeys(conn);
         SealUserDataKeyWraps(conn);
+        SealPlaintextColumn(conn, secrets: true);
+        SealPlaintextColumn(conn, secrets: false);
+    }
+
+    private void SealPlaintextColumn(SqliteConnection conn, bool secrets)
+    {
+        using var sel = conn.CreateCommand();
+        if (secrets)
+        {
+            sel.CommandText = "SELECT Id, EmailedTo FROM secrets WHERE EmailedTo IS NOT NULL AND EmailedTo <> ''";
+        }
+        else
+        {
+            sel.CommandText = "SELECT UserId, Email FROM notification_prefs WHERE Email IS NOT NULL AND Email <> ''";
+        }
+
+        using var reader = sel.ExecuteReader();
+        var pending = new List<(string Id, string Value)>();
+        while (reader.Read())
+        {
+            var value = reader.GetString(1);
+            if (dataAtRest is not null && !SealedColumn.TryOpen(dataAtRest, value, out _))
+            {
+                pending.Add((reader.GetString(0), value));
+            }
+        }
+
+        reader.Close();
+        foreach (var row in pending)
+        {
+            using var upd = conn.CreateCommand();
+            if (secrets)
+            {
+                upd.CommandText = "UPDATE secrets SET EmailedTo = @value WHERE Id = @id";
+            }
+            else
+            {
+                upd.CommandText = "UPDATE notification_prefs SET Email = @value WHERE UserId = @id";
+            }
+
+            upd.Parameters.AddWithValue("@value", Seal(row.Value));
+            upd.Parameters.AddWithValue("@id", row.Id);
+            upd.ExecuteNonQuery();
+        }
     }
 
     private void SealCollectOwnerKeys(SqliteConnection conn)
@@ -598,7 +669,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         while (reader.Read())
         {
             var value = reader.GetString(1);
-            if (!dataAtRest!.IsProtected(value))
+            if (dataAtRest is not null && !SealedColumn.TryOpen(dataAtRest, value, out _))
             {
                 pending.Add((reader.GetString(0), value));
             }
@@ -624,7 +695,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         while (reader.Read())
         {
             var value = reader.GetString(1);
-            if (!dataAtRest!.IsProtected(value))
+            if (dataAtRest is not null && !SealedColumn.TryOpen(dataAtRest, value, out _))
             {
                 pending.Add((reader.GetString(0), value));
             }
@@ -650,7 +721,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         while (reader.Read())
         {
             var value = reader.GetString(3);
-            if (!dataAtRest!.IsProtected(value))
+            if (dataAtRest is not null && !SealedColumn.TryOpen(dataAtRest, value, out _))
             {
                 pending.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), value));
             }
@@ -671,7 +742,12 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
 
     private string? Seal(string? value)
     {
-        if (value is null || dataAtRest is null || dataAtRest.IsProtected(value))
+        if (value is null || dataAtRest is null)
+        {
+            return value;
+        }
+
+        if (string.IsNullOrEmpty(value) || SealedColumn.TryOpen(dataAtRest, value, out _))
         {
             return value;
         }
@@ -681,12 +757,12 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
 
     private string? Open(string? value)
     {
-        if (value is null || dataAtRest is null || !dataAtRest.IsProtected(value))
+        if (value is null || dataAtRest is null)
         {
             return value;
         }
 
-        return dataAtRest.Unprotect(value);
+        return SealedColumn.Open(dataAtRest, value);
     }
 
     private SendPublic? ReadSend(string id, bool includePayload)
@@ -712,8 +788,8 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         return new SendPublic(
             includePayload && status == "active" ? reader.GetString(0) : "",
             includePayload && status == "active" ? reader.GetString(1) : "",
-            includePayload && status == "active" ? reader.GetString(2) : "",
-            includePayload && status == "active" ? reader.GetString(3) : "",
+            status == "active" ? reader.GetString(2) : "",
+            status == "active" ? reader.GetString(3) : "",
             reader.GetString(4),
             reader.IsDBNull(5) ? null : reader.GetString(5),
             reader.GetInt32(6) == 1,
@@ -754,7 +830,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         cmd.Parameters.AddWithValue("@file", (object?)input.Filename ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@once", input.OneTime ? 1 : 0);
         cmd.Parameters.AddWithValue("@created", now.ToString("O"));
-        cmd.Parameters.AddWithValue("@expires", now.AddMinutes(input.ExpiresInHours).ToString("O"));
+        cmd.Parameters.AddWithValue("@expires", now.AddMinutes(input.ExpiresInMinutes).ToString("O"));
         cmd.Parameters.AddWithValue("@note", (object?)input.PrivateNoteCiphertext ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@max", (object?)input.MaxAccessCount ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@pw", input.PasswordProtected ? 1 : 0);
@@ -815,13 +891,13 @@ public sealed record NotificationPrefs(string Email, bool NotifyCollectReady, bo
 
 public sealed record NotifyTarget(string UserId, string Email);
 
-public sealed record SendInput(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename, bool OneTime, int ExpiresInHours, string? EncryptedLabel, string? PrivateNoteCiphertext, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, string? AllowedCidr = null, string? RecipientLabel = null);
+public sealed record SendInput(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename, bool OneTime, int ExpiresInMinutes, string? EncryptedLabel, string? PrivateNoteCiphertext, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, string? AllowedCidr = null, string? RecipientLabel = null);
 
 public sealed record CollectInput(string PublicKey, string? OwnerPrivateKeyProtected, string? EncryptedLabel, string? PrivateNoteCiphertext, bool OneTime, int ExpiresInMinutes, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, string? PublicLabel);
 
 public sealed record UploadInput(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename);
 
-public sealed record HomeItem(string Id, string Kind, string? EncryptedLabel, string Status, bool OneTime, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int AccessCount, int? MaxAccessCount, bool PasswordProtected, bool HasOwnerKey, string? PrivateNoteCiphertext = null, bool IpRestricted = false, bool HideText = false);
+public sealed record HomeItem(string Id, string Kind, string? EncryptedLabel, string Status, bool OneTime, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int AccessCount, int? MaxAccessCount, bool PasswordProtected, bool HasOwnerKey, string? PrivateNoteCiphertext = null, bool IpRestricted = false, bool HideText = false, string? PublicKey = null);
 
 public sealed record SendPublic(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename, bool OneTime, bool PasswordProtected, bool HideTextByDefault, string Status, DateTimeOffset ExpiresAt, int AccessCount = 0, int? MaxAccessCount = null, string? RecipientLabel = null);
 

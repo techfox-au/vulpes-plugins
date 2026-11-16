@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Vulpes.Plugins.SecretSharing.Endpoints;
 using Vulpes.Plugins.SecretSharing.Services;
 using Vulpes.Sdk;
 
@@ -10,11 +11,13 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
 {
     public string PluginId => "secret-sharing";
 
+    public const string DisclosureWarning = "Any secret you submit will be visible to the assistant handling this request. Consider that before proceeding.";
+
     public string Instructions =>
         """
-        Before you ask for a secret, accept a secret, or call create_secret, tell the user: "Any secret you submit will be shared with SpaceXSI. Consider that before proceeding." Wait for an explicit approval to proceed despite that risk. Do not request the secret, do not take a secret the user has already offered, and do not attempt the send until that warning has been shown and that approval has been given. Set disclosureAccepted to true only after that approval.
+        Before you ask for a secret, accept a secret, or call create_secret, tell the user: "Any secret you submit will be visible to the assistant handling this request. Consider that before proceeding." Wait for an explicit approval to proceed despite that risk. Do not request the secret, do not take a secret the user has already offered, and do not attempt the send until that warning has been shown and that approval has been given. Set disclosureAccepted to true only after that approval.
 
-        When emailTo is set, tell the user the exact address the link will be sent to and wait for them to confirm that address. Do not send the email until they confirm. Set emailConfirmed to true only after that confirmation.
+        When emailTo is set, tell the user the exact address or addresses the link will be sent to and wait for them to confirm. Do not send the email until they confirm. Set emailConfirmed to true only after that confirmation. Those addresses are the only recipients. The link cannot be emailed to any further address afterwards.
 
         You can create a secret send the same way a person does: a title, a private note, text or a file up to 40 MB, an optional link password, an optional IP allow-list, masked or visible text, one-time or a limited number of opens, and an expiry. The link is returned once in this result, or emailed when emailTo is set. It is never stored. list_secrets does not return it. Vulpes does not keep the decryption key or the password.
 
@@ -29,7 +32,7 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
 
     private static readonly IReadOnlyList<McpTool> Catalog =
     [
-        Define("create_secret", "Create a one-way secret send. The link is returned once, or emailed, and is never stored. Does not create a collect. Before asking for a secret, accepting one, or calling this tool, tell the user: \"Any secret you submit will be shared with SpaceXSI. Consider that before proceeding.\" Then wait for an explicit approval to proceed despite that risk. Do not request or take the secret until that approval. Set disclosureAccepted to true only after it. When emailTo is set, tell the user that exact address and wait for them to confirm it. Set emailConfirmed to true only after that confirmation.", new JsonObject
+        Define("create_secret", "Create a one-way secret send. The link is returned once, or emailed, and is never stored. Does not create a collect. Before asking for a secret, accepting one, or calling this tool, tell the user: \"" + DisclosureWarning + "\" Then wait for an explicit approval to proceed despite that risk. Do not request or take the secret until that approval. Set disclosureAccepted to true only after it. When emailTo is set, tell the user those exact addresses and wait for them to confirm. Set emailConfirmed to true only after that confirmation. The addresses on this call are the only recipients; the link cannot be emailed to any further address.", new JsonObject
         {
             ["type"] = "object",
             ["properties"] = new JsonObject
@@ -47,9 +50,9 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
                 ["oneTime"] = new JsonObject { ["type"] = "boolean", ["description"] = "When true, the link works once. Default false, which is multiple use." },
                 ["maxAccessCount"] = new JsonObject { ["type"] = "integer", ["description"] = "How many times a multiple-use link can be opened. 1 to 100000. Omit for no limit. Ignored when oneTime is true." },
                 ["hideText"] = new JsonObject { ["type"] = "boolean", ["description"] = "When true, the recipient page masks the secret until they choose to show it. Ignored for a file. Default false." },
-                ["emailTo"] = new JsonObject { ["type"] = "string", ["description"] = "Optional. Email the link to this address. Tell the user this exact address and wait for them to confirm it before sending. The link is still not stored." },
+                ["emailTo"] = new JsonObject { ["type"] = "string", ["description"] = "Optional. Email the link to these addresses, separated by commas. Tell the user the exact addresses and wait for them to confirm before sending. That list is final: the link cannot be emailed to any further address." },
                 ["emailConfirmed"] = new JsonObject { ["type"] = "boolean", ["description"] = "Required when emailTo is set. True only after the user has confirmed that the link should be sent to that exact address." },
-                ["disclosureAccepted"] = new JsonObject { ["type"] = "boolean", ["description"] = "Required. True only after you have shown the user the warning that any secret they submit will be shared with SpaceXSI, and the user has explicitly approved proceeding despite that risk." },
+                ["disclosureAccepted"] = new JsonObject { ["type"] = "boolean", ["description"] = "Required. True only after you have shown the user this warning, and the user has explicitly approved proceeding despite that risk: " + DisclosureWarning },
             },
             ["required"] = new JsonArray("disclosureAccepted"),
         }),
@@ -94,7 +97,7 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
     {
         if (!Flag(args, "disclosureAccepted"))
         {
-            throw new ArgumentException("Do not send a secret yet. Tell the user: \"Any secret you submit will be shared with SpaceXSI. Consider that before proceeding.\" Wait for an explicit approval to proceed despite that risk. Do not ask for the secret or take one until then. Call create_secret with disclosureAccepted true only after that approval.");
+            throw new ArgumentException("Do not send a secret yet. Tell the user: \"" + DisclosureWarning + "\" Wait for an explicit approval to proceed despite that risk. Do not ask for the secret or take one until then. Call create_secret with disclosureAccepted true only after that approval.");
         }
 
         var text = Optional(args, "text");
@@ -173,7 +176,7 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
         {
             if (max is < 1 or > 100000)
             {
-                throw new ArgumentException("Maximum access count must be a whole number from 1 to 100000.");
+                throw new ArgumentException(ShareEndpoints.OpenCapMessage);
             }
 
             maxAccess = max;
@@ -197,16 +200,21 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
 
         var hideText = !hasFile && Flag(args, "hideText");
         var emailTo = Optional(args, "emailTo")?.Trim() ?? "";
-        if (emailTo.Length > 0 && (emailTo.Length > 254 || !System.Net.Mail.MailAddress.TryCreate(emailTo, out var parsed) || !parsed.Address.Equals(emailTo, StringComparison.OrdinalIgnoreCase)))
+        string[] recipients;
+        try
+        {
+            recipients = emailTo.Length == 0 ? [] : ParseRecipients(emailTo);
+        }
+        catch
         {
             System.Security.Cryptography.CryptographicOperations.ZeroMemory(plain);
-            throw new ArgumentException("emailTo must be an email address.");
+            throw;
         }
 
-        if (emailTo.Length > 0 && !Flag(args, "emailConfirmed"))
+        if (recipients.Length > 0 && !Flag(args, "emailConfirmed"))
         {
             System.Security.Cryptography.CryptographicOperations.ZeroMemory(plain);
-            throw new ArgumentException("Do not email the link yet. Tell the user the link will be sent to " + emailTo + " and wait for them to confirm that address. Call create_secret again with emailConfirmed true only after they confirm.");
+            throw new ArgumentException("Do not email the link yet. Tell the user the link will be sent to " + string.Join(", ", recipients) + " and wait for them to confirm those addresses. Call create_secret again with emailConfirmed true only after they confirm.");
         }
 
         var wire = SendCipher.Encrypt(plain, out var secret);
@@ -245,13 +253,23 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
             var origin = email.PublicOrigin.TrimEnd('/');
             var link = origin + "/send?id=" + Uri.EscapeDataString(id) + fragment;
             var emailed = false;
-            if (emailTo.Length > 0)
+            if (recipients.Length > 0)
             {
+                if (!store.SealEmailRecipients(id, string.Join(", ", recipients)))
+                {
+                    throw new ArgumentException("This link has already been emailed. It cannot be sent to any further address.");
+                }
+
                 var subject = password.Length > 0 ? "Secret link (password required)" : "Secret link";
                 var sentence = password.Length > 0
                     ? "A secret link is below. The password was shared separately and is not in this message."
                     : "A secret link is below. The decryption key is part of the link. This link is not stored.";
-                emailed = await email.TrySendAsync(emailTo, subject, sentence + "\n\n" + link, "<p>" + System.Net.WebUtility.HtmlEncode(sentence) + "</p><p>" + System.Net.WebUtility.HtmlEncode(link) + "</p>");
+                emailed = true;
+                foreach (var recipient in recipients)
+                {
+                    var sent = await email.TrySendAsync(recipient, subject, sentence + "\n\n" + link, "<p>" + System.Net.WebUtility.HtmlEncode(sentence) + "</p><p>" + System.Net.WebUtility.HtmlEncode(link) + "</p>");
+                    emailed = emailed && sent;
+                }
             }
 
             return new JsonObject
@@ -271,6 +289,32 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
         {
             System.Security.Cryptography.CryptographicOperations.ZeroMemory(secret);
         }
+    }
+
+    private static string[] ParseRecipients(string raw)
+    {
+        var parts = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length is < 1 or > 10)
+        {
+            throw new ArgumentException("emailTo must be one to ten email addresses, separated by commas.");
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recipients = new List<string>(parts.Length);
+        foreach (var part in parts)
+        {
+            if (part.Length > 254 || !System.Net.Mail.MailAddress.TryCreate(part, out var parsed) || !parsed.Address.Equals(part, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("emailTo must be an email address.");
+            }
+
+            if (seen.Add(parsed.Address))
+            {
+                recipients.Add(parsed.Address);
+            }
+        }
+
+        return recipients.ToArray();
     }
 
     private static byte[] DecodeFile(string value)

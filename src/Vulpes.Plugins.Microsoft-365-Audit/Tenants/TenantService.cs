@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
+using Vulpes.Plugins.Microsoft365Audit.Normalization;
+using Vulpes.Plugins.Microsoft365Audit.Scheduling;
 using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Tenants;
@@ -12,7 +14,7 @@ public sealed record ProbeResult(string Source, string Title, string Status, str
 public sealed record ConnectionTestResult(bool TokenAcquired, string? OrganizationName, string? Error, IReadOnlyList<ProbeResult> Probes, DateTimeOffset TestedAt);
 
 /// <summary>Plugin-side collection state for clients stored on the host. Credentials are copied from the shared application.</summary>
-public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, GraphClientFactory graphFactory, IEnumerable<ICollector> collectors, TimeProvider timeProvider, AuditOptions options, ILogger<TenantService> logger, ISecretProtector? legacy = null)
+public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, GraphClientFactory graphFactory, IEnumerable<ICollector> collectors, TimeProvider timeProvider, AuditOptions options, ILogger<TenantService> logger, IEventStoreMaintenance? events = null, CollectionScheduler? scheduler = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -26,25 +28,17 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         var local = await db.Tenants.ToListAsync(ct);
         foreach (var gone in local.Where(t => !wanted.Contains(t.Id)).ToList())
         {
+            if (!await DeleteStoredEventsAsync(gone, ct))
+            {
+                continue;
+            }
+
             db.Tenants.Remove(gone);
         }
 
-        string? Migrate(string? stored)
-        {
-            if (string.IsNullOrEmpty(stored) || data.IsProtected(stored))
-            {
-                return stored;
-            }
+        string? Migrate(string? stored) =>
+            string.IsNullOrEmpty(stored) || SealedColumn.TryOpen(data, stored, out _) ? stored : null;
 
-            if (!stored.StartsWith("v1.", StringComparison.Ordinal) || legacy is null)
-            {
-                return stored;
-            }
-
-            return data.Protect(legacy.Unprotect(stored));
-        }
-
-        var directoryChanged = new List<Guid>();
         foreach (var remote in tenants)
         {
             var row = local.FirstOrDefault(t => t.Id == remote.Id);
@@ -63,11 +57,10 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             }
             else if (!string.Equals(row.TenantId, remote.DirectoryId, StringComparison.Ordinal))
             {
-                directoryChanged.Add(row.Id);
+                logger.LogWarning("Client {ClientId} keeps directory {DirectoryId}. A different directory id is a new client and was not applied.", row.Id, row.TenantId);
             }
 
             row.DisplayName = remote.DisplayName;
-            row.TenantId = remote.DirectoryId;
             row.Enabled = remote.Enabled;
             row.ProtectedSecret = Migrate(row.ProtectedSecret);
             row.ProtectedCertificate = Migrate(row.ProtectedCertificate);
@@ -88,12 +81,21 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
                 row.ClientId = application.ClientId;
                 row.CredentialType = application.CredentialType;
                 row.Cloud = application.Cloud;
-                if (!string.IsNullOrEmpty(application.Secret) && !SameSecret(row.ProtectedSecret, application.Secret))
+                if (string.IsNullOrEmpty(application.Secret))
+                {
+                    row.ProtectedSecret = null;
+                }
+                else if (!SameSecret(row.ProtectedSecret, application.Secret))
                 {
                     row.ProtectedSecret = data.Protect(application.Secret);
                 }
 
-                if (!string.IsNullOrEmpty(application.CertificatePfxBase64) && !SameSecret(row.ProtectedCertificate, application.CertificatePfxBase64))
+                if (string.IsNullOrEmpty(application.CertificatePfxBase64))
+                {
+                    row.ProtectedCertificate = null;
+                    row.ProtectedCertificatePassword = null;
+                }
+                else if (!SameSecret(row.ProtectedCertificate, application.CertificatePfxBase64))
                 {
                     row.ProtectedCertificate = data.Protect(application.CertificatePfxBase64);
                 }
@@ -112,19 +114,6 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             }
 
             row.UpdatedAt = timeProvider.GetUtcNow();
-        }
-
-        if (directoryChanged.Count > 0)
-        {
-            var checkpoints = await db.Checkpoints.Where(c => directoryChanged.Contains(c.TenantId)).ToListAsync(ct);
-            foreach (var checkpoint in checkpoints)
-            {
-                checkpoint.Watermark = null;
-                checkpoint.StateJson = null;
-                checkpoint.NextRunAt = null;
-                checkpoint.ConsecutiveFailures = 0;
-                checkpoint.LastError = "Directory id changed; collection starts again from the lookback window.";
-            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -164,6 +153,48 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         return null;
     }
 
+    private async Task<bool> DeleteStoredEventsAsync(Tenant gone, CancellationToken ct)
+    {
+        if (events is null)
+        {
+            return true;
+        }
+
+        var paused = false;
+        if (scheduler is not null)
+        {
+            if (!scheduler.TryBeginPurge(gone.Id))
+            {
+                logger.LogWarning("Stored events for {Tenant} stay until collection finishes.", gone.DisplayName);
+                return false;
+            }
+
+            paused = true;
+        }
+
+        try
+        {
+            await events.DeleteTenantAsync(Normalizers.PluginId, gone.TenantId, ct);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Stored events for directory {Directory} could not be deleted. The client stays until the next sync.", gone.TenantId);
+            return false;
+        }
+        finally
+        {
+            if (paused)
+            {
+                scheduler!.EndPurge(gone.Id);
+            }
+        }
+    }
+
     private bool SameSecret(string? stored, string? plaintext)
     {
         if (string.IsNullOrEmpty(plaintext))
@@ -178,9 +209,12 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
 
         try
         {
-            var opened = data.IsProtected(stored) ? data.Unprotect(stored)
-                : stored.StartsWith("v1.", StringComparison.Ordinal) && legacy is not null ? legacy.Unprotect(stored)
-                : stored;
+            if (!data.IsProtected(stored))
+            {
+                return false;
+            }
+
+            var opened = data.Unprotect(stored);
             return string.Equals(opened, plaintext, StringComparison.Ordinal);
         }
         catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException or InvalidOperationException)

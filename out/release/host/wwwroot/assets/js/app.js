@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell386';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell391';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -9,12 +9,12 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell389'),
-  '/account': () => import('./pages/account.js?v=shell258'),
+  '/': () => import('./pages/home.js?v=shell398'),
+  '/account': () => import('./pages/account.js?v=shell398'),
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell370'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell399'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell377'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell383'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell398'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
 };
@@ -318,7 +318,7 @@ async function mountPluginPage(pluginId, page, query) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell389`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell400`);
   await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
   current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
 }
@@ -371,6 +371,22 @@ function renderChrome() {
   clear(logoutBtn).append(icon('logout'));
   logoutBtn.addEventListener('click', async () => {
     try { await api.post('/auth/logout'); } catch { /* fall through */ }
+    try {
+      if (window.SecretUdk) await window.SecretUdk.clearUserDataKey();
+      else {
+        try { sessionStorage.removeItem('vulpes_secret_sharing_udk'); } catch { /* storage can be blocked */ }
+        await new Promise((resolve, reject) => {
+          try {
+            const request = indexedDB.deleteDatabase('vulpes-udk');
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+            request.onblocked = () => { /* Wait until the other tab closes the database. */ };
+          } catch (err) { reject(err); }
+        });
+      }
+    } catch {
+      /* The session cookie is already cleared. Leave the page even if the key database stays. */
+    }
     invalidateSession();
     location.assign('/login');
   });

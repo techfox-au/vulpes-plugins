@@ -12,7 +12,10 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
   const passwordEl = document.getElementById('link-password');
   const title = document.getElementById('page-title');
   if (!id) { fail('Missing secret id.'); return; }
-  const hasFragment = !!(SenditCrypto.secretKeyFromLocationHash(location.hash) || SenditCrypto.secretKeyPackageFromLocationHash(location.hash));
+  const fragment = window.__vulpesFragment || location.hash || "";
+  try { delete window.__vulpesFragment; } catch { /* the handoff is already read */ }
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  const hasFragment = !!(SenditCrypto.secretKeyFromLocationHash(fragment) || SenditCrypto.secretKeyPackageFromLocationHash(fragment));
   if (!hasFragment) { fail('Missing decryption key. Open the full link including the #sk= fragment.'); return; }
   await VulpesPow.sync();
 
@@ -35,21 +38,21 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     opening.close();
   }
 
-  let sk = kind === 'collect' || !meta.passwordProtected ? SenditCrypto.secretKeyFromLocationHash(location.hash) : null;
-  const skPackage = SenditCrypto.secretKeyPackageFromLocationHash(location.hash);
+  let sk = meta.passwordProtected ? null : SenditCrypto.secretKeyFromLocationHash(fragment);
+  const skPackage = SenditCrypto.secretKeyPackageFromLocationHash(fragment);
   let displayName = null;
+  let keyRejected = false;
+  let revealing = false;
   if (meta.passwordProtected) {
     if (!skPackage) { fail('This secret is password-protected, but the link does not contain a wrapped key.'); return; }
     passwordWrap.classList.remove('hidden');
     revealBtn.disabled = true;
-    passwordEl.addEventListener('input', () => { revealBtn.disabled = passwordEl.value.length === 0; });
+    passwordEl.addEventListener('input', () => { if (!keyRejected) revealBtn.disabled = passwordEl.value.length === 0; });
   } else if (!sk) {
     fail('Missing or invalid decryption key. Open the full link including the #sk= fragment.');
     return;
-  } else if (meta.encryptedLabel) {
-    try { displayName = await decryptName(meta.encryptedLabel, sk); } catch { fail('Incorrect decryption key.'); return; }
-  } else if (meta.publicLabel && sk) {
-    try { displayName = new TextDecoder().decode(await SenditCrypto.decryptCollectName(typeof meta.publicLabel === 'string' ? JSON.parse(meta.publicLabel) : meta.publicLabel, SenditCrypto.b64urlDecode(meta.publicKey))); } catch { displayName = null; }
+  } else {
+    try { await proveLinkKey(sk); } catch { keyRejected = true; }
   }
 
   function renderMeta(extra) {
@@ -67,6 +70,13 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     metaBox.classList.remove('hidden');
   }
   renderMeta(null);
+
+  if (keyRejected) {
+    confirmBox.classList.remove('hidden');
+    revealBtn.disabled = true;
+    setAlert('warning', 'The decryption key in this link is wrong.');
+    return;
+  }
 
   if (kind === 'collect' && !meta.hasPayload) {
     setAlert('info', 'Nothing to collect yet.');
@@ -87,14 +97,21 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
   const revealPow = VulpesPow.keeper(() => fetchPow(kind === 'collect' ? 'collects' : 'sends'));
   revealPow.start();
   revealBtn.addEventListener('click', reveal);
-  if (passwordEl) passwordEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); reveal(); } });
+  if (passwordEl) passwordEl.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' || ev.repeat) return;
+    ev.preventDefault();
+    reveal();
+  });
 
   async function reveal() {
+    if (revealing || keyRejected) return;
+    revealing = true;
     revealBtn.disabled = true;
     try {
       if (meta.passwordProtected && !passwordEl.value) {
         setAlert('danger', 'Link password is required.');
         revealBtn.disabled = false;
+        revealing = false;
         return;
       }
       const progress = SecretTransfer.showProgress('Opening secret');
@@ -106,6 +123,8 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
         progress.setStatus(meta.passwordProtected ? 'Unlocking key…' : (solving ? 'Performing proof-of-work…' : 'Downloading encrypted payload…'));
         progress.setProgress(null);
         key = await resolveKey();
+        await proveLinkKey(key);
+        renderMeta(null);
         let solution = null;
         if (revealPow) {
           if (!revealPow.ready()) {
@@ -153,10 +172,18 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
       }
     } catch (err) {
       const message = err.message || 'Could not decrypt the secret.';
+      if (message === 'Incorrect decryption key.') {
+        keyRejected = true;
+        revealBtn.disabled = true;
+        if (sk) { sk.fill(0); sk = null; }
+        setAlert('warning', 'The decryption key in this link is wrong.');
+        return;
+      }
       if (message.indexOf('not available from your IP') !== -1) {
         fail(message);
         return;
       }
+      revealing = false;
       setAlert('danger', message);
       revealBtn.disabled = meta.passwordProtected && !passwordEl.value;
     }
@@ -167,12 +194,47 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     const password = passwordEl ? passwordEl.value : '';
     if (!password) throw new Error('Link password is required.');
     sk = await SenditCrypto.unwrapSecretKeyWithPassword(skPackage, password);
-    if (meta.encryptedLabel && !displayName) {
-      try { displayName = await decryptName(meta.encryptedLabel, sk); renderMeta(null); }
-      catch { sk.fill(0); sk = null; throw new Error('Incorrect password or decryption key.'); }
-    }
     if (passwordEl) passwordEl.value = '';
     return sk;
+  }
+
+  async function proveLinkKey(secret) {
+    try {
+      if (kind === 'collect') {
+        const pair = SenditCrypto.keyPairFromSecretKey(secret);
+        try {
+          if (meta.publicLabel) {
+            const wire = typeof meta.publicLabel === 'string' ? JSON.parse(meta.publicLabel) : meta.publicLabel;
+            const name = new TextDecoder().decode(await SenditCrypto.decryptCollectName(wire, pair.publicKey));
+            if (name) displayName = name;
+          } else if (!equalBytes(pair.publicKey, SenditCrypto.b64urlDecode(meta.publicKey))) {
+            throw new Error('Incorrect decryption key.');
+          }
+        } finally {
+          pair.secretKey.fill(0);
+          pair.publicKey.fill(0);
+        }
+        return;
+      }
+      if (meta.encryptedLabel) {
+        const name = await decryptName(meta.encryptedLabel, secret);
+        if (name) displayName = name;
+        return;
+      }
+      if (!meta.wrappedKey || !meta.ephemeralPublicKey) throw new Error('Incorrect decryption key.');
+      const aes = await SenditCrypto.unwrapKey(SenditCrypto.b64urlDecode(meta.wrappedKey), SenditCrypto.b64urlDecode(meta.ephemeralPublicKey), secret);
+      aes.fill(0);
+    } catch (err) {
+      if (err && err.message === 'Incorrect decryption key.') throw err;
+      throw new Error('Incorrect decryption key.');
+    }
+  }
+
+  function equalBytes(left, right) {
+    if (!left || !right || left.length !== right.length) return false;
+    let diff = 0;
+    for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
+    return diff === 0;
   }
 
   function setAlert(kind, message) {

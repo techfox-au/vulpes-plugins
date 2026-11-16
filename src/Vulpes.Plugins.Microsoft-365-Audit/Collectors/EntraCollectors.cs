@@ -154,7 +154,7 @@ public sealed class SecurityAlertsCollector : WatermarkCollector
     protected override string OrderByField => "lastUpdateDateTime";
 
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
-        $"security/alerts_v2?$filter=lastUpdateDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 2000)}";
+        $"security/alerts_v2?$filter=lastUpdateDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
 
     protected override (SecurityEvent Event, DateTimeOffset Timestamp)? Map(CollectorContext context, JsonElement record)
     {
@@ -321,6 +321,11 @@ public sealed class SecureScoreCollector : ICollector
 
         var newest = events.Count > 0 ? events.Max(e => e.Timestamp) : (DateTimeOffset?)null;
         var (indexed, duplicates, failed, alerts) = await context.PublishAsync(events, cancellationToken);
+        if (failed > 0)
+        {
+            return new CollectorResult(indexed, duplicates, failed, alerts, false, "Elasticsearch rejected records; the watermark was not moved");
+        }
+
         if (newest is { } n && (context.Checkpoint.Watermark is null || n > context.Checkpoint.Watermark))
         {
             context.Checkpoint.Watermark = n;

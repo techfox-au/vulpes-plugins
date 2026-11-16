@@ -17,7 +17,8 @@ export async function mount(el, ctx) {
   const note = h('div');
   let savedCollect = !!prefs.notifyCollectReady;
   let savedSend = !!prefs.notifySendOpened;
-  const noEmail = !prefs.email;
+  const mailConfigured = prefs.mailConfigured === true;
+  const noEmail = !mailConfigured || !prefs.email;
   if (noEmail) {
     if (collect) collect.disabled = true;
     send.disabled = true;
@@ -51,7 +52,11 @@ export async function mount(el, ctx) {
   if (collect) collect.addEventListener('change', save);
   send.addEventListener('change', save);
   const rows = [
-    prefs.email ? h('p', { class: 'muted' }, `Messages go to ${prefs.email}.`) : h('p', { class: 'muted' }, 'An administrator must add an email address to this account before these emails can be turned on.'),
+    !mailConfigured
+      ? h('p', { class: 'muted' }, 'Email is not configured on this server.')
+      : prefs.email
+        ? h('p', { class: 'muted' }, `Messages go to ${prefs.email}.`)
+        : h('p', { class: 'muted' }, 'An administrator must add an email address to this account before these emails can be turned on.'),
   ];
   if (collect) {
     rows.push(h('label', { class: 'checkbox' }, collect, h('span', null, 'Email me when a collect is ready to retrieve')));
@@ -66,10 +71,26 @@ export async function mount(el, ctx) {
   if (ctx.hasRole('Admin')) await mountRetrieveIps(root, ctx);
 }
 
+function loadCidr() {
+  if (window.SecretCidr) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/plugins/secret-sharing/public/cidr.js?v=crypto4';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Could not check the address list.'));
+    document.head.append(script);
+  });
+}
+
 async function mountRetrieveIps(root, ctx) {
   const { h, panelNote } = ctx.ui;
   const card = h('div', { class: 'card' });
   root.append(card);
+  try { await loadCidr(); }
+  catch (err) {
+    card.append(h('div', { class: 'alert danger' }, err.message || 'Could not check the address list.'));
+    return;
+  }
   let current;
   try {
     current = await ctx.api.get(`${ctx.plugin.apiBase}/collect-retrieve-ips`);
@@ -102,7 +123,12 @@ async function mountRetrieveIps(root, ctx) {
   save.addEventListener('click', async () => {
     save.disabled = true;
     try {
-      const next = await ctx.api.put(`${ctx.plugin.apiBase}/collect-retrieve-ips`, { allowedIps: list.value });
+      const parsed = window.SecretCidr.parseAllowedCidr(list.value);
+      if (!parsed.ok) {
+        panelNote(note, parsed.error);
+        return;
+      }
+      const next = await ctx.api.put(`${ctx.plugin.apiBase}/collect-retrieve-ips`, { allowedIps: parsed.value || '' });
       list.value = next.allowedIps || '';
       panelNote(note, 'Saved.', 'success');
     } catch (err) {

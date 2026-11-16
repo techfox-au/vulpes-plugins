@@ -151,14 +151,14 @@ public sealed class BotSendTests
             var store = new ShareStore(new ShareDatabase(Path.Combine(directory.FullName, "secrets.db")));
             var mcp = new SecretSharingMcp(store, new OriginEmail("https://secrets.example"), new IpCap(true));
             var create = mcp.Tools.Single(tool => tool.Name == "create_secret");
-            Assert.Contains("Any secret you submit will be shared with SpaceXSI.", create.Description, StringComparison.Ordinal);
+            Assert.Contains("Any secret you submit will be visible to the assistant handling this request.", create.Description, StringComparison.Ordinal);
             Assert.Contains("explicit approval", create.Description, StringComparison.Ordinal);
-            Assert.Contains("Any secret you submit will be shared with SpaceXSI.", mcp.Instructions, StringComparison.Ordinal);
+            Assert.Contains("Any secret you submit will be visible to the assistant handling this request.", mcp.Instructions, StringComparison.Ordinal);
 
             var caller = new McpCaller("token-1", new byte[32]);
             var blocked = await mcp.CallAsync("create_secret", Args("""{"text":"not yet"}"""), caller, CancellationToken.None);
             Assert.True(blocked.IsError);
-            Assert.Contains("Any secret you submit will be shared with SpaceXSI.", blocked.Text, StringComparison.Ordinal);
+            Assert.Contains("Any secret you submit will be visible to the assistant handling this request.", blocked.Text, StringComparison.Ordinal);
             Assert.Contains("explicit approval", blocked.Text, StringComparison.Ordinal);
 
             var declined = await mcp.CallAsync("create_secret", Args("""{"text":"still no","disclosureAccepted":false}"""), caller, CancellationToken.None);
@@ -190,6 +190,32 @@ public sealed class BotSendTests
             var listed = await mcp.CallAsync("list_secrets", default, new McpCaller("token-1", new byte[32]), CancellationToken.None);
             using var listedJson = JsonDocument.Parse(listed.StructuredJson!);
             Assert.Equal(0, listedJson.RootElement.GetProperty("secrets").GetArrayLength());
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
+    [Fact]
+    public async Task An_omitted_open_count_has_no_cap_and_an_out_of_range_count_is_rejected()
+    {
+        var directory = Directory.CreateTempSubdirectory("bot-send-cap");
+        try
+        {
+            var store = new ShareStore(new ShareDatabase(Path.Combine(directory.FullName, "secrets.db")));
+            var mcp = new SecretSharingMcp(store, new OriginEmail("https://secrets.example"), new IpCap(true));
+            var caller = new McpCaller("token-1", new byte[32]);
+            var open = await mcp.CallAsync("create_secret", Args("""{"text":"open","oneTime":false,"disclosureAccepted":true}"""), caller, CancellationToken.None);
+            Assert.False(open.IsError, open.Text);
+            using var document = JsonDocument.Parse(open.StructuredJson!);
+            var id = document.RootElement.GetProperty("id").GetString()!;
+            Assert.Null(store.SendMeta(id)!.MaxAccessCount);
+            var rejected = await mcp.CallAsync("create_secret", Args("""{"text":"nope","oneTime":false,"maxAccessCount":100001,"disclosureAccepted":true}"""), caller, CancellationToken.None);
+            Assert.True(rejected.IsError);
+            Assert.Contains("1 to 100000", rejected.Text, StringComparison.Ordinal);
+            Assert.Null(store.SendMeta("missing"));
+            Assert.Single(store.List("bot:token-1"));
         }
         finally
         {

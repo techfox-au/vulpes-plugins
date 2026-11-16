@@ -29,6 +29,14 @@ public sealed class RoleAccessTests : IDisposable
         Assert.Contains("secret-sharing:collect", analystNav);
         Assert.Contains("secret-sharing:settings", analystNav);
 
+        var blocked = await analyst.SendAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
+        Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
+        var beforeMail = await analyst.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/notifications");
+        Assert.False(beforeMail.GetProperty("mailConfigured").GetBoolean());
+
+        var smtp = await admin.SendAsync(HttpMethod.Put, "/api/admin/settings/smtp", new { host = "smtp.contoso.com", port = 587, security = "StartTls", username = "mailer", password = "s3cret-password", fromAddress = "alerts@contoso.com", fromName = "Alerts", defaultRecipients = new[] { "soc@contoso.com" }, enabled = true });
+        Assert.Equal(HttpStatusCode.OK, smtp.StatusCode);
+
         var turnedOn = await analyst.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
         Assert.True(turnedOn.GetProperty("canCollect").GetBoolean());
         Assert.True(turnedOn.GetProperty("notifyCollectReady").GetBoolean());
@@ -105,7 +113,7 @@ public sealed class RoleAccessTests : IDisposable
 
     public void Dispose() => _factory.Dispose();
 
-    private static string PublicKey() => Convert.ToBase64String(new byte[32]).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    private static string PublicKey() => FlowClient.CollectPublicKey();
 
     private async Task<Client> AdminAsync()
     {

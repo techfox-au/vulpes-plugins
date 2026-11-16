@@ -96,6 +96,7 @@ public sealed class AuditPlugin : IPlugin
             {
                 PooledConnectionLifetime = TimeSpan.FromMinutes(10),
                 AutomaticDecompression = System.Net.DecompressionMethods.All,
+                AllowAutoRedirect = false,
             });
 
         services.AddSingleton<GraphCredentialFactory>();

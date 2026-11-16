@@ -17,6 +17,7 @@ Two plugins are already here. Microsoft 365 Audit collects logs into Elasticsear
 - Set `<Version>` in the plugin project to the same semantic version as `plugin.json`. `Directory.Build.props` would otherwise stamp the assembly `0.1.0`.
 - Warnings are errors, nullable is on, and NuGet audit fails the build on known-vulnerable packages. Fix the warning. Leave the `NoWarn` list in `Directory.Build.props` as it is.
 - Store secrets with the protectors below. Leave passwords, tokens, and key material out of logs, exceptions, and JSON responses.
+- A value already sealed with the master key stays on that key. Every other value written to a plugin database is sealed with `SealedColumn` (`vd1.`). `Seal` always wraps the plaintext. `Open` decrypts a real envelope and does not throw on a `vd1.` prefix that is not one. Do not add a new plaintext column for stored data. Primary keys, foreign keys, timestamps, status values used as SQL predicates, and lookup keys such as the notification email budget address stay queryable. Secret Sharing payload ciphertext stays sealed only by the client key.
 - `./build.sh` publishes every plugin. It replaces a `latest/*.7z` only when the files that would be packed differ from that archive's `files.sha256`, and clear-signs `latest/manifest` only then. Run it only when cutting a release. It needs `gpg`, `python3`, and the release key.
 - The dashboard image includes PowerShell 7 as `pwsh`. It is the Alpine community package for that image's architecture, both amd64 and arm64. `dotnet` on `PATH` remains the ASP.NET runtime.
 
@@ -82,7 +83,7 @@ A new package also needs a line in `Directory.Packages.props`. Host-shared packa
 
 `nav` has at most 50 entries. Each `page` is unique and matches `^[a-z][a-z0-9-]{0,63}$`. `title` is at most 60 characters. `icon` and `section` are at most 40. `roles` is a non-empty subset of `Admin`, `Analyst`, and `Viewer`. `section` is the sidebar heading; the shell shows it in capitals. `requirements` is documentation only: at most 100 strings, each at most 200 characters.
 
-Icons are symbol ids in the host sprite `wwwroot/assets/img/icons.svg`: `home`, `bell`, `user`, `users`, `puzzle`, `plug`, `settings`, `list`, `terminal`, `chart`, `login`, `directory`, `activity`, `shield`, `exclamation-octagon`, `warning`, `building`, `pulse`, `funnel`, `lock`, `key`, `sparkles`, `sun`, `moon`, `logout`, `x`, `check`, `search`, `refresh`, `plus`, `trash`, `edit`, `copy`, `download`, `upload`, `external`, `info`, `dot`, `mail`, `send-up`, `send-down`, `play`, `eye`, `handshake`.
+Icons are symbol ids in the host sprite `wwwroot/assets/img/icons.svg`: `home`, `bell`, `user`, `users`, `puzzle`, `plug`, `settings`, `list`, `terminal`, `chart`, `login`, `directory`, `activity`, `shield`, `exclamation-octagon`, `warning`, `building`, `pulse`, `funnel`, `lock`, `key`, `sparkles`, `sun`, `moon`, `logout`, `x`, `check`, `search`, `refresh`, `plus`, `trash`, `edit`, `copy`, `download`, `upload`, `external`, `info`, `dot`, `mail`, `send-up`, `send-down`, `play`, `eye`, `handshake`, `bag`.
 
 Also add `latest/Vulpes.Plugins.Example.txt`. The file name is the assembly name. The host shows that text on Manage → Plugins next to the release. Write a few plain sentences, the way `latest/Vulpes.Plugins.Microsoft-365-Audit.txt` does. `plugin.json` `description` is a separate, shorter field.
 
@@ -131,7 +132,7 @@ Inject these. They are registered before `ConfigureServices`.
 | `ISecretProtector` | Encrypt a credential the server must later decrypt (a client secret, a token). The stored form starts with the protector's version prefix. |
 | `IDataAtRestProtector` | Seal a value the browser already encrypted, so a copy of the database is not the key. `IsProtected` detects an envelope. `Unprotect` returns an unsealed value unchanged. |
 | `IHostAuditLog` | Write an administrative audit entry. Background work passes `actor` itself, for example `system:example`. |
-| `IHostEmail` | Send mail through the host transport. `TrySendAsync` returns false when mail is not configured. `PublicOrigin` is the dashboard origin with no trailing slash. |
+| `IHostEmail` | Send mail through the host transport. `IsConfiguredAsync` is false when the dashboard has no Graph, SMTP, or Mailgun transport. `TrySendAsync` returns false when mail is not configured. `PublicOrigin` is the dashboard origin with no trailing slash. |
 | `IHttpClientFactory` | Outbound HTTP. |
 | `TimeProvider` | Clocks and delays. |
 | `IPowPolicy` | Live proof-of-work difficulty (1–28) and ticket lifetime in seconds (30–600). Difficulty is never zero. |

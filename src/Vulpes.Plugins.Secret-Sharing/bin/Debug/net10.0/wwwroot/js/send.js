@@ -1,4 +1,4 @@
-import { requireUserDataKey } from '/assets/js/data-key.js?v=shell154';
+import { requireUserDataKey } from '/assets/js/data-key.js?v=shell391';
 
 const pub = '/plugins/secret-sharing/public';
 const FILE_LIMIT = 40 * 1024 * 1024;
@@ -12,7 +12,7 @@ export async function mount(el, ctx) {
   const root = el.querySelector('#send-root');
   await loadCrypto();
   await loadScript(`${pub}/transfer.js?v=crypto6`);
-  await loadScript(`${pub}/cidr.js?v=crypto3`);
+  await loadScript(`${pub}/cidr.js?v=crypto4`);
   const { h, dropdown, filePicker, copyToClipboard } = ctx.ui;
   const field = (label, control) => h('div', { class: 'field' }, h('label', null, label), control);
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. VPN credentials', autocomplete: 'off' });
@@ -204,7 +204,7 @@ function ensureUdk() {
 }
 
 function loadCrypto() {
-  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=crypto2`));
+  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk6`)).then(() => window.SecretUdk.ready());
 }
 function downloadText(filename, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));

@@ -31,7 +31,7 @@ public sealed class TenantServiceTests : IDisposable
         _db.Database.EnsureCreated();
     }
 
-    private TenantService Service() => new(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector, _protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
+    private TenantService Service() => new(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
 
     [Fact]
     public async Task Shared_application_secret_is_encrypted_on_the_plugin_row()
@@ -57,7 +57,7 @@ public sealed class TenantServiceTests : IDisposable
     public async Task Syncing_the_same_application_secret_does_not_rewrite_it()
     {
         var protector = new RewritingProtector();
-        var service = new TenantService(_db, protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(protector, protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
+        var service = new TenantService(_db, protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance);
         var id = Guid.NewGuid();
         var directory = Guid.NewGuid().ToString();
         var application = new EntraApplicationCredential(Guid.NewGuid().ToString(), "secret", "Global", "super-secret-value", null, null);
@@ -66,6 +66,29 @@ public sealed class TenantServiceTests : IDisposable
         await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null)], application, CancellationToken.None);
         Assert.Equal(first, Assert.Single(_db.Tenants).ProtectedSecret);
         Assert.Equal(1, protector.Protections);
+    }
+
+    [Fact]
+    public async Task Removing_a_directory_deletes_its_stored_events()
+    {
+        var events = new RecordingMaintenance();
+        var service = new TenantService(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance, events: events);
+        var kept = Guid.NewGuid();
+        var gone = Guid.NewGuid();
+        var keptDirectory = Guid.NewGuid().ToString();
+        var goneDirectory = Guid.NewGuid().ToString();
+        var application = new EntraApplicationCredential(Guid.NewGuid().ToString(), "secret", "Global", "secret", null, null);
+        await service.SyncFromDirectoryAsync(
+            [new ManagedTenant(kept, "Kept", keptDirectory, true, null), new ManagedTenant(gone, "Gone", goneDirectory, true, null)],
+            application,
+            CancellationToken.None);
+        await service.SyncFromDirectoryAsync([new ManagedTenant(kept, "Kept", keptDirectory, true, null)], application, CancellationToken.None);
+        Assert.Equal(goneDirectory, Assert.Single(events.Deleted));
+        Assert.Equal(kept, Assert.Single(_db.Tenants).Id);
+
+        events.Fail = true;
+        await service.SyncFromDirectoryAsync([], application, CancellationToken.None);
+        Assert.Equal(kept, Assert.Single(_db.Tenants).Id);
     }
 
     [Fact]
@@ -92,6 +115,24 @@ public sealed class TenantServiceTests : IDisposable
     private sealed class NoHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new RoutedGraphHandler());
+    }
+
+    private sealed class RecordingMaintenance : IEventStoreMaintenance
+    {
+        public List<string> Deleted { get; } = [];
+
+        public bool Fail { get; set; }
+
+        public Task<long?> DeleteTenantAsync(string pluginId, string tenantId, CancellationToken cancellationToken)
+        {
+            if (Fail)
+            {
+                throw new InvalidOperationException("search down");
+            }
+
+            Deleted.Add(tenantId);
+            return Task.FromResult<long?>(0);
+        }
     }
 
     private sealed class RewritingProtector : ISecretProtector, IDataAtRestProtector

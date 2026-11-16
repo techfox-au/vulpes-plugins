@@ -18,14 +18,11 @@ public sealed class CollectUploadGate : IStartupFilter
                 if (HttpMethods.IsPost(context.Request.Method) && IsCollectUpload(context.Request.Path))
                 {
                     var pow = context.RequestServices.GetRequiredService<PowService>();
-                    var store = context.RequestServices.GetRequiredService<ShareStore>();
                     PowService.ReadFromHeaders(context.Request.Headers, out var challenge, out var nonce, out var hash);
                     var clientTime = context.Request.Headers[PowService.HeaderTime].ToString();
                     var id = UploadId(context.Request.Path);
-                    var meta = id is null ? null : store.CollectMeta(id);
-                    var open = meta is not null && meta.Status == "waiting";
                     var browser = Vulpes.Sdk.PowBrowser.Current(context);
-                    var proven = challenge is not null && nonce is not null && id is not null && open
+                    var proven = challenge is not null && nonce is not null && id is not null
                         && pow.TryConsume("collect", id, challenge, nonce, hash, browser, clientTime) is null;
                     var feature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
                     if (feature is { IsReadOnly: false })
@@ -43,7 +40,7 @@ public sealed class CollectUploadGate : IStartupFilter
 
     private static bool IsCollectUpload(PathString path)
     {
-        var parts = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var parts = Parts(path);
         return parts.Length == 6
             && parts[0].Equals("api", StringComparison.OrdinalIgnoreCase)
             && parts[1].Equals("plugins", StringComparison.OrdinalIgnoreCase)
@@ -54,7 +51,10 @@ public sealed class CollectUploadGate : IStartupFilter
 
     private static string? UploadId(PathString path)
     {
-        var parts = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var parts = Parts(path);
         return parts.Length == 6 ? Uri.UnescapeDataString(parts[5]) : null;
     }
+
+    private static string[] Parts(PathString path) =>
+        (path.Value ?? "").Trim().TrimEnd('/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

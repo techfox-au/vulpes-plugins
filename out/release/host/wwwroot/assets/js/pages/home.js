@@ -1,5 +1,5 @@
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell389';
+import { requireUserDataKey } from '../data-key.js?v=shell398';
 
 let status = null;
 let shareTimer = null;
@@ -134,7 +134,7 @@ async function renderShares(ctx, card, quiet) {
     await ensureCrypto();
     const data = await ctx.api.get('/api/plugins/secret-sharing/home');
     const items = (data.items || []).filter((item) => canCollect || item.kind !== 'collect');
-    if (!keyPrompted && !window.SecretUdk.loadUserDataKey() && items.some((item) => item.encryptedLabel || item.privateNoteCiphertext || item.hasOwnerKey)) {
+    if (!keyPrompted && !window.SecretUdk.loadUserDataKey(ctx.user?.id) && items.some((item) => item.encryptedLabel || item.privateNoteCiphertext || item.hasOwnerKey)) {
       keyPrompted = true;
       try { await requireUserDataKey(); } catch { /* names stay locked until a later attempt */ }
     }
@@ -157,8 +157,8 @@ async function shareItem(ctx, panel, item) {
   const collect = item.kind === 'collect';
   const noun = collect ? 'collect' : 'send';
   const shown = item.status === 'waiting' ? 'pending' : item.status;
-  const title = await ownerText(item.encryptedLabel);
-  const note = item.privateNoteCiphertext ? await ownerText(item.privateNoteCiphertext) : '';
+  const title = await ownerText(item.encryptedLabel, ctx.user?.id);
+  const note = item.privateNoteCiphertext ? await ownerText(item.privateNoteCiphertext, ctx.user?.id) : '';
   const canCollect = collect && item.hasOwnerKey && item.status === 'ready';
   const modeTitle = item.oneTime ? `This ${noun} can only be viewed once` : `This ${noun} can be accessed multiple times`;
   const meta = [
@@ -221,9 +221,9 @@ function collectTitle(status) {
   return 'Not ready to collect';
 }
 
-async function ownerText(cipher) {
+async function ownerText(cipher, userId) {
   if (!cipher) return '';
-  const udk = window.SecretUdk && window.SecretUdk.loadUserDataKey();
+  const udk = window.SecretUdk && window.SecretUdk.loadUserDataKey(userId);
   if (!udk) return null;
   try {
     const bytes = await window.SecretUdk.decryptWithUserDataKey(cipher, udk);
@@ -237,9 +237,10 @@ async function ownerText(cipher) {
 
 function ensureCrypto() {
   if (!cryptoReady) {
-    cryptoReady = loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1')
+    cryptoReady = loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3')
       .then(() => window.VulpesCrypto.ready())
-      .then(() => loadScript('/assets/js/udk.js?v=shell133'))
+      .then(() => loadScript('/assets/js/udk.js?v=udk6'))
+      .then(() => window.SecretUdk.ready())
       .catch((err) => {
         cryptoReady = null;
         throw err;
@@ -249,7 +250,11 @@ function ensureCrypto() {
 }
 
 async function copyUpload(panel, item) {
-  const upload = `${location.origin}/upload?id=${encodeURIComponent(item.id)}`;
+  if (!item.publicKey) {
+    panelNote(panel, 'This collect has no public key to put in the upload link.');
+    return;
+  }
+  const upload = `${location.origin}/upload?id=${encodeURIComponent(item.id)}#pk=${encodeURIComponent(item.publicKey)}`;
   try {
     await navigator.clipboard.writeText(upload);
     panelNote(panel, 'Upload link copied.', 'success');
@@ -262,9 +267,10 @@ async function openCollect(ctx, card, item) {
   const note = card.querySelector('.share-error') || h('div', { class: 'alert danger share-error' });
   note.textContent = '';
   try {
-    await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto1');
+    await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3');
     await window.VulpesCrypto.ready();
-    await loadScript('/assets/js/udk.js?v=shell133');
+    await loadScript('/assets/js/udk.js?v=udk6');
+    await window.SecretUdk.ready();
     const udk = await requireUserDataKey();
     const pack = await ctx.api.get(`/api/plugins/secret-sharing/collects/${encodeURIComponent(item.id)}/owner-key`);
     const plain = await window.SecretUdk.decryptWithUserDataKey(pack.ownerPrivateKeyProtected, udk);

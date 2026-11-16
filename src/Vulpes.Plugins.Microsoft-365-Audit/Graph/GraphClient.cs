@@ -220,7 +220,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 }
 
 /// <summary>Creates token providers from stored (encrypted) tenant credentials.</summary>
-public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretProtector legacy)
+public sealed class GraphCredentialFactory(IDataAtRestProtector data)
 {
     private readonly GraphTokenCache _tokens = new();
 
@@ -290,10 +290,15 @@ public sealed class GraphCredentialFactory(IDataAtRestProtector data, ISecretPro
         return string.Join('\n', directoryId, clientId, cloud, credentialType, Convert.ToHexString(hash));
     }
 
-    private string Open(string stored) =>
-        data.IsProtected(stored) ? data.Unprotect(stored)
-        : stored.StartsWith("v1.", StringComparison.Ordinal) ? legacy.Unprotect(stored)
-        : stored;
+    private string Open(string stored)
+    {
+        if (!SealedColumn.TryOpen(data, stored, out var plaintext))
+        {
+            throw new InvalidOperationException("Stored credential is not a sealed envelope.");
+        }
+
+        return plaintext;
+    }
 
     private static X509Certificate2 LoadCertificate(byte[] pfx, string? password)
     {
@@ -437,7 +442,18 @@ public sealed class GraphClient : IDisposable
                 }
             }
 
-            next = root.TryGetProperty("@odata.nextLink", out var link) && link.ValueKind == JsonValueKind.String ? ValidateNextLink(link.GetString()) : null;
+            if (!root.TryGetProperty("@odata.nextLink", out var link))
+            {
+                next = null;
+            }
+            else if (link.ValueKind != JsonValueKind.String)
+            {
+                throw new GraphException("Graph nextLink is missing.");
+            }
+            else
+            {
+                next = ValidateNextLink(link.GetString()) ?? throw new GraphException("Refusing to follow a nextLink outside Microsoft Graph.");
+            }
         }
 
         if (complete) onResume?.Invoke(null);
@@ -464,7 +480,10 @@ public sealed class GraphClient : IDisposable
         }
 
         var graph = new Uri(Cloud.GraphBase);
-        if (uri.Scheme != Uri.UriSchemeHttps || !string.Equals(uri.Host, graph.Host, StringComparison.OrdinalIgnoreCase))
+        if (uri.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || uri.Port != 443
+            || !string.Equals(uri.Host, graph.Host, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning("Ignoring nextLink pointing outside Graph: {Host}", uri.Host);
             return null;
@@ -477,6 +496,7 @@ public sealed class GraphClient : IDisposable
     {
         var attempt = 0;
         var refreshedToken = false;
+        var followedRedirect = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -531,6 +551,22 @@ public sealed class GraphClient : IDisposable
                 {
                     refreshedToken = true;
                     _tokens.Invalidate();
+                    continue;
+                }
+
+                if ((int)response.StatusCode is >= 300 and < 400)
+                {
+                    if (followedRedirect)
+                    {
+                        throw new GraphException("Refusing to follow another Graph redirect.");
+                    }
+
+                    var location = response.Headers.Location;
+                    var absolute = location is null
+                        ? null
+                        : location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(uri, location).AbsoluteUri;
+                    uri = ValidateNextLink(absolute) ?? throw new GraphException("Refusing to follow a redirect outside Microsoft Graph.");
+                    followedRedirect = true;
                     continue;
                 }
 

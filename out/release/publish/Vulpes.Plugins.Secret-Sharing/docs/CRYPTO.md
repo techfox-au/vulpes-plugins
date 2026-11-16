@@ -22,7 +22,7 @@ The host user-data-key review is `vulpes/docs/CRYPTO.md`.
 | Key wrap | AES-256-GCM | 12-byte IV prepended to the wrap ciphertext |
 | Link password | PBKDF2-HMAC-SHA512 | 893241 iterations, 16-byte salt, 12-byte IV, seals the 32-byte secret key |
 
-A send or collect link puts the X25519 secret key in `#sk=`. The browser does not send the fragment. A link password replaces that fragment with base64url of `{ i, s, iv, ct }`. The server stores only `passwordProtected`.
+A send or collect link puts the X25519 secret key in `#sk=`. The browser does not send the fragment. A link password replaces that fragment with base64url of `{ i, s, iv, ct }`. The server stores only `passwordProtected`. A password-protected link does not accept a raw `#sk=`. The upload link puts the collect public key in `#pk=`. The upload page encrypts to that key and stops if it does not match the public key stored for the collect. A public key that does not contribute, including the all-zero key, is rejected when the collect is created. An omitted maximum open count stores no cap. A count outside 1–100000 is rejected for a send, a collect, and the bot.
 
 All payload sizes use that one worker. There is no page-thread AES and no JavaScript AES. A large ciphertext is spliced into the JSON body by `wwwroot/public/transfer.js`. It is not passed through `JSON.stringify`.
 
@@ -30,7 +30,7 @@ UI caps: file 40 MiB, secret text 1,000,000 characters. The server accepts a bas
 
 ## Owner fields
 
-Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The raw user data key stays in the browser. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
+Names, private notes, and the collect owner key are encrypted under the user data key before upload: `base64url(iv || AES-256-GCM ciphertext and tag)`. The raw user data key stays in the host worker described in `vulpes/docs/CRYPTO.md`. This plugin stores that ciphertext. The collect owner key and the stored user-data-key wraps are then sealed again with the host `VULPES_DATA_KEY` (`vd1.` envelope). The seal is removed only when the value is returned to the signed-in owner. Payload ciphertext is not sealed again.
 
 ## Proof of work
 

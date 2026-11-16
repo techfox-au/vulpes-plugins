@@ -6,6 +6,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Vulpes.Host.Security;
+using Vulpes.Plugins.SecretSharing.Services;
 using Xunit;
 
 namespace Vulpes.Plugins.SecretSharing.Tests;
@@ -53,6 +54,10 @@ public sealed class ShareFlowFixture : IDisposable
     }
 
     public string? SecretCipher(string id) => One("SELECT Ciphertext FROM secrets WHERE Id = @id", id);
+
+    public string? SecretMax(string id) => One("SELECT MaxAccessCount FROM secrets WHERE Id = @id", id);
+
+    public string? CollectMax(string id) => One("SELECT MaxAccessCount FROM collects WHERE Id = @id", id);
 
     public string? SecretPasswordFlag(string id) => One("SELECT PasswordProtected FROM secrets WHERE Id = @id", id);
 
@@ -151,6 +156,8 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         using var anon = await fixture.AnonymousAsync();
         var meta = await ProveAsync(anon, "/api/plugins/secret-sharing/public/sends/" + id + "/meta");
         Assert.False(meta.TryGetProperty("ciphertext", out _));
+        Assert.False(string.IsNullOrEmpty(meta.GetProperty("wrappedKey").GetString()));
+        Assert.False(string.IsNullOrEmpty(meta.GetProperty("ephemeralPublicKey").GetString()));
         Assert.False(meta.GetProperty("passwordProtected").GetBoolean());
         Assert.Equal(Cipher, fixture.SecretCipher(id));
 
@@ -178,6 +185,37 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         Assert.True(item.GetProperty("passwordProtected").GetBoolean());
         Assert.False(item.TryGetProperty("ciphertext", out _));
         Assert.DoesNotContain(Cipher, home.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unspecified_open_count_has_no_cap_and_an_out_of_range_count_is_rejected()
+    {
+        using var admin = await fixture.AdminAsync();
+        var send = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/sends", Payload(oneTime: false))).GetProperty("id").GetString()!;
+        Assert.Null(fixture.SecretMax(send));
+        var capped = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/sends", Payload(oneTime: false, extra: new Dictionary<string, object?> { ["maxAccessCount"] = 5 }))).GetProperty("id").GetString()!;
+        Assert.Equal("5", fixture.SecretMax(capped));
+        foreach (var count in new[] { 0, 100001 })
+        {
+            var rejected = await admin.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/sends", Payload(oneTime: false, extra: new Dictionary<string, object?> { ["maxAccessCount"] = count }));
+            Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+            Assert.Contains("1 to 100000", await rejected.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+
+        var collect = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), expiresInMinutes = 60, oneTime = false })).GetProperty("id").GetString()!;
+        Assert.Null(fixture.CollectMax(collect));
+        var collectRejected = await admin.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), expiresInMinutes = 60, oneTime = false, maxAccessCount = 100001 });
+        Assert.Equal(HttpStatusCode.BadRequest, collectRejected.StatusCode);
+        Assert.Contains("1 to 100000", await collectRejected.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_collect_rejects_a_public_key_that_does_not_contribute()
+    {
+        using var admin = await fixture.AdminAsync();
+        var response = await admin.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.B64(32), expiresInMinutes = 60, oneTime = true });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("not usable", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -250,7 +288,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         using var admin = await fixture.AdminAsync();
         var restricted = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/sends", Payload(oneTime: true, cidr: "203.0.113.10"))).GetProperty("id").GetString()!;
         var open = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/sends", Payload(oneTime: false))).GetProperty("id").GetString()!;
-        var collectId = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.B64(32), expiresInMinutes = 60, oneTime = true })).GetProperty("id").GetString()!;
+        var collectId = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), expiresInMinutes = 60, oneTime = true })).GetProperty("id").GetString()!;
         using var anon = await fixture.AnonymousAsync();
         var proof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + collectId);
         Assert.Equal(HttpStatusCode.NoContent, (await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + collectId, proof.Body, proof.Headers)).StatusCode);
@@ -280,11 +318,23 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
     }
 
     [Fact]
+    public async Task A_collect_home_row_includes_the_public_key_for_the_upload_link()
+    {
+        using var admin = await fixture.AdminAsync();
+        var publicKey = FlowClient.CollectPublicKey();
+        var created = await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey, expiresInMinutes = 60, oneTime = true });
+        var id = created.GetProperty("id").GetString()!;
+        var home = await admin.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/home");
+        var item = home.GetProperty("items").EnumerateArray().Single(row => row.GetProperty("id").GetString() == id);
+        Assert.Equal(publicKey, item.GetProperty("publicKey").GetString());
+    }
+
+    [Fact]
     public async Task Collect_upload_checks_the_proof_before_replacing_it_and_retrieval_burns_once()
     {
         using var admin = await fixture.AdminAsync();
         await admin.SendAsync(HttpMethod.Put, "/api/plugins/secret-sharing/collect-retrieve-ips", new { allowedIps = "" });
-        var created = await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.B64(32), expiresInMinutes = 60, oneTime = true });
+        var created = await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), expiresInMinutes = 60, oneTime = true });
         var id = created.GetProperty("id").GetString()!;
         using var anon = await fixture.AnonymousAsync();
         var proof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id);
@@ -299,7 +349,8 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
 
         var again = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id);
         var conflict = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id, again.Body, again.Headers);
-        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, conflict.StatusCode);
+        Assert.Contains("no longer available", await conflict.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(Cipher, fixture.CollectCipher(id));
 
         var opened = await ProveAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id + "/open");
@@ -316,12 +367,18 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         using var admin = await fixture.AdminAsync();
         try
         {
-            var id = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.B64(32), expiresInMinutes = 60, oneTime = true })).GetProperty("id").GetString()!;
+            var id = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), expiresInMinutes = 60, oneTime = true })).GetProperty("id").GetString()!;
             using var anon = await fixture.AnonymousAsync();
             var proof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id);
             Assert.Equal(HttpStatusCode.NoContent, (await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id, proof.Body, proof.Headers)).StatusCode);
             var saved = await admin.SendAsync(HttpMethod.Put, "/api/plugins/secret-sharing/collect-retrieve-ips", new { allowedIps = "203.0.113.10" });
             Assert.True(saved.IsSuccessStatusCode, await saved.Content.ReadAsStringAsync());
+
+            var bare = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id + "/meta", new { });
+            var bareText = await bare.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Forbidden, bare.StatusCode);
+            Assert.Contains("\"pow\"", bareText, StringComparison.Ordinal);
+            Assert.DoesNotContain("not available from your IP address", bareText, StringComparison.Ordinal);
 
             var metaDenied = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id + "/meta", (await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id)).Body);
             var metaText = await metaDenied.Content.ReadAsStringAsync();
@@ -348,7 +405,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
     {
         using var admin = await fixture.AdminAsync();
         const string ownerKey = "owner-key-material-0123456789abcd";
-        var created = await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.B64(32), ownerPrivateKeyProtected = ownerKey, expiresInMinutes = 60, oneTime = true });
+        var created = await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), ownerPrivateKeyProtected = ownerKey, expiresInMinutes = 60, oneTime = true });
         var id = created.GetProperty("id").GetString()!;
         var stored = fixture.CollectOwnerKey(id);
         Assert.StartsWith("vd1.", stored, StringComparison.Ordinal);
@@ -420,7 +477,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
             ["ciphertext"] = ciphertext,
             ["iv"] = FlowClient.B64(12),
             ["wrappedKey"] = FlowClient.B64(60),
-            ["ephemeralPublicKey"] = FlowClient.B64(32),
+            ["ephemeralPublicKey"] = FlowClient.CollectPublicKey(),
             ["contentType"] = "text/plain",
             ["oneTime"] = oneTime,
             ["expiresInMinutes"] = 60,
@@ -449,7 +506,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
             ciphertext = Cipher,
             iv = FlowClient.B64(12),
             wrappedKey = FlowClient.B64(60),
-            ephemeralPublicKey = FlowClient.B64(32),
+            ephemeralPublicKey = FlowClient.CollectPublicKey(),
             contentType = "text/plain",
         };
 
@@ -523,6 +580,13 @@ public sealed class FlowClient(HttpClient http) : IDisposable
     }
 
     public static string B64(int bytes) => Convert.ToBase64String(new byte[bytes]).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    public static string CollectPublicKey()
+    {
+        var scalar = new byte[32];
+        scalar[0] = 9;
+        return Convert.ToBase64String(X25519.ScalarMultBase(scalar)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
 
     private async Task<string> CsrfAsync()
     {

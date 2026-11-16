@@ -836,8 +836,11 @@
    */
   function ecdhShared(secretKey, publicKey) {
     requireNacl();
-    const shared = global.nacl.scalarMult(secretKey, publicKey);
-    return new Uint8Array(shared);
+    const shared = new Uint8Array(global.nacl.scalarMult(secretKey, publicKey));
+    if (shared.every(function (b) { return b === 0; })) {
+      throw new Error("Recipient public key is not usable.");
+    }
+    return shared;
   }
 
   /**
@@ -1271,6 +1274,20 @@
     return "#sk=" + b64urlEncode(secretKey);
   }
 
+  /** Fragment for the collect upload link. The public key never travels in the query string. */
+  function buildPublicKeyFragment(publicKey) {
+    return "#pk=" + b64urlEncode(publicKey);
+  }
+
+  /** Parse #pk= as a canonical 32-byte X25519 public key, or null. */
+  function publicKeyFromLocationHash(hash) {
+    const h = (hash || "").replace(/^#/, "");
+    if (!h) return null;
+    const pk = new URLSearchParams(h).get("pk");
+    if (!pk) return null;
+    return b64urlDecodeCanonical(pk, X25519_LEN);
+  }
+
   /** Fragment for password-wrapped sk (package JSON → base64url). */
   function buildPasswordProtectedFragment(packageJson) {
     const bytes = new TextEncoder().encode(packageJson);
@@ -1343,6 +1360,7 @@
     ingestPayloadResponse,
     encryptForRecipient,
     decryptWithSecretKey,
+    unwrapKey,
     plainToBytes,
     plainToText,
     plainToBlob,
@@ -1351,6 +1369,8 @@
     secretKeyFromLocationHash,
     secretKeyPackageFromLocationHash,
     buildFragment,
+    buildPublicKeyFragment,
+    publicKeyFromLocationHash,
     buildPasswordProtectedFragment,
     invoicePendingProof,
     wrapSecretKeyWithPassword,

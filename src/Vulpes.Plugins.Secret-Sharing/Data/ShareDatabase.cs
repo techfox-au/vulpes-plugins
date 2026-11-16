@@ -123,6 +123,21 @@ public sealed class ShareDatabase
         EnsurePublicLabel(conn);
         EnsureAllowedCidr(conn);
         EnsureRecipientLabel(conn);
+        EnsureEmailedTo(conn);
+    }
+
+    private static void EnsureEmailedTo(SqliteConnection conn)
+    {
+        using var check = conn.CreateCommand();
+        check.CommandText = "SELECT 1 FROM pragma_table_info('secrets') WHERE name = 'EmailedTo' LIMIT 1";
+        if (check.ExecuteScalar() is not null)
+        {
+            return;
+        }
+
+        using var alter = conn.CreateCommand();
+        alter.CommandText = "ALTER TABLE secrets ADD COLUMN EmailedTo TEXT NULL";
+        alter.ExecuteNonQuery();
     }
 
     private static void EnsurePowClientId(SqliteConnection conn)

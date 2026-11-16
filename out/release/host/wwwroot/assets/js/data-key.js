@@ -5,11 +5,11 @@ import { api } from './api.js';
 const BASE = '/api/account/data-key';
 
 function loadScript() {
-  if (window.SecretUdk) return Promise.resolve();
+  if (window.SecretUdk && window.SecretUdk.ready) return window.SecretUdk.ready();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = '/assets/js/udk.js?v=shell133';
-    s.onload = () => resolve();
+    s.src = '/assets/js/udk.js?v=udk6';
+    s.onload = () => window.SecretUdk.ready().then(resolve, reject);
     s.onerror = () => reject(new Error('Could not load encryption.'));
     document.head.append(s);
   });
@@ -27,8 +27,14 @@ async function save(kind, wrapped, credentialId) {
   await api.put(BASE, { kind, credentialId: credentialId || null, wrapped });
 }
 
-async function passwordMaterial(wraps, password) {
-  let udk = window.SecretUdk.loadUserDataKey();
+async function accountId() {
+  const me = await api.get('/api/account');
+  if (!me?.id) throw new Error('Could not load encryption.');
+  return me.id;
+}
+
+async function passwordMaterial(wraps, password, userId) {
+  let udk = window.SecretUdk.loadUserDataKey(userId);
   const passwordWrap = wraps.find((wrap) => wrap.kind === 'password');
   const legacy = wraps.find((wrap) => wrap.kind === 'legacy');
   if (!udk && passwordWrap) {
@@ -44,17 +50,18 @@ async function passwordMaterial(wraps, password) {
 export async function establishWithPassword(password) {
   if (!password) return;
   await loadScript();
+  const userId = await accountId();
   const wraps = wrapsOf(await api.get(BASE));
-  const found = await passwordMaterial(wraps, password);
+  const found = await passwordMaterial(wraps, password, userId);
   if (found.udk) {
     if (!found.passwordWrap) await save('password', await window.SecretUdk.wrapUserDataKey(found.udk, password));
-    window.SecretUdk.storeUserDataKey(found.udk);
+    await window.SecretUdk.storeUserDataKey(found.udk, userId);
     return;
   }
   if (wraps.length > 0) return;
-  const udk = window.SecretUdk.generateUserDataKey();
+  const udk = await window.SecretUdk.generateUserDataKey();
   await save('password', await window.SecretUdk.wrapUserDataKey(udk, password));
-  window.SecretUdk.storeUserDataKey(udk);
+  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 /** First passkey on the account. No key is created when the authenticator cannot wrap it. */
@@ -62,29 +69,32 @@ export async function establishWithPasskey(credential) {
   if (!credential) return;
   await loadScript();
   const prf = prfBytes(credential);
-  if (!prf) return;
+  if (!prf) throw new Error('This passkey cannot protect encryption. Use one that supports the PRF extension.');
   const credentialId = credential.id;
+  const userId = await accountId();
   const wraps = wrapsOf(await api.get(BASE));
   const existing = wraps.find((wrap) => wrap.kind === 'passkey' && wrap.credentialId === credentialId);
-  let udk = window.SecretUdk.loadUserDataKey();
+  let udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk && existing) {
-    try { udk = await window.SecretUdk.unwrapUserDataKeyWithPrf(existing.wrapped, prf); } catch { return; }
+    try { udk = await window.SecretUdk.unwrapUserDataKeyWithPrf(existing.wrapped, prf); }
+    catch { throw new Error('This passkey could not unlock encryption.'); }
   }
   if (udk) {
     if (!existing) await save('passkey', await window.SecretUdk.wrapUserDataKeyWithPrf(udk, prf), credentialId);
-    window.SecretUdk.storeUserDataKey(udk);
+    await window.SecretUdk.storeUserDataKey(udk, userId);
     return;
   }
   if (wraps.length > 0) return;
-  udk = window.SecretUdk.generateUserDataKey();
+  udk = await window.SecretUdk.generateUserDataKey();
   await save('passkey', await window.SecretUdk.wrapUserDataKeyWithPrf(udk, prf), credentialId);
-  window.SecretUdk.storeUserDataKey(udk);
+  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 /** This tab has no key. Ask for the password or passkey that already wraps it, and keep the dialog open until it unwraps. */
 export async function requireUserDataKey() {
   await loadScript();
-  const existing = window.SecretUdk.loadUserDataKey();
+  const userId = await accountId();
+  const existing = window.SecretUdk.loadUserDataKey(userId);
   if (existing) return existing;
   const [pack, me] = await Promise.all([api.get(BASE), api.get('/api/account')]);
   const wraps = wrapsOf(pack);
@@ -104,18 +114,18 @@ export async function requireUserDataKey() {
       submitLabel: 'Unlock',
       onSubmit: async (values) => {
         await unlockWithPassword(values.password);
-        if (!window.SecretUdk.loadUserDataKey()) throw new Error('Could not unlock encryption. Check your password and try again.');
+        if (!window.SecretUdk.loadUserDataKey(userId)) throw new Error('Could not unlock encryption. Check your password and try again.');
       },
     });
     if (!unlocked) throw new Error('Password required to unlock encryption.');
-    return window.SecretUdk.loadUserDataKey();
+    return window.SecretUdk.loadUserDataKey(userId);
   }
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', 'Use your passkey to unlock encryption in this browser tab.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to unlock encryption.');
   const webauthn = await import('./webauthn.js?v=shell127');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
-  const udk = window.SecretUdk.loadUserDataKey();
+  const udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk) throw new Error('This passkey could not unlock encryption.');
   return udk;
 }
@@ -123,47 +133,56 @@ export async function requireUserDataKey() {
 export async function unlockWithPassword(password) {
   if (!password) return;
   await loadScript();
+  const userId = await accountId();
   const wraps = wrapsOf(await api.get(BASE));
   if (wraps.length === 0) {
     window.SecretUdk.clearUserDataKey();
     return;
   }
-  const found = await passwordMaterial(wraps, password);
-  if (found.udk) window.SecretUdk.storeUserDataKey(found.udk);
+  const found = await passwordMaterial(wraps, password, userId);
+  if (found.udk) await window.SecretUdk.storeUserDataKey(found.udk, userId);
 }
 
 /** After a temporary password is replaced. The previous key was destroyed, so this always creates a new one. */
 export async function replaceAfterTemporaryPassword(newPassword) {
   if (!newPassword) return;
   await loadScript();
-  window.SecretUdk.clearUserDataKey();
-  const udk = window.SecretUdk.generateUserDataKey();
+  const userId = await accountId();
+  let udk = window.SecretUdk.loadUserDataKey(userId);
+  if (!udk) {
+    udk = await window.SecretUdk.generateUserDataKey();
+    await window.SecretUdk.storeUserDataKey(udk, userId);
+  }
   await save('password', await window.SecretUdk.wrapUserDataKey(udk, newPassword));
-  window.SecretUdk.storeUserDataKey(udk);
+  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 export async function unlockWithPasskey(credential) {
   if (!credential) return;
   await loadScript();
   const prf = prfBytes(credential);
-  if (!prf) return;
+  if (!prf) throw new Error('This passkey cannot unlock encryption. Use one that supports the PRF extension, or sign in with a password.');
   const credentialId = credential.id;
+  const userId = await accountId();
   const wraps = wrapsOf(await api.get(BASE));
   const existing = wraps.find((wrap) => wrap.kind === 'passkey' && wrap.credentialId === credentialId);
-  let udk = window.SecretUdk.loadUserDataKey();
+  let udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk && existing) {
-    try { udk = await window.SecretUdk.unwrapUserDataKeyWithPrf(existing.wrapped, prf); } catch { return; }
+    try { udk = await window.SecretUdk.unwrapUserDataKeyWithPrf(existing.wrapped, prf); }
+    catch { throw new Error('This passkey could not unlock encryption.'); }
   }
-  if (!udk) return;
+  if (!udk) throw new Error('This passkey could not unlock encryption.');
   if (!existing) await save('passkey', await window.SecretUdk.wrapUserDataKeyWithPrf(udk, prf), credentialId);
-  window.SecretUdk.storeUserDataKey(udk);
+  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 /** Puts the existing key in this tab. A passkey-only account is asked for the passkey. Nothing is saved yet. */
-export async function preparePasswordWrap(currentPassword) {
+export async function preparePasswordWrap(currentPassword, options = {}) {
   await loadScript();
+  const userId = await accountId();
   const wraps = wrapsOf(await api.get(BASE));
-  let udk = window.SecretUdk.loadUserDataKey();
+  let udk = window.SecretUdk.loadUserDataKey(userId);
+  if (udk && !(await window.SecretUdk.canRewrap())) udk = null;
   if (!udk && currentPassword) {
     const passwordWrap = wraps.find((wrap) => wrap.kind === 'password' || wrap.kind === 'legacy');
     if (passwordWrap) {
@@ -171,19 +190,22 @@ export async function preparePasswordWrap(currentPassword) {
     }
   }
   if (!udk && wraps.some((wrap) => wrap.kind === 'passkey')) udk = await unlockWithPasskeyPrompt();
-  if (!udk && wraps.length === 0) udk = window.SecretUdk.generateUserDataKey();
-  if (!udk) throw new Error('Could not unlock encryption to wrap it with this password.');
-  window.SecretUdk.storeUserDataKey(udk);
+  if (!udk && wraps.length === 0 && options.createIfMissing) udk = await window.SecretUdk.generateUserDataKey();
+  if (!udk) throw new Error(wraps.length === 0
+    ? 'Could not wrap encryption. This account has no wrapped key, so a new one would leave any existing secrets unreadable.'
+    : 'Could not unlock encryption to wrap it with this password.');
+  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 /** Wraps the key already held in this tab. Call only after the new password has been accepted. */
 export async function commitPasswordWrap(newPassword) {
   if (!newPassword) return;
   await loadScript();
-  const udk = window.SecretUdk.loadUserDataKey();
+  const userId = await accountId();
+  const udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk) throw new Error('Could not unlock encryption to wrap it with this password.');
   await save('password', await window.SecretUdk.wrapUserDataKey(udk, newPassword));
-  window.SecretUdk.storeUserDataKey(udk);
+  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 async function unlockWithPasskeyPrompt() {
@@ -192,7 +214,7 @@ async function unlockWithPasskeyPrompt() {
   if (!agreed) throw new Error('Passkey required to wrap encryption for this password.');
   const webauthn = await import('./webauthn.js?v=shell127');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
-  return window.SecretUdk.loadUserDataKey();
+  return window.SecretUdk.loadUserDataKey(await accountId());
 }
 
 export async function dropPasskey(credentialId) {

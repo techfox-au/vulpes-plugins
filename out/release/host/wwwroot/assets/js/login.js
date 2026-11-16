@@ -1,7 +1,7 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js?v=shell195';
 import * as webauthn from './webauthn.js?v=shell160';
-import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell133';
+import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell398';
 import { VulpesPow } from './pow.js?v=pow4';
 import './pwa.js?v=shell388';
 

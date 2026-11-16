@@ -1,10 +1,23 @@
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell370';
+import { confirmIdentity } from '../reauth.js?v=shell398';
 
 let root;
 export async function mount(el, ctx) { root = el; ctx.setTitle(['Users']); await render(ctx); }
 export function unmount() { root = null; }
 
 const roleOptions = [{ value: 'Viewer', label: 'Viewer' }, { value: 'Analyst', label: 'Analyst' }, { value: 'Admin', label: 'Admin' }];
+
+async function withReauth(ctx, action) {
+  const me = await ctx.api.get('/api/account');
+  if (!(await confirmIdentity(ctx, me))) return null;
+  try {
+    return await action();
+  } catch (err) {
+    if (err.code !== 'reauth_required') throw err;
+    if (!(await confirmIdentity(ctx, me))) return null;
+    return action();
+  }
+}
 
 async function render(ctx) {
   clear(root);
@@ -44,7 +57,7 @@ async function createUser(ctx) {
     { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: true },
   ], {
     submitLabel: 'Create',
-    onSubmit: (values) => ctx.api.post('/api/admin/users', { ...values, email: values.email || null }),
+    onSubmit: (values) => withReauth(ctx, () => ctx.api.post('/api/admin/users', { ...values, email: values.email || null })),
   });
   if (!res) return;
   await showEnrollmentLink(res.enrollment, res.user.username);
@@ -79,12 +92,18 @@ async function openUser(ctx, id, note) {
   actions.append(h('button', { class: 'btn', onClick: () => editUser(ctx, user) }, 'Edit'));
   if (!self) actions.append(h('button', { class: 'btn', onClick: async () => {
     if (!(await modal.confirm('Issue recovery link', `Create a new single-use enrollment link for ${user.username}? Any previous unused link is revoked.`))) return;
-    try { const res = await ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/enrollment-link`); drawer.close(); await showEnrollmentLink(res, user.username); } catch (err) { panelNote(body, errorMessage(err)); }
+    try {
+      const res = await withReauth(ctx, () => ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/enrollment-link`));
+      if (!res) return;
+      drawer.close();
+      await showEnrollmentLink(res, user.username);
+    } catch (err) { panelNote(body, errorMessage(err)); }
   } }, 'Recovery link'));
   if (!self) actions.append(h('button', { class: 'btn', onClick: async () => {
     if (!(await modal.confirm('Set temporary password', `Replace ${user.username}'s password with a random temporary one? Their passkeys, recovery links, sends, and collects are deleted. They must set a new password at next sign-in.`))) return;
     try {
-      const res = await ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/temporary-password`);
+      const res = await withReauth(ctx, () => ctx.api.post(`/api/admin/users/${encodeURIComponent(id)}/temporary-password`));
+      if (!res) return;
       const input = h('input', { class: 'input mono', readonly: true, value: res.temporaryPassword });
       await modal.show({ title: 'Temporary password', content: h('div', { class: 'col' }, h('p', null, 'Share it through a trusted channel. It is shown only once.'), input, h('button', { class: 'btn', onClick: () => copyToClipboard(res.temporaryPassword) }, 'Copy')), actions: [{ label: 'Done', kind: 'primary' }] });
       drawer.close(); await render(ctx);

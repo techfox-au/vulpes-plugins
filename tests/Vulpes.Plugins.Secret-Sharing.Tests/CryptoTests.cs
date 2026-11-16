@@ -411,6 +411,20 @@ public sealed class ShareBurnTests : IDisposable
     }
 
     [Fact]
+    public void Recipient_email_is_not_stored_without_the_data_key()
+    {
+        var id = _store.CreateSend("owner", new SendInput("ciphertext", "iv", "wk", "eph", "text/plain", null, true, 60, null, null, null, false, false));
+        var error = Assert.Throws<InvalidOperationException>(() => _store.SealEmailRecipients(id, "accounts@example.com"));
+        Assert.Contains("data key", error.Message, StringComparison.Ordinal);
+        using var conn = new SqliteConnection("Data Source=" + Path.Combine(_dir, "secret-sharing.db"));
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT EmailedTo FROM secrets WHERE Id = @id";
+        cmd.Parameters.AddWithValue("@id", id);
+        Assert.Equal(DBNull.Value, cmd.ExecuteScalar());
+    }
+
+    [Fact]
     public void The_collect_owner_key_is_stored_under_the_data_key_seal()
     {
         var protector = new DataAtRestProtector(RandomNumberGenerator.GetBytes(32));

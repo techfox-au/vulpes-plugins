@@ -291,11 +291,16 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         return id;
     }
 
-    /// <summary>Records the first recipient list for a send. A later list is refused.</summary>
+    /// <summary>Records the first recipient list for a send. A later list is refused. The addresses are sealed with the data key and are never stored in plaintext.</summary>
     public bool SealEmailRecipients(string id, string addresses)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentException.ThrowIfNullOrWhiteSpace(addresses);
+        if (dataAtRest is null)
+        {
+            throw new InvalidOperationException("Recipient email is not stored unless the data key is available.");
+        }
+
         using var conn = database.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -303,7 +308,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
             WHERE Id = @id AND EmailedTo IS NULL
             """;
         cmd.Parameters.AddWithValue("@id", id);
-        cmd.Parameters.AddWithValue("@addresses", Seal(addresses) ?? addresses);
+        cmd.Parameters.AddWithValue("@addresses", dataAtRest.Protect(addresses));
         return cmd.ExecuteNonQuery() == 1;
     }
 

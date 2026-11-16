@@ -134,7 +134,7 @@ public sealed class PurviewAuditCollector : ICollector
         var prior = context.State;
         var savedNext = prior.TryGetValue(PendingNextKey, out var nextEl) && nextEl.ValueKind == JsonValueKind.String ? nextEl.GetString() : null;
         var path = string.IsNullOrEmpty(savedNext)
-            ? $"security/auditLog/queries/{Uri.EscapeDataString(queryId)}/records?$top={Math.Clamp(context.Options.GraphPageSize, 1, 1000)}"
+            ? $"security/auditLog/queries/{Uri.EscapeDataString(queryId)}/records?$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}"
             : savedNext;
         string? resume = null;
 

@@ -288,6 +288,7 @@ public sealed class CollectorTests
         var score = await new SecureScoreCollector().CollectAsync(TestContext.Context(TestContext.Client(handler), pipeline), CancellationToken.None);
         Assert.Equal(1, alerts.Published);
         Assert.Equal(1, score.Published);
+        Assert.Contains(handler.Requests, request => request.RequestUri!.ToString().Contains("orderby=createdDateTime%20desc", StringComparison.Ordinal) || Uri.UnescapeDataString(request.RequestUri.ToString()).Contains("orderby=createdDateTime desc", StringComparison.Ordinal));
         Assert.Contains(pipeline.Events, e => e.Source == "security-alerts" && e.Kind == "alert" && e.Severity == "high");
         Assert.Contains(pipeline.Events, e => e.Source == "securescore" && e.Labels!["percent"] == "61.5");
     }

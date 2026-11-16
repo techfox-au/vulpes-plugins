@@ -310,7 +310,8 @@ public sealed class SecureScoreCollector : ICollector
     {
         ArgumentNullException.ThrowIfNull(context);
         var events = new List<SecurityEvent>();
-        await foreach (var record in context.Graph.GetPagedAsync("security/secureScores?$top=7", 1, cancellationToken))
+        // Graph documents this list as createdDateTime, latest first. The order is requested as well, so $top=7 is the newest seven days and an older page cannot move the watermark past a newer score.
+        await foreach (var record in context.Graph.GetPagedAsync("security/secureScores?$top=7&$orderby=createdDateTime%20desc", 1, cancellationToken))
         {
             var e = Normalizers.SecureScore(record, context.Tenant.TenantId, context.Tenant.DiscoveredName ?? context.Tenant.DisplayName);
             if (e is not null)

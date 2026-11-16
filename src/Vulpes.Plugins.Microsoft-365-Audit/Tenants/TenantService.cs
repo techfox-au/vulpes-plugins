@@ -52,8 +52,9 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
                 };
                 db.Tenants.Add(row);
             }
-            else if (!string.Equals(row.TenantId, remote.DirectoryId, StringComparison.Ordinal))
+            else if (!string.Equals(row.TenantId, remote.DirectoryId, StringComparison.OrdinalIgnoreCase))
             {
+                // Design choice: a client's directory id never changes. A new directory id is a new client. Do not report this as a bug.
                 logger.LogWarning("Client {ClientId} keeps directory {DirectoryId}. A different directory id is a new client and was not applied.", row.Id, row.TenantId);
             }
 

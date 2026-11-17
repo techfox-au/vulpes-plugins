@@ -506,12 +506,12 @@ public static class ShareEndpoints
         Results.Json(new { error = "gone", message = "This secret is no longer available." }, statusCode: StatusCodes.Status404NotFound);
 
     private static IResult CollectIpDenied(HttpContext http) =>
-        Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address. " + SeenIp(http) }, statusCode: StatusCodes.Status403Forbidden);
+        Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address: " + SeenIp(http) }, statusCode: StatusCodes.Status403Forbidden);
 
     private static async Task<IResult> IpDenied(HttpContext http, IHostAuditLog audit, string id)
     {
         await audit.RecordAsync("secret.send.ip_denied", id, $"Send access denied: IP not allowed (id {id})", actor: "anonymous", cancellationToken: http.RequestAborted);
-        return Results.Json(new { error = "ip", message = "This send is not available from your IP address. " + SeenIp(http) }, statusCode: StatusCodes.Status403Forbidden);
+        return Results.Json(new { error = "ip", message = "This send is not available from your IP address: " + SeenIp(http) }, statusCode: StatusCodes.Status403Forbidden);
     }
 
     private static string SeenIp(HttpContext http)

@@ -272,7 +272,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         var first = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/sends/" + id + "/meta", firstProof.Body);
         var firstText = await first.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.Forbidden, first.StatusCode);
-        Assert.Contains("not available from your IP address", firstText, StringComparison.Ordinal);
+        Assert.Contains("not available from your IP address:", firstText, StringComparison.Ordinal);
         Assert.Equal(Cipher, fixture.SecretCipher(id));
 
         var secondProof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/sends/" + id);
@@ -300,7 +300,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         {
             var sendDenied = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/sends/" + restricted + "/meta", (await ProofAsync(anon, "/api/plugins/secret-sharing/public/sends/" + restricted)).Body);
             Assert.Equal(HttpStatusCode.Forbidden, sendDenied.StatusCode);
-            Assert.Contains("not available from your IP address", await sendDenied.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+            Assert.Contains("not available from your IP address:", await sendDenied.Content.ReadAsStringAsync(), StringComparison.Ordinal);
             Assert.Equal(Cipher, fixture.SecretCipher(restricted));
 
             var sendOpen = await ProveAsync(anon, "/api/plugins/secret-sharing/public/sends/" + open + "/meta");
@@ -383,7 +383,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
             var metaDenied = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id + "/meta", (await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id)).Body);
             var metaText = await metaDenied.Content.ReadAsStringAsync();
             Assert.Equal(HttpStatusCode.Forbidden, metaDenied.StatusCode);
-            Assert.Contains("not available from your IP address", metaText, StringComparison.Ordinal);
+            Assert.Contains("not available from your IP address:", metaText, StringComparison.Ordinal);
             Assert.DoesNotContain("publicKey", metaText, StringComparison.Ordinal);
             Assert.DoesNotContain("expiresAt", metaText, StringComparison.Ordinal);
 
@@ -391,7 +391,7 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
             var denied = await anon.SendAsync(HttpMethod.Post, "/api/plugins/secret-sharing/public/collects/" + id + "/open", openProof.Body);
             var deniedText = await denied.Content.ReadAsStringAsync();
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
-            Assert.Contains("not available from your IP address", deniedText, StringComparison.Ordinal);
+            Assert.Contains("not available from your IP address:", deniedText, StringComparison.Ordinal);
             Assert.Equal(Cipher, fixture.CollectCipher(id));
         }
         finally

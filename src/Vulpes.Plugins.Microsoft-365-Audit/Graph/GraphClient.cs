@@ -93,7 +93,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
     private readonly GraphTokenCache? _shared;
     private readonly string? _cacheKey;
     private readonly Lock _gate = new();
-    private TokenCredential _credential;
+    private TokenCredential? _credential;
     private AccessToken _cached;
 
     public AzureIdentityTokenProvider(Func<TokenCredential> createCredential, string scope)
@@ -123,8 +123,16 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         _owned = owned;
         _shared = shared;
         _cacheKey = cacheKey;
-        _credential = createCredential();
         _scope = scope;
+    }
+
+    /// <summary>Opened on the first token request. A shared-cache hit must not load a certificate.</summary>
+    private TokenCredential Credential()
+    {
+        lock (_gate)
+        {
+            return _credential ??= _createCredential();
+        }
     }
 
     public void Dispose() => _owned?.Dispose();
@@ -198,12 +206,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 
     private async Task<string> RequestTokenAsync(CancellationToken cancellationToken)
     {
-        TokenCredential credential;
-        lock (_gate)
-        {
-            credential = _credential;
-        }
-
+        var credential = Credential();
         var token = await credential.GetTokenAsync(new TokenRequestContext([_scope]), cancellationToken);
         lock (_gate)
         {
@@ -345,7 +348,16 @@ public sealed class EntraTokenSource(IEntraApplication application, GraphCredent
     public async Task<string> GetTokenAsync(string directoryId, CancellationToken cancellationToken)
     {
         var app = await application.GetAsync(cancellationToken) ?? throw new InvalidOperationException("The Entra application is not configured.");
-        return await credentials.Create(directoryId, app).GetTokenAsync(cancellationToken);
+        var provider = credentials.Create(directoryId, app);
+        if (provider is not IDisposable disposable)
+        {
+            return await provider.GetTokenAsync(cancellationToken);
+        }
+
+        using (disposable)
+        {
+            return await provider.GetTokenAsync(cancellationToken);
+        }
     }
 }
 
@@ -452,7 +464,14 @@ public sealed class GraphClient : IDisposable
             }
             else
             {
-                next = ValidateNextLink(link.GetString()) ?? throw new GraphException("Refusing to follow a nextLink outside Microsoft Graph.");
+                next = ValidateNextLink(link.GetString());
+                if (next is null)
+                {
+                    // The property is present, so this is not the last page. Leave the resume URL on
+                    // this page and report the window unfinished instead of skipping the rest.
+                    complete = false;
+                    break;
+                }
             }
         }
 

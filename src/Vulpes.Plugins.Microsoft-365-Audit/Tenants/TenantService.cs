@@ -65,8 +65,10 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
                 row.DiscoveredName = remote.DiscoveredName;
             }
 
+            var credentialChanged = false;
             if (application is null)
             {
+                credentialChanged = row.ProtectedSecret is not null || row.ProtectedCertificate is not null;
                 row.ProtectedSecret = null;
                 row.ProtectedCertificate = null;
                 row.ProtectedCertificatePassword = null;
@@ -78,34 +80,45 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
                 row.Cloud = application.Cloud;
                 if (string.IsNullOrEmpty(application.Secret))
                 {
+                    credentialChanged |= row.ProtectedSecret is not null;
                     row.ProtectedSecret = null;
                 }
                 else if (!SameSecret(row.ProtectedSecret, application.Secret))
                 {
                     row.ProtectedSecret = data.Protect(application.Secret);
+                    credentialChanged = true;
                 }
 
                 if (string.IsNullOrEmpty(application.CertificatePfxBase64))
                 {
+                    credentialChanged |= row.ProtectedCertificate is not null;
                     row.ProtectedCertificate = null;
                     row.ProtectedCertificatePassword = null;
                 }
                 else if (!SameSecret(row.ProtectedCertificate, application.CertificatePfxBase64))
                 {
                     row.ProtectedCertificate = data.Protect(application.CertificatePfxBase64);
+                    credentialChanged = true;
                 }
 
                 if (!string.IsNullOrEmpty(application.CertificatePfxBase64))
                 {
                     if (string.IsNullOrEmpty(application.CertificatePassword))
                     {
+                        credentialChanged |= row.ProtectedCertificatePassword is not null;
                         row.ProtectedCertificatePassword = null;
                     }
                     else if (!SameSecret(row.ProtectedCertificatePassword, application.CertificatePassword))
                     {
                         row.ProtectedCertificatePassword = data.Protect(application.CertificatePassword);
+                        credentialChanged = true;
                     }
                 }
+            }
+
+            if (credentialChanged)
+            {
+                scheduler?.ClearCredentialBlock(row.Id);
             }
 
             row.UpdatedAt = timeProvider.GetUtcNow();
@@ -251,21 +264,23 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         string? organization = null;
         try
         {
-            graph = graphFactory.Create(tenant);
-            using var org = await graph.GetAsync("organization?$select=id,displayName", ct);
-            if (org.RootElement.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > 0)
+            try
             {
-                organization = value[0].Str("displayName");
+                graph = graphFactory.Create(tenant);
+                using var org = await graph.GetAsync("organization?$select=id,displayName", ct);
+                if (org.RootElement.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > 0)
+                {
+                    organization = value[0].Str("displayName");
+                }
             }
-        }
-        catch (Exception ex) when (ex is GraphException or Azure.Identity.AuthenticationFailedException or Azure.RequestFailedException or InvalidOperationException or HttpRequestException or System.Security.Cryptography.CryptographicException or FormatException)
-        {
-            graph?.Dispose();
-            logger.LogWarning(ex, "Connection test failed for tenant {Tenant}", tenant.DisplayName);
-            var failed = new ConnectionTestResult(false, null, Sanitize(ex.Message), probes, testedAt);
-            await StoreTestResultAsync(tenant, failed, ct);
-            return failed;
-        }
+            catch (Exception ex) when (TestFailure(ex, ct))
+            {
+                logger.LogWarning(ex, "Connection test failed for tenant {Tenant}", tenant.DisplayName);
+                var detail = ex is OperationCanceledException ? "The Graph request timed out." : Sanitize(ex.Message);
+                var failed = new ConnectionTestResult(false, null, detail, probes, testedAt);
+                await StoreTestResultAsync(tenant, failed, ct);
+                return failed;
+            }
 
         foreach (var collector in collectors.OrderBy(c => c.Source, StringComparer.Ordinal))
         {
@@ -297,12 +312,30 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             {
                 probes.Add(new ProbeResult(collector.Source, collector.Title, "error", Sanitize(ex.Message)));
             }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                probes.Add(new ProbeResult(collector.Source, collector.Title, "error", "The Graph request timed out."));
+            }
         }
 
         var result = new ConnectionTestResult(true, organization, null, probes, testedAt);
         await StoreTestResultAsync(tenant, result, ct);
-        graph?.Dispose();
         return result;
+        }
+        finally
+        {
+            graph?.Dispose();
+        }
+    }
+
+    private static bool TestFailure(Exception ex, CancellationToken ct)
+    {
+        if (ex is OperationCanceledException)
+        {
+            return !ct.IsCancellationRequested;
+        }
+
+        return ex is GraphException or Azure.Identity.AuthenticationFailedException or Azure.RequestFailedException or InvalidOperationException or HttpRequestException or System.Security.Cryptography.CryptographicException or FormatException;
     }
 
     private async Task StoreTestResultAsync(Tenant tenant, ConnectionTestResult result, CancellationToken ct)

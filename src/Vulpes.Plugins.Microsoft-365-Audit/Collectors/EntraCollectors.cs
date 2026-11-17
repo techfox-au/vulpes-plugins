@@ -27,7 +27,7 @@ public sealed class SignInsCollector : ICollector
         // The non-interactive feed keeps its own watermark in the checkpoint state.
         var state = context.State;
         var nonInteractiveWatermark = state.TryGetValue("nonInteractiveWatermark", out var w) && w.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(w.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : (DateTimeOffset?)null;
-        var shadow = new Data.Checkpoint { TenantId = context.Checkpoint.TenantId, Source = Source, Watermark = nonInteractiveWatermark };
+        var shadow = new Data.Checkpoint { TenantId = context.Checkpoint.TenantId, Source = Source, Watermark = nonInteractiveWatermark, StateJson = context.Checkpoint.StateJson };
         var shadowContext = new CollectorContext
         {
             Tenant = context.Tenant,
@@ -41,7 +41,18 @@ public sealed class SignInsCollector : ICollector
             Deadline = context.Deadline,
         };
         var second = await new NonInteractive().CollectAsync(shadowContext, cancellationToken);
-        context.SaveState(new Dictionary<string, object?> { ["nonInteractiveWatermark"] = shadow.Watermark?.ToString("O", CultureInfo.InvariantCulture) });
+        // The beta feed's resume link lives on the shadow checkpoint. Keep it beside the interactive cursor.
+        var merged = new Dictionary<string, object?>();
+        foreach (var pair in shadowContext.State)
+        {
+            if (pair.Value.ValueKind == JsonValueKind.String)
+            {
+                merged[pair.Key] = pair.Value.GetString();
+            }
+        }
+
+        merged["nonInteractiveWatermark"] = shadow.Watermark?.ToString("O", CultureInfo.InvariantCulture);
+        context.SaveState(merged);
         var note = second.Note is not null && !second.Complete ? "non-interactive " + second.Note : second.Note ?? result.Note;
         return new CollectorResult(result.Published + second.Published, result.Duplicates + second.Duplicates, result.Failed + second.Failed, result.Alerts + second.Alerts, second.Complete, note);
     }
@@ -54,6 +65,9 @@ public sealed class SignInsCollector : ICollector
         public override string ProbePath => "auditLogs/signIns?$top=1";
 
         protected override string OrderByField => "createdDateTime";
+
+        // List sign-ins does not support $orderby and returns newest createdDateTime first.
+        protected override bool OrderByAscending => false;
 
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"auditLogs/signIns?$filter=createdDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
@@ -74,6 +88,12 @@ public sealed class SignInsCollector : ICollector
         protected override bool UseBeta => true;
 
         protected override string OrderByField => "createdDateTime";
+
+        // The beta sign-in feed also rejects $orderby and is newest createdDateTime first.
+        protected override bool OrderByAscending => false;
+
+        /// <summary>Shares the sign-in checkpoint with the interactive feed, so its cursor uses its own keys.</summary>
+        protected override string StatePrefix => "nonInteractive";
 
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"auditLogs/signIns?$filter=createdDateTime%20ge%20{OData.Timestamp(from)}%20and%20signInEventTypes/any(t:%20t%20eq%20'nonInteractiveUser'%20or%20t%20eq%20'servicePrincipal'%20or%20t%20eq%20'managedIdentity')&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
@@ -153,6 +173,8 @@ public sealed class SecurityAlertsCollector : WatermarkCollector
 
     protected override string OrderByField => "lastUpdateDateTime";
 
+    protected override bool OrderByAscending => false;
+
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
         $"security/alerts_v2?$filter=lastUpdateDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
 
@@ -173,6 +195,8 @@ public sealed class IncidentsCollector : WatermarkCollector
     protected override TimeSpan Overlap(CollectorContext context) => TimeSpan.FromMinutes(10);
 
     protected override string OrderByField => "lastUpdateDateTime";
+
+    protected override bool OrderByAscending => false;
 
     protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
         $"security/incidents?$filter=lastUpdateDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 50)}";
@@ -310,8 +334,8 @@ public sealed class SecureScoreCollector : ICollector
     {
         ArgumentNullException.ThrowIfNull(context);
         var events = new List<SecurityEvent>();
-        // Graph documents this list as createdDateTime, latest first. The order is requested as well, so $top=7 is the newest seven days and an older page cannot move the watermark past a newer score.
-        await foreach (var record in context.Graph.GetPagedAsync("security/secureScores?$top=7&$orderby=createdDateTime%20desc", 1, cancellationToken))
+        // List secureScores is already newest-first. $top=7 is the newest seven days. $orderby is not a supported query option and Graph rejects it.
+        await foreach (var record in context.Graph.GetPagedAsync("security/secureScores?$top=7", 1, cancellationToken))
         {
             var e = Normalizers.SecureScore(record, context.Tenant.TenantId, context.Tenant.DiscoveredName ?? context.Tenant.DisplayName);
             if (e is not null)

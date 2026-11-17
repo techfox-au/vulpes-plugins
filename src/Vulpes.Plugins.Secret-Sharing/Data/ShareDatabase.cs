@@ -121,6 +121,19 @@ public sealed class ShareDatabase
             CREATE INDEX IF NOT EXISTS ix_collects_owner ON collects(OwnerUserId);
             """;
         cmd.ExecuteNonQuery();
+        cmd.CommandText = "SELECT 1 FROM pragma_table_info('secrets') WHERE name = 'EmailedTo'";
+        if (cmd.ExecuteScalar() is null)
+        {
+            cmd.CommandText = "ALTER TABLE secrets ADD COLUMN EmailedTo TEXT NULL";
+            cmd.ExecuteNonQuery();
+        }
+
+        cmd.CommandText = "SELECT 1 FROM pragma_table_info('pow_challenges') WHERE name = 'ClientId'";
+        if (cmd.ExecuteScalar() is null)
+        {
+            cmd.CommandText = "ALTER TABLE pow_challenges ADD COLUMN ClientId TEXT NULL";
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public SqliteConnection Open()

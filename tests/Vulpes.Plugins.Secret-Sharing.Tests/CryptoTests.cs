@@ -312,6 +312,31 @@ public sealed class ShareBurnTests : IDisposable
     }
 
     [Fact]
+    public void Existing_tables_gain_emailed_to_and_client_id()
+    {
+        var path = Path.Combine(_dir, "legacy.db");
+        using (var conn = new SqliteConnection("Data Source=" + path))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE secrets (Id TEXT PRIMARY KEY NOT NULL, OwnerUserId TEXT NOT NULL);
+                CREATE TABLE pow_challenges (Id TEXT PRIMARY KEY NOT NULL);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        _ = new ShareDatabase(path);
+        using var check = new SqliteConnection("Data Source=" + path);
+        check.Open();
+        using var query = check.CreateCommand();
+        query.CommandText = "SELECT EmailedTo FROM secrets";
+        Assert.Null(query.ExecuteScalar());
+        query.CommandText = "SELECT ClientId FROM pow_challenges";
+        Assert.Null(query.ExecuteScalar());
+    }
+
+    [Fact]
     public void One_time_send_returns_the_payload_once_and_deletes_it()
     {
         var id = _store.CreateSend("owner", Sample(oneTime: true, max: null));

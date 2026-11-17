@@ -1,18 +1,24 @@
-import { confirmIdentity } from '../reauth.js?v=shell398';
+import { confirmIdentity } from '../reauth.js?v=shell408';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
-import { appendApplication } from './entra-application.js?v=shell398';
+import { appendApplication } from './entra-application.js?v=shell407';
 
 let root;
 let pageCtx;
 let emailNotice = null;
+let generation = 0;
 export async function mount(el, ctx) {
+  const gen = ++generation;
   root = el;
   pageCtx = ctx;
   ctx.setTitle(['Settings']);
-  document.addEventListener('keydown', onPrivatePluginShortcut);
   await render(ctx);
+  if (gen !== generation || root !== el) return gen;
+  document.addEventListener('keydown', onPrivatePluginShortcut);
+  return gen;
 }
-export function unmount() {
+export function unmount(gen) {
+  if (gen !== generation) return;
+  generation += 1;
   document.removeEventListener('keydown', onPrivatePluginShortcut);
   root = null;
   pageCtx = null;
@@ -69,14 +75,19 @@ function showEmailError(card, form, message) {
 }
 
 async function render(ctx) {
+  const gen = generation;
+  const host = root;
+  if (!host || gen !== generation) return;
+  const still = () => gen === generation && root === host;
   const notice = emailNotice;
   emailNotice = null;
-  clear(root);
+  clear(host);
   // Graph, then SMTP, then Mailgun. See Notifications.cs.
-  root.append(h('div', { class: 'page-header' }, h('h1', null, 'Settings')));
-  await appendApplication(ctx, root, () => render(ctx));
+  host.append(h('div', { class: 'page-header' }, h('h1', null, 'Settings')));
+  await appendApplication(ctx, host, () => render(ctx));
+  if (!still()) return;
   const grid = h('div', { class: 'grid cols-2' });
-  root.append(grid);
+  host.append(grid);
 
   // ---- SMTP
   const smtpCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Email')));
@@ -350,7 +361,8 @@ async function render(ctx) {
     infoCard.append(h('div', { class: 'alert danger' }, errorMessage(err)));
   }
 
-  await appendMcp(ctx, root);
+  if (!still()) return;
+  await appendMcp(ctx, host);
 }
 
 async function appendMcp(ctx, parent) {
@@ -440,16 +452,30 @@ async function loadMcpTokens(ctx, list) {
 async function createMcpToken(ctx, name, revealed, card, list) {
   clear(revealed);
   try {
-    const created = await ctx.api.post('/api/mcp/tokens', { name: name.value.trim() || 'Grok Bot' });
-    revealed.append(h('div', { class: 'alert success' },
-      h('div', null, 'Copy this token now. It is not shown again.'),
-      h('code', null, created.token),
-      h('button', { class: 'btn ghost', type: 'button', onClick: () => copyToClipboard(created.token, card) }, 'Copy')));
-    name.value = '';
-    await loadMcpTokens(ctx, list);
+    await storeMcpToken(ctx, name, revealed, card, list);
   } catch (err) {
-    panelNote(card, errorMessage(err));
+    if (err.code !== 'reauth_required') {
+      panelNote(card, errorMessage(err));
+      return;
+    }
+    const me = await ctx.api.get('/api/account');
+    if (!(await confirmIdentity(ctx, me))) return;
+    try {
+      await storeMcpToken(ctx, name, revealed, card, list);
+    } catch (again) {
+      panelNote(card, errorMessage(again));
+    }
   }
+}
+
+async function storeMcpToken(ctx, name, revealed, card, list) {
+  const created = await ctx.api.post('/api/mcp/tokens', { name: name.value.trim() || 'Grok Bot' });
+  revealed.append(h('div', { class: 'alert success' },
+    h('div', null, 'Copy this token now. It is not shown again.'),
+    h('code', null, created.token),
+    h('button', { class: 'btn ghost', type: 'button', onClick: () => copyToClipboard(created.token, card) }, 'Copy')));
+  name.value = '';
+  await loadMcpTokens(ctx, list);
 }
 
 async function removeMcpToken(ctx, list, row) {

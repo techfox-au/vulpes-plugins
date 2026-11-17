@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
 using Vulpes.Plugins.Microsoft365Audit.Data;
@@ -20,7 +21,8 @@ public sealed class CollectionScheduler(
     ILogger<CollectionScheduler> logger) : BackgroundService
 {
     private readonly Dictionary<string, ICollector> _collectors = collectors.ToDictionary(c => c.Source, StringComparer.Ordinal);
-    private readonly SemaphoreSlim _concurrency = new(Math.Clamp(options.MaxConcurrentJobs, 1, 32));
+    private readonly SemaphoreSlim _jobSlot = new(0);
+    private int _activeJobs;
     private readonly HashSet<(Guid, string)> _running = [];
     private readonly HashSet<Guid> _purging = [];
     private readonly Dictionary<Guid, (DateTimeOffset Until, string Reason)> _credentialBlock = [];
@@ -190,9 +192,10 @@ public sealed class CollectionScheduler(
     {
         ArgumentNullException.ThrowIfNull(tenant);
         var collector = _collectors[source];
+        await AcquireJobAsync(cancellationToken);
+        // Queue time is not part of the run. The budget starts when a slot is actually acquired.
         var startedAt = timeProvider.GetUtcNow();
         var entry = new RunLogEntry { TenantId = tenant.Id, Source = source, StartedAt = startedAt };
-        await _concurrency.WaitAsync(cancellationToken);
         try
         {
             lock (_lock)
@@ -216,25 +219,24 @@ public sealed class CollectionScheduler(
 
             checkpoint.LastStatus = RunStatuses.Running;
             checkpoint.LastRunAt = startedAt;
-            string? blocked = null;
+            (DateTimeOffset Until, string Reason)? credentialHold = null;
             lock (_lock)
             {
                 if (_credentialBlock.TryGetValue(tenant.Id, out var block) && block.Until > startedAt)
                 {
-                    blocked = block.Reason;
+                    credentialHold = block;
                 }
             }
 
-            if (blocked is not null)
+            if (credentialHold is { } held)
             {
                 checkpoint.LastStatus = RunStatuses.Failed;
-                checkpoint.LastError = blocked;
-                checkpoint.NextRunAt = startedAt.Add(TimeSpan.FromMinutes(15));
+                checkpoint.LastError = held.Reason;
+                checkpoint.NextRunAt = held.Until;
                 entry.Status = RunStatuses.Failed;
-                entry.Error = blocked;
+                entry.Error = held.Reason;
                 entry.FinishedAt = timeProvider.GetUtcNow();
-                db.RunLog.Add(entry);
-                await db.SaveChangesAsync(cancellationToken);
+                await CollapseQueryRunAsync(db, tenant, source, entry, checkpoint, null, cancellationToken);
                 return entry;
             }
 
@@ -300,12 +302,13 @@ public sealed class CollectionScheduler(
                 entry.Error = result.Note;
                 logger.LogDebug("{Source} for {Tenant}: {Count} new, {Duplicates} duplicates, {Failed} failed, {Alerts} alerts in {Seconds:F1}s{Note}", source, tenant.DisplayName, result.Published, result.Duplicates, result.Failed, result.Alerts, (finished - startedAt).TotalSeconds, result.Note is null ? string.Empty : " (" + result.Note + ")");
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 var finished = timeProvider.GetUtcNow();
                 checkpoint.LastStatus = RunStatuses.Failed;
                 var credential = CredentialFailure(ex);
-                checkpoint.LastError = (credential ?? ex.Message).Length <= 2000 ? (credential ?? ex.Message) : (credential ?? ex.Message)[..2000];
+                var failureText = ex is OperationCanceledException ? "The Graph request timed out." : (credential ?? ex.Message);
+                checkpoint.LastError = failureText.Length <= 2000 ? failureText : failureText[..2000];
                 checkpoint.ConsecutiveFailures++;
                 var backoff = TimeSpan.FromMinutes(Math.Min(Math.Pow(2, checkpoint.ConsecutiveFailures), interval.TotalMinutes * 4));
                 checkpoint.NextRunAt = finished + (backoff > interval ? backoff : interval);
@@ -313,9 +316,11 @@ public sealed class CollectionScheduler(
                 entry.Error = checkpoint.LastError;
                 if (credential is not null)
                 {
+                    var until = finished.AddMinutes(15);
+                    checkpoint.NextRunAt = until;
                     lock (_lock)
                     {
-                        _credentialBlock[tenant.Id] = (checkpoint.NextRunAt.Value, credential);
+                        _credentialBlock[tenant.Id] = (until, credential);
                     }
 
                     logger.LogWarning("{Source} for {Tenant} cannot sign in: {Reason} Next attempt at {Next}", source, tenant.DisplayName, credential, checkpoint.NextRunAt);
@@ -326,23 +331,16 @@ public sealed class CollectionScheduler(
                 }
                 try
                 {
-                    await pipeline.PublishAsync([Normalizers.CollectorFailure(tenant.TenantId, tenant.DiscoveredName ?? tenant.DisplayName, source, ex.Message, finished)], cancellationToken);
+                    await pipeline.PublishAsync([Normalizers.CollectorFailure(tenant.TenantId, tenant.DiscoveredName ?? tenant.DisplayName, source, failureText, finished)], cancellationToken);
                 }
-                catch (Exception publishEx) when (publishEx is not OperationCanceledException)
+                catch (Exception publishEx)
                 {
                     logger.LogWarning(publishEx, "Could not publish collector failure event");
                 }
             }
 
             entry.FinishedAt = timeProvider.GetUtcNow();
-            var queryId = queryTracked ?? RunQueries.IdIn(entry.Error);
-            if (queryId is not null)
-            {
-                await db.RunLog.Where(r => r.TenantId == tenant.Id && r.Source == source && r.Error != null && r.Error.Contains(queryId)).ExecuteDeleteAsync(cancellationToken);
-            }
-
-            db.RunLog.Add(entry);
-            await db.SaveChangesAsync(cancellationToken);
+            await CollapseQueryRunAsync(db, tenant, source, entry, checkpoint, queryTracked, cancellationToken);
             await PruneRunLogAsync(db, cancellationToken);
             return entry;
         }
@@ -353,8 +351,92 @@ public sealed class CollectionScheduler(
                 _running.Remove((tenant.Id, source));
             }
 
-            _concurrency.Release();
+            ReleaseJob();
         }
+    }
+
+    /// <summary>
+    /// The saved concurrency cap is read on each acquire. A job that already holds a slot is not cancelled when the cap drops.
+    /// </summary>
+    private async Task AcquireJobAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_lock)
+            {
+                if (_activeJobs < Math.Clamp(options.MaxConcurrentJobs, 1, 32))
+                {
+                    _activeJobs++;
+                    return;
+                }
+            }
+
+            // A finished job releases the wait. The timeout picks up a cap that was raised while every slot was busy.
+            await _jobSlot.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+    }
+
+    private void ReleaseJob()
+    {
+        lock (_lock)
+        {
+            if (_activeJobs > 0)
+            {
+                _activeJobs--;
+            }
+        }
+
+        _jobSlot.Release();
+    }
+
+    /// <summary>Drops the tenant-wide sign-in pause after the stored application credential changes.</summary>
+    public void ClearCredentialBlock(Guid tenantId)
+    {
+        lock (_lock)
+        {
+            _credentialBlock.Remove(tenantId);
+        }
+    }
+
+    private static async Task CollapseQueryRunAsync(AuditDbContext db, Tenant tenant, string source, RunLogEntry entry, Checkpoint checkpoint, string? queryTracked, CancellationToken cancellationToken)
+    {
+        var queryId = queryTracked ?? RunQueries.IdIn(entry.Error) ?? RunQueries.IdIn(checkpoint.StateJson) ?? PendingQueryId(checkpoint.StateJson);
+        if (queryId is not null && RunQueries.IdIn(entry.Error) is null)
+        {
+            entry.Error = string.IsNullOrEmpty(entry.Error) ? "query " + queryId : "query " + queryId + " " + entry.Error;
+        }
+
+        if (queryId is not null)
+        {
+            await db.RunLog.Where(r => r.TenantId == tenant.Id && r.Source == source && r.Error != null && r.Error.Contains(queryId)).ExecuteDeleteAsync(cancellationToken);
+        }
+
+        db.RunLog.Add(entry);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static string? PendingQueryId(string? stateJson)
+    {
+        if (string.IsNullOrEmpty(stateJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(stateJson);
+            if (document.RootElement.TryGetProperty("pendingQueryId", out var id) && id.ValueKind == JsonValueKind.String)
+            {
+                return id.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     /// <summary>Entra rejected the app credential. The same failure hits every collector, so the stack is not useful.</summary>
@@ -404,7 +486,7 @@ public sealed class CollectionScheduler(
 
     public override void Dispose()
     {
-        _concurrency.Dispose();
+        _jobSlot.Dispose();
         base.Dispose();
     }
 }

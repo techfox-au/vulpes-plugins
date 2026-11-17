@@ -1,5 +1,5 @@
 // Microsoft 365 unified audit log: SharePoint, OneDrive, Exchange, Teams, admin operations (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get } from './common.js?v=shell365';
+import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell367';
 
 let explorer;
 const QUICK = [
@@ -15,10 +15,11 @@ export async function mount(el, ctx) {
   const { h, fmt } = ctx.ui;
   const q = ctx.query || {};
   const initialFilters = [];
-  if (q.workload) initialFilters.push({ field: 'labels.workload', operator: 'equals', values: [q.workload] });
-  if (q.operation) initialFilters.push({ field: 'event.action', operator: 'equals', values: [q.operation] });
-  if (q.user) initialFilters.push({ field: 'user.name', operator: 'equals', values: [q.user] });
-  if (q.file) initialFilters.push({ field: 'file.path', operator: 'contains', values: [q.file] });
+  for (const [key, field] of [['workload', 'labels.workload'], ['operation', 'event.action'], ['user', 'user.name']]) {
+    const filter = drillFilter(q, key, field);
+    if (filter) initialFilters.push(filter);
+  }
+  if (q.file) initialFilters.push(q.file.length > 64 ? { field: 'file.path', operator: 'prefix', values: [q.file] } : { field: 'file.path', operator: 'contains', values: [q.file] });
 
   explorer = createExplorer(el.querySelector('[data-role="explorer"]'), ctx, {
     source: 'activity',

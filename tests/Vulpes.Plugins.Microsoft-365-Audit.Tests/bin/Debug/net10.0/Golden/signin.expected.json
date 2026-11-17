@@ -11,7 +11,7 @@
   "userName": "jane.doe@contoso.com",
   "userEmail": "jane.doe@contoso.com",
   "sourceIp": "203.0.113.42",
-  "geo": { "countryCode": null, "country": "AU", "region": "New South Wales", "city": "Sydney", "latitude": -33.86, "longitude": 151.21 },
+  "geo": { "countryCode": "AU", "country": "AU", "region": "New South Wales", "city": "Sydney", "latitude": -33.86, "longitude": 151.21 },
   "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/130.0",
   "clientAppId": "00000003-0000-0ff1-ce00-000000000000",
   "clientAppName": "Office 365 SharePoint Online",

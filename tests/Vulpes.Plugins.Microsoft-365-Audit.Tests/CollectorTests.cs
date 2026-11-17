@@ -90,7 +90,7 @@ public sealed class CollectorTests
     }
 
     [Fact]
-    public async Task Partial_run_continues_after_the_newest_record_read_oldest_first()
+    public async Task Partial_sign_in_run_keeps_the_watermark_and_the_resume_link()
     {
         var handler = new RoutedGraphHandler()
             .Get(p => p.Contains("skiptoken=p1", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([SignIn("newer", Now.AddHours(-1))]))
@@ -103,8 +103,9 @@ public sealed class CollectorTests
 
         Assert.False(result.Complete);
         Assert.Equal(2, result.Published);
-        Assert.Equal(Now.AddHours(-2), checkpoint.Watermark);
-        Assert.Contains(handler.Requests, r => Uri.UnescapeDataString(r.RequestUri!.ToString()).Contains("orderby=createdDateTime asc", StringComparison.Ordinal));
+        Assert.Equal(Now.AddDays(-1), checkpoint.Watermark);
+        Assert.Contains("skiptoken=p1", checkpoint.StateJson);
+        Assert.DoesNotContain(handler.Requests, r => Uri.UnescapeDataString(r.RequestUri!.ToString()).Contains("orderby=", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -288,7 +289,13 @@ public sealed class CollectorTests
         var score = await new SecureScoreCollector().CollectAsync(TestContext.Context(TestContext.Client(handler), pipeline), CancellationToken.None);
         Assert.Equal(1, alerts.Published);
         Assert.Equal(1, score.Published);
-        Assert.Contains(handler.Requests, request => request.RequestUri!.ToString().Contains("orderby=createdDateTime%20desc", StringComparison.Ordinal) || Uri.UnescapeDataString(request.RequestUri.ToString()).Contains("orderby=createdDateTime desc", StringComparison.Ordinal));
+        Assert.Contains(handler.Requests, request =>
+        {
+            var path = Uri.UnescapeDataString(request.RequestUri!.ToString());
+            return path.Contains("security/secureScores?", StringComparison.Ordinal)
+                && path.Contains("$top=7", StringComparison.Ordinal)
+                && !path.Contains("orderby=", StringComparison.OrdinalIgnoreCase);
+        });
         Assert.Contains(pipeline.Events, e => e.Source == "security-alerts" && e.Kind == "alert" && e.Severity == "high");
         Assert.Contains(pipeline.Events, e => e.Source == "securescore" && e.Labels!["percent"] == "61.5");
     }

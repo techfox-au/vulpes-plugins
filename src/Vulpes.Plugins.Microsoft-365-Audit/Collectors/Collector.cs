@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Vulpes.Plugins.Microsoft365Audit.Data;
@@ -92,6 +93,9 @@ public abstract class WatermarkCollector : ICollector
     /// <summary>Date field used to page oldest-first. Must be the same field the filter and <see cref="Map"/> use.</summary>
     protected abstract string OrderByField { get; }
 
+    /// <summary>False when the Graph list ignores or rejects <c>$orderby</c> and returns newest first.</summary>
+    protected virtual bool OrderByAscending => true;
+
     protected virtual bool UseBeta => false;
 
     protected virtual TimeSpan Overlap(CollectorContext context) => TimeSpan.FromMinutes(context.Options.LogOverlapMinutes);
@@ -166,8 +170,23 @@ public abstract class WatermarkCollector : ICollector
     private static string RetentionNote(DateTimeOffset from) =>
         $"started at {from:O}; earlier records are outside Microsoft's retention";
 
+    private const string ResumeUrlKey = "resumeUrl";
+    private const string WindowNewestKey = "windowNewest";
+
+    /// <summary>Empty for the checkpoint's own feed. A second feed on the same checkpoint adds its own continuation keys.</summary>
+    protected virtual string StatePrefix => "";
+
+    private string ResumeKey => StatePrefix.Length == 0 ? ResumeUrlKey : StatePrefix + "ResumeUrl";
+
+    private string NewestKey => StatePrefix.Length == 0 ? WindowNewestKey : StatePrefix + "WindowNewest";
+
     private async Task<CollectorResult> ReadAsync(CollectorContext context, DateTimeOffset from, string? moved, CancellationToken cancellationToken)
     {
+        if (!OrderByAscending)
+        {
+            return await ReadNewestFirstAsync(context, from, moved, cancellationToken);
+        }
+
         var path = BuildPath(context, from);
         path += path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         path += "%24orderby=" + Uri.EscapeDataString(OrderByField + " asc");
@@ -222,6 +241,175 @@ public abstract class WatermarkCollector : ICollector
         var partial = complete ? null : $"partial run: {seen} records read ({reason}), resuming from {newWatermark:O}";
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, complete, partial ?? moved);
     }
+
+    /// <summary>
+    /// Newest-first lists (alerts, incidents, and sign-ins, which reject <c>$orderby</c>). A partial run stores the
+    /// Graph nextLink and leaves the lower watermark where it is. That watermark moves only after the window finishes.
+    /// </summary>
+    private async Task<CollectorResult> ReadNewestFirstAsync(CollectorContext context, DateTimeOffset from, string? moved, CancellationToken cancellationToken)
+    {
+        var state = context.State;
+        var priorNewest = StateTime(state, NewestKey);
+        var resumeUrl = SavedResume(context, state);
+        if (resumeUrl is null)
+        {
+            return await ReadNewestPagesAsync(context, BuildPath(context, from), moved, priorNewest, cancellationToken);
+        }
+
+        try
+        {
+            return await ReadNewestPagesAsync(context, resumeUrl, moved, priorNewest, cancellationToken);
+        }
+        catch (GraphException ex) when (IsRejectedContinuation(ex))
+        {
+            // A 400, 404, or 410 on any page of a saved nextLink must not pin the next run to that link.
+            // The lower watermark is unchanged, so the filter repeats stored rows instead of skipping the rest.
+            context.Logger.LogDebug("{Source} continuation link was rejected; reading the window from the lower watermark", Source);
+            SaveContinuation(context, null, priorNewest);
+            return await ReadNewestPagesAsync(context, BuildPath(context, from), moved, priorNewest, cancellationToken);
+        }
+    }
+
+    private async Task<CollectorResult> ReadNewestPagesAsync(CollectorContext context, string path, string? moved, DateTimeOffset? priorNewest, CancellationToken cancellationToken)
+    {
+        var buffer = new List<SecurityEvent>(500);
+        DateTimeOffset? max = null;
+        var totals = (Indexed: 0, Duplicates: 0, Failed: 0, Alerts: 0);
+        var complete = true;
+        var seen = 0;
+        string? resume = null;
+
+        await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun, cancellationToken, UseBeta, c => complete &= c, url => resume = url))
+        {
+            if (Map(context, record) is not { } mapped)
+            {
+                continue;
+            }
+
+            seen++;
+            buffer.Add(mapped.Event);
+            max = max is null || mapped.Timestamp > max ? mapped.Timestamp : max;
+            if (buffer.Count >= 500)
+            {
+                var r = await context.PublishAsync(buffer, cancellationToken);
+                totals = Add(totals, r);
+            }
+
+            if (context.OutOfTime)
+            {
+                complete = false;
+                break;
+            }
+        }
+
+        var last = await context.PublishAsync(buffer, cancellationToken);
+        totals = Add(totals, last);
+        if (totals.Failed > 0)
+        {
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, "Elasticsearch rejected records; the watermark was not moved");
+        }
+
+        var newest = Later(priorNewest, max);
+        if (!complete)
+        {
+            SaveContinuation(context, resume, newest);
+            var reason = context.OutOfTime ? "time budget" : "page budget";
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"partial run: {seen} records read ({reason}), continuing from the saved page");
+        }
+
+        // Drop this feed's cursor only. Another feed keeps its watermark and resume link in the same state.
+        SaveContinuation(context, null, null);
+
+        DateTimeOffset? newWatermark = newest ?? context.Checkpoint.Watermark ?? context.Now;
+        if (newWatermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark))
+        {
+            context.Checkpoint.Watermark = w;
+        }
+
+        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true, moved);
+    }
+
+    private void SaveContinuation(CollectorContext context, string? resumeUrl, DateTimeOffset? newest)
+    {
+        var state = new Dictionary<string, object?>();
+        foreach (var pair in context.State)
+        {
+            if (pair.Key == ResumeKey || pair.Key == NewestKey || pair.Value.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            state[pair.Key] = pair.Value.GetString();
+        }
+
+        if (!string.IsNullOrEmpty(resumeUrl))
+        {
+            state[ResumeKey] = resumeUrl;
+        }
+
+        if (newest is { } seen)
+        {
+            state[NewestKey] = seen.ToString("O", CultureInfo.InvariantCulture);
+        }
+
+        context.SaveState(state);
+    }
+
+    private static DateTimeOffset? Later(DateTimeOffset? left, DateTimeOffset? right)
+    {
+        if (left is null)
+        {
+            return right;
+        }
+
+        if (right is null || left >= right)
+        {
+            return left;
+        }
+
+        return right;
+    }
+
+    private static DateTimeOffset? StateTime(Dictionary<string, JsonElement> state, string key)
+    {
+        if (state.TryGetValue(key, out var raw)
+            && raw.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(raw.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    /// <summary>Only a Graph continuation this client already accepted. Anything else is read from the filter instead.</summary>
+    private string? SavedResume(CollectorContext context, Dictionary<string, JsonElement> state)
+    {
+        if (!state.TryGetValue(ResumeKey, out var raw) || raw.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var url = raw.GetString();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var root = new Uri(context.Graph.Cloud.GraphBase);
+        if (uri.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || uri.Port != 443
+            || !string.Equals(uri.Host, root.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return url;
+    }
+
+    private static bool IsRejectedContinuation(GraphException exception) =>
+        exception.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.Gone;
 
     private DateTimeOffset Clamp(CollectorContext context, DateTimeOffset from)
     {

@@ -76,7 +76,7 @@ export function icon(name, cls = 'icon') {
   svg.setAttribute('class', cls);
   svg.setAttribute('aria-hidden', 'true');
   const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-  use.setAttribute('href', '/assets/img/icons.svg?v=stroke9#' + (ICONS.has(name) ? name : 'dot'));
+  use.setAttribute('href', '/assets/img/icons.svg?v=stroke11#' + (ICONS.has(name) ? name : 'dot'));
   svg.append(use);
   return svg;
 }
@@ -235,7 +235,7 @@ export const drawer = {
     document.addEventListener('keydown', drawer._esc);
   },
   close() { if (drawerEl) { drawerEl.remove(); drawerEl = null; document.removeEventListener('keydown', drawer._esc); } },
-  _esc(e) { if (e.key === 'Escape') drawer.close(); },
+  _esc(e) { if (e.key === 'Escape' && !document.querySelector('.modal-card')) drawer.close(); },
 };
 
 // ---------------------------------------------------------------- modal
@@ -244,8 +244,23 @@ export const modal = {
   show({ title, content, actions, wide }) {
     return new Promise((resolve) => {
       let root;
-      const close = (value) => { root.remove(); document.removeEventListener('keydown', esc); resolve(value); };
-      const esc = (e) => { if (e.key === 'Escape') close(undefined); };
+      let closed = false;
+      const close = (value) => {
+        if (closed) return;
+        closed = true;
+        root.remove();
+        document.removeEventListener('keydown', esc);
+        resolve(value);
+      };
+      // Stacked cards each listen. Only the top one closes, so Escape does not resolve the form under it.
+      const esc = (e) => {
+        if (e.key !== 'Escape') return;
+        const open = document.querySelectorAll('.modal-card');
+        if (open.length === 0 || open[open.length - 1] !== card) return;
+        e.preventDefault();
+        e.stopPropagation();
+        close(undefined);
+      };
       const footer = h('div', { class: 'modal-footer' });
       for (const a of actions || [{ label: 'Close' }]) {
         footer.append(h('button', { class: 'btn ' + (a.kind || ''), type: a.submit ? 'submit' : 'button', onClick: async () => {
@@ -258,13 +273,23 @@ export const modal = {
         h('div', { class: 'modal-header' }, h('h2', null, title), h('button', { class: 'btn ghost sm', 'aria-label': 'Close', onClick: () => close(undefined) }, icon('x'))),
         h('div', { class: 'modal-body' }, content), footer);
       root = h('div', null, h('div', { class: 'modal-backdrop', onClick: () => close(undefined) }), h('div', { class: 'modal' }, card));
+      card.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const open = document.querySelectorAll('.modal-card');
+        if (open.length === 0 || open[open.length - 1] !== card) return;
+        e.preventDefault();
+        e.stopPropagation();
+        close(undefined);
+      });
       document.body.append(root);
       document.addEventListener('keydown', esc);
       card.closeModal = close;
     });
   },
   confirm(title, message, { danger = false, confirmLabel = 'Confirm' } = {}) {
-    return modal.show({ title, content: h('p', null, message), actions: [{ label: 'Cancel', value: false }, { label: confirmLabel, kind: danger ? 'danger' : 'primary', value: true }] }).then((v) => v === true);
+    const pending = modal.show({ title, content: h('p', null, message), actions: [{ label: 'Cancel', value: false }, { label: confirmLabel, kind: danger ? 'danger' : 'primary', value: true }] });
+    document.querySelector('.modal-card .btn.primary, .modal-card .btn.danger')?.focus();
+    return pending.then((v) => v === true);
   },
   /** Prompt with a form; `fields` = [{ name, label, type, value, options, help, required }]. Resolves to values or undefined. */
   form(title, fields, { submitLabel = 'Save', wide = false, onSubmit } = {}) {
@@ -324,6 +349,7 @@ export const modal = {
             const result = await onSubmit(values);
             closeFn(result === undefined ? values : result);
           } catch (err) {
+            if (err?.code === 'reauth_cancelled') return;
             const message = errorMessage(err);
             const emailField = fields.find((f) => f.type === 'email');
             if (emailField && /email/i.test(message)) showFieldError(emailField.name, message);

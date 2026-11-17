@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
@@ -127,15 +128,44 @@ public sealed class PurviewAuditCollector : ICollector
 
     private static async Task<CollectorResult> DrainAsync(CollectorContext context, string queryId, DateTimeOffset? windowEnd, CancellationToken cancellationToken)
     {
+        var prior = context.State;
+        var savedNext = prior.TryGetValue(PendingNextKey, out var nextEl) && nextEl.ValueKind == JsonValueKind.String ? nextEl.GetString() : null;
+        var first = $"security/auditLog/queries/{Uri.EscapeDataString(queryId)}/records?$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
+        var path = string.IsNullOrEmpty(savedNext) ? first : savedNext;
+        try
+        {
+            return await ReadRecordsAsync(context, queryId, windowEnd, prior, path, cancellationToken);
+        }
+        catch (GraphException ex) when (IsRejectedRecordPage(ex))
+        {
+            if (string.IsNullOrEmpty(savedNext))
+            {
+                // This read started at the first page, so the bad link is not a saved cursor. Drop the query.
+                context.SaveState([]);
+                throw new GraphException($"Purview query {queryId} records could not be read ({ex.Message}); a new query will be submitted.", ex);
+            }
+
+            // A saved or later records link must not pin the drain. Read the query from the first page once.
+            context.Logger.LogDebug("Purview query {QueryId} records link was rejected; reading the first page", queryId);
+            context.SaveState(PendingState(prior, queryId, null));
+            try
+            {
+                return await ReadRecordsAsync(context, queryId, windowEnd, prior, first, cancellationToken);
+            }
+            catch (GraphException again) when (IsRejectedRecordPage(again))
+            {
+                context.SaveState([]);
+                throw new GraphException($"Purview query {queryId} records could not be read ({again.Message}); a new query will be submitted.", again);
+            }
+        }
+    }
+
+    private static async Task<CollectorResult> ReadRecordsAsync(CollectorContext context, string queryId, DateTimeOffset? windowEnd, Dictionary<string, JsonElement> prior, string path, CancellationToken cancellationToken)
+    {
         var buffer = new List<SecurityEvent>(500);
         var totals = (Indexed: 0, Duplicates: 0, Failed: 0, Alerts: 0);
         var complete = true;
         DateTimeOffset? max = null;
-        var prior = context.State;
-        var savedNext = prior.TryGetValue(PendingNextKey, out var nextEl) && nextEl.ValueKind == JsonValueKind.String ? nextEl.GetString() : null;
-        var path = string.IsNullOrEmpty(savedNext)
-            ? $"security/auditLog/queries/{Uri.EscapeDataString(queryId)}/records?$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}"
-            : savedNext;
         string? resume = null;
 
         await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun * 5, cancellationToken, false, c => complete &= c, url => resume = url))
@@ -172,14 +202,7 @@ public sealed class PurviewAuditCollector : ICollector
         if (!complete)
         {
             // Keep the query and the next page. The following run continues there instead of downloading page 1 again.
-            context.SaveState(new Dictionary<string, object?>
-            {
-                [PendingIdKey] = queryId,
-                [PendingStartKey] = StateString(prior, PendingStartKey),
-                [PendingEndKey] = StateString(prior, PendingEndKey),
-                [PendingCreatedKey] = StateString(prior, PendingCreatedKey),
-                [PendingNextKey] = resume,
-            });
+            context.SaveState(PendingState(prior, queryId, resume));
             return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run") { QueryId = queryId };
         }
 
@@ -192,6 +215,18 @@ public sealed class PurviewAuditCollector : ICollector
 
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true) { QueryId = queryId };
     }
+
+    private static Dictionary<string, object?> PendingState(Dictionary<string, JsonElement> prior, string queryId, string? next) => new()
+    {
+        [PendingIdKey] = queryId,
+        [PendingStartKey] = StateString(prior, PendingStartKey),
+        [PendingEndKey] = StateString(prior, PendingEndKey),
+        [PendingCreatedKey] = StateString(prior, PendingCreatedKey),
+        [PendingNextKey] = next,
+    };
+
+    private static bool IsRejectedRecordPage(GraphException exception) =>
+        exception.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.Gone;
 
     private static string? StateString(Dictionary<string, JsonElement> state, string key) =>
         state.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

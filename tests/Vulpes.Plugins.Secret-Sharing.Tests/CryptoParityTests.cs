@@ -5,32 +5,15 @@ namespace Vulpes.Plugins.SecretSharing.Tests;
 public sealed class CryptoParityTests
 {
     [Fact]
-    public void Payload_crypto_matches_sendit_except_the_params_url_and_iteration_lock()
+    public void The_plugin_uses_the_host_crypto_and_does_not_ship_a_copy()
     {
-        var pluginPath = Find("vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/wwwroot/public/crypto.js");
-        var senditPath = Find("sendit/src/frontend/js/crypto.js");
-        var plugin = File.ReadAllText(pluginPath);
-        Assert.Contains("/api/plugins/secret-sharing/crypto/params", plugin, StringComparison.Ordinal);
-        Assert.Contains("if (iterations !== 893241) throw new Error(\"Unsupported wrap parameters.\");", plugin, StringComparison.Ordinal);
-
-        var reverted = plugin
-            .Replace("/api/plugins/secret-sharing/crypto/params", "/api/v1/crypto/params", StringComparison.Ordinal)
-            .Replace(
-                "    const iterations = typeof pkg.i === \"number\" && pkg.i > 0 ? pkg.i : PW_WRAP_ITERATIONS;\n    if (iterations !== 893241) throw new Error(\"Unsupported wrap parameters.\");",
-                "    const iterations =\n      typeof pkg.i === \"number\" && pkg.i > 0 ? pkg.i : PW_WRAP_ITERATIONS;",
-                StringComparison.Ordinal);
-        Assert.Equal(File.ReadAllText(senditPath), reverted);
-    }
-
-    [Fact]
-    public void TweetNaCl_and_the_user_data_key_script_are_shared_bytes()
-    {
-        Assert.Equal(
-            File.ReadAllBytes(Find("sendit/src/frontend/vendor/nacl-fast.js")),
-            File.ReadAllBytes(Find("vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/wwwroot/public/nacl-fast.js")));
+        Assert.False(Exists("vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/wwwroot/public/crypto.js"));
+        Assert.False(Exists("vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/wwwroot/public/nacl-fast.js"));
         Assert.Equal(
             File.ReadAllBytes(Find("vulpes/src/Vulpes.Host/wwwroot/assets/js/udk.js")),
             File.ReadAllBytes(Find("vulpes-plugins/src/Vulpes.Plugins.Secret-Sharing/wwwroot/public/udk.js")));
+        Assert.True(Exists("vulpes/src/Vulpes.Host/wwwroot/assets/js/crypto/crypto.js"));
+        Assert.True(Exists("vulpes/src/Vulpes.Host/wwwroot/assets/js/crypto/nacl-fast.js"));
     }
 
     [Fact]
@@ -66,5 +49,18 @@ public sealed class CryptoParityTests
         }
 
         throw new FileNotFoundException("Could not find " + relative + " by walking up from the test output.");
+    }
+
+    private static bool Exists(string relative) 
+    {
+        try
+        {
+            Find(relative);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
     }
 }

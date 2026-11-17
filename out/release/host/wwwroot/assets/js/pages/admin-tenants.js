@@ -1,4 +1,4 @@
-import { confirmIdentity } from '../reauth.js?v=shell398';
+import { confirmIdentity } from '../reauth.js?v=shell407';
 import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell370';
 
 let root;
@@ -197,13 +197,10 @@ function applicationCard(ctx, app, permissions, tenants) {
     const secret = clientSecret.payload();
     const pfxPassword = certificatePassword.payload();
     const file = certificate ? form.querySelector('input[name="pfx"]').files?.[0] : null;
-    let pfx = null;
-    if (file) {
-      const buf = await file.arrayBuffer();
-      pfx = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    }
     setBusy(button, true, 'Saving…');
     try {
+      let pfx = null;
+      if (file) pfx = await fileToBase64(file);
       await ctx.api.put('/api/admin/tenants/application', {
         clientId: values.clientId, credentialType: values.credentialType, cloud: values.cloud,
         secret: certificate ? null : (secret.secret || null),
@@ -315,4 +312,12 @@ async function collection(ctx, tenant) {
     catch (err) { panelNote(form, errorMessage(err)); return false; }
   } }] });
   if (saved) pageNote(root, 'Collection saved.', 'success');
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunk = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(binary);
 }

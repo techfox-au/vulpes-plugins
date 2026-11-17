@@ -1,7 +1,7 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js?v=shell195';
-import * as webauthn from './webauthn.js?v=shell160';
-import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell398';
+import * as webauthn from './webauthn.js?v=shell407';
+import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell407';
 import { VulpesPow } from './pow.js?v=pow4';
 import './pwa.js?v=shell388';
 
@@ -106,7 +106,14 @@ $('passkey-btn').addEventListener('click', async () => {
         setBusy(btn, true, 'Signing in…');
         return proof;
       },
-      onCredential: (credential) => unlockWithPasskey(credential),
+      onCredential: async (credential) => {
+        try {
+          await unlockWithPasskey(credential);
+        } catch (unlockError) {
+          try { await api.post('/auth/logout', null, { noRedirect: true }); } catch { /* the session is cleared on the next load */ }
+          throw unlockError;
+        }
+      },
     });
     onSignedIn();
   } catch (err) {

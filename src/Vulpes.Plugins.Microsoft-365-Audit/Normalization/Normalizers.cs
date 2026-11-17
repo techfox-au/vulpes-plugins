@@ -609,6 +609,13 @@ public static class Normalizers
         var trimmed = path.TrimEnd('/');
         var index = trimmed.LastIndexOf('/');
         var segment = index >= 0 ? trimmed[(index + 1)..] : trimmed;
-        return Uri.UnescapeDataString(segment);
+        try
+        {
+            return Uri.UnescapeDataString(segment);
+        }
+        catch (UriFormatException)
+        {
+            return segment;
+        }
     }
 }

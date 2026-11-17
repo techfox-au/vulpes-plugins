@@ -160,7 +160,7 @@ public sealed class CredentialFactoryTests
 
 public sealed class NormalizerCoverageTests
 {
-    private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    private static JsonElement Json(string json) => JsonElement.Parse(json);
 
     [Fact]
     public void Successful_sign_in_is_informational_with_success_message()

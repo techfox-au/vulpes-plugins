@@ -440,3 +440,6 @@
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/clients.html
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/js/statistics.js
 /Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/wwwroot/pages/statistics.html
+/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/Vulpes.Host.runtimeconfig.dev.json
+/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/Vulpes.PluginPacker.runtimeconfig.dev.json
+/Users/lappy/vulpes-plugins/tests/Vulpes.Plugins.Microsoft-365-Audit.Tests/bin/Debug/net10.0/Vulpes.Plugins.Microsoft365Audit.Tests.runtimeconfig.dev.json

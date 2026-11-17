@@ -1,4 +1,4 @@
-import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell365';
+import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell367';
 
 let root;
 export async function mount(el, ctx) {
@@ -10,17 +10,20 @@ export async function mount(el, ctx) {
   rangeSel.addEventListener('change', () => { state.range = rangeSel.value; render(); });
   toolbar.append(await tenantSelect(ctx, (v) => { state.tenant = v; render(); }), rangeSel, h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: render }, ctx.ui.icon('refresh')));
 
+  let renderToken = 0;
   async function render() {
+    const token = ++renderToken;
     const kpis = el.querySelector('[data-role="kpis"]');
     const scores = el.querySelector('[data-role="scores"]');
     const charts = el.querySelector('[data-role="charts"]');
     const lists = el.querySelector('[data-role="lists"]');
     clear(kpis).append(h('div', { class: 'card skeleton' }), h('div', { class: 'card skeleton' }), h('div', { class: 'card skeleton' }), h('div', { class: 'card skeleton' }));
     clear(scores); clear(charts); clear(lists);
-    const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30, '90d': 24 * 90 }[state.range] || 24;
+    const hours = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30, '90d': 24 * 90, '180d': 24 * 180, '365d': 24 * 365, '730d': 24 * 730 }[state.range] || 24;
     let o;
     try { o = await ctx.api.get(`${ctx.plugin.apiBase}/overview${ctx.api.qs({ hours, tenantId: state.tenant })}`); }
-    catch (err) { clear(kpis); clear(scores); noteUnderKpis(h, kpis, ctx.ui.errorMessage(err)); return; }
+    catch (err) { if (token !== renderToken) return; clear(kpis); clear(scores); noteUnderKpis(h, kpis, ctx.ui.errorMessage(err)); return; }
+    if (token !== renderToken) return;
 
     clear(kpis);
     clear(scores).append(secureScoreCard(ctx, o.secureScores || []));
@@ -38,14 +41,19 @@ export async function mount(el, ctx) {
     const labels = signBuckets.map((b) => fmtBucket(b.key, hours));
     const signSeries = [{ label: 'sign-ins', values: signBuckets.map((b) => b.count) }, { label: 'failures', values: alignSeries(signBuckets, o.failures.perHour), alt: true }];
     charts.append(
-      card(h, 'Sign-ins over time', ctx.ui.columnChart({ labels, axis: axisTicks(signBuckets, hours), series: signSeries, height: 200 }), h('div', { class: 'legend' }, h('span', null, h('span', { class: 'swatch' }), 'Sign-ins'), h('span', null, h('span', { class: 'swatch alt' }), 'Failures'))),
-      card(h, 'Activity over time', ctx.ui.columnChart({ labels: activityBuckets.map((b) => fmtBucket(b.key, hours)), axis: axisTicks(activityBuckets, hours), series: [{ label: 'events', values: activityBuckets.map((b) => b.count) }], height: 200 })),
+      card(h, 'Sign-ins over time', ctx.ui.columnChart({ labels, axis: axisTicks(signBuckets, hours), series: signSeries, height: 200, maxBars: Math.max(labels.length, 1) }), h('div', { class: 'legend' }, h('span', null, h('span', { class: 'swatch' }), 'Sign-ins'), h('span', null, h('span', { class: 'swatch alt' }), 'Failures'))),
+      card(h, 'Activity over time', ctx.ui.columnChart({ labels: activityBuckets.map((b) => fmtBucket(b.key, hours)), axis: axisTicks(activityBuckets, hours), series: [{ label: 'events', values: activityBuckets.map((b) => b.count) }], height: 200, maxBars: Math.max(activityBuckets.length, 1) })),
     );
 
-    const link = (page, field) => (item) => ctx.navigate(`/p/${ctx.plugin.id}/${page}?${field}=${encodeURIComponent(item.key)}&range=${state.range}`);
+    const link = (page, field, extra) => (item) => {
+      const tenant = state.tenant ? `&tenant=${encodeURIComponent(state.tenant)}` : '';
+      const value = item.key === '(none)' ? `${field}Missing=1` : `${field}=${encodeURIComponent(item.key)}`;
+      const tail = extra ? `&${extra}` : '';
+      ctx.navigate(`/p/${ctx.plugin.id}/${page}?${value}${tail}&range=${state.range}${tenant}`);
+    };
     lists.append(
-      card(h, 'Top failing users', bucketsToBarList(ctx.ui, o.failures.byUser, { alt: true, onClick: link('signins', 'user') })),
-      card(h, 'Top failing IPs', bucketsToBarList(ctx.ui, o.failures.byIp, { alt: true, onClick: link('signins', 'ip') })),
+      card(h, 'Top failing users', bucketsToBarList(ctx.ui, o.failures.byUser, { alt: true, onClick: link('signins', 'user', 'outcome=failure') })),
+      card(h, 'Top failing IPs', bucketsToBarList(ctx.ui, o.failures.byIp, { alt: true, onClick: link('signins', 'ip', 'outcome=failure') })),
       card(h, 'Failure reasons', bucketsToBarList(ctx.ui, o.failures.byReason, { alt: true })),
       card(h, 'Sign-ins by country', bucketsToBarList(ctx.ui, o.signIns.byCountry, { onClick: link('signins', 'country') })),
       card(h, 'Sign-ins by application', bucketsToBarList(ctx.ui, o.signIns.byApp, { onClick: link('signins', 'app') })),

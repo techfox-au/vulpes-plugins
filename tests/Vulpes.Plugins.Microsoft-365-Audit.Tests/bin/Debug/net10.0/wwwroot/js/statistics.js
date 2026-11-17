@@ -1,4 +1,4 @@
-import { kpiCard } from './common.js?v=shell365';
+import { kpiCard } from './common.js?v=shell367';
 
 let timer;
 
@@ -24,7 +24,9 @@ function share(part, total) {
   return `${pct.toFixed(0)}%`;
 }
 
+let renderToken = 0;
 async function render(el, ctx) {
+  const token = ++renderToken;
   const { h, clear, table, fmt, errorMessage } = ctx.ui;
   const note = el.querySelector('[data-role="note"]');
   const kpis = el.querySelector('[data-role="kpis"]');
@@ -34,12 +36,14 @@ async function render(el, ctx) {
   try {
     data = await ctx.api.get(`${ctx.plugin.apiBase}/statistics`);
   } catch (err) {
+    if (token !== renderToken) return;
     clear(note).append(h('div', { class: 'alert danger' }, errorMessage(err)));
     clear(kpis);
     clear(sources);
     clear(tenants);
     return;
   }
+  if (token !== renderToken) return;
 
   clear(note);
   if (!data.available) {
@@ -62,7 +66,7 @@ async function render(el, ctx) {
     columns: [
       { title: 'Log', render: (r) => r.title },
       { title: 'Documents', class: 'num', render: (r) => fmt.number(r.documents) },
-      { title: 'Share', class: 'num', render: (r) => share(r.storedBytes, stored) },
+      { title: 'Share of stored', class: 'num', render: (r) => share(r.storedBytes, stored) },
       { title: 'Stored', class: 'num', render: (r) => fmt.bytes(r.storedBytes) },
       { title: 'On disk', class: 'num', render: (r) => fmt.bytes(r.diskBytes) },
       { title: 'Oldest', render: (r) => (r.oldest ? fmt.date(r.oldest) : '') },

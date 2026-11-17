@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell402';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell407';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -9,12 +9,13 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell398'),
-  '/account': () => import('./pages/account.js?v=shell398'),
+  '/': () => import('./pages/home.js?v=shell408'),
+  '/account': () => import('./pages/account.js?v=shell407'),
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell399'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell402'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell398'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell408'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell408'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell407'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell408'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
 };
@@ -281,6 +282,22 @@ function pageContext(params, query, pluginId) {
 }
 
 let routeToken = 0;
+// One module shares root, listeners, and timers. A later mount of that module gets a new ticket.
+const moduleMounts = new Map();
+
+async function mountSettled(mod, el, ctx, stale, key) {
+  const ticket = (moduleMounts.get(mod) || 0) + 1;
+  moduleMounts.set(mod, ticket);
+  const generation = await mod.mount(el, ctx);
+  const cancel = typeof generation === 'number' ? () => mod.unmount(generation) : null;
+  if (!stale()) {
+    current = { unmount: cancel || mod.unmount, key };
+    return;
+  }
+  // A newer mount already owns the module. unmount(generation) no-ops; a bare unmount would clear that mount.
+  if (!cancel && moduleMounts.get(mod) !== ticket) return;
+  try { await (cancel || mod.unmount)(); } catch { /* the page registered work before the route moved */ }
+}
 
 async function mountCore(path, query, stale) {
   const loader = corePages[path];
@@ -289,38 +306,40 @@ async function mountCore(path, query, stale) {
   if (stale()) return true;
   const el = h('div', { class: 'stack' });
   clear(content).append(el);
-  await mod.mount(el, pageContext({}, query, null));
-  if (stale()) return true;
-  current = { unmount: mod.unmount, key: path };
+  await mountSettled(mod, el, pageContext({}, query, null), stale, path);
   return true;
 }
 
-async function mountPluginPage(pluginId, page, query) {
+async function mountPluginPage(pluginId, page, query, stale) {
   if (!/^[a-z][a-z0-9-]{1,31}$/.test(pluginId) || !/^[a-z][a-z0-9-]{0,63}$/.test(page)) throw new Error('Invalid page');
   const navItem = state.nav.sections.flatMap((s) => s.items).find((i) => i.pluginId === pluginId && i.page === page);
   if (!navItem) throw Object.assign(new Error('You do not have access to that page.'), { status: 403 });
+  if (stale()) return;
   setCrumbs([navItem.title]);
   const el = h('div', { class: 'stack' });
   clear(content).append(el);
+  if (stale()) return;
 
   if (page === 'permissions') {
     const mod = await import(`./pages/permissions.js?v=shell328`);
-    await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
-    current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
+    if (stale()) return;
+    await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
     return;
   }
 
-  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell385`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell405`, { credentials: 'same-origin' });
+  if (stale()) return;
   if (!res.ok) throw new Error(`Page not found (${res.status})`);
   const html = await res.text();
+  if (stale()) return;
   // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
   const template = document.createElement('template');
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell402`);
-  await mod.mount(el, pageContext({ plugin: pluginId, page }, query, pluginId));
-  current = { unmount: mod.unmount, key: `${pluginId}/${page}` };
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell407`);
+  if (stale()) return;
+  await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
 
 async function route() {
@@ -347,12 +366,13 @@ async function route() {
     if (stale()) return;
     setActiveNav(path);
     const pluginMatch = path.match(/^\/p\/([^/]+)\/([^/]+)\/?$/);
-    if (pluginMatch) { await mountPluginPage(pluginMatch[1], pluginMatch[2], query); return; }
+    if (pluginMatch) { await mountPluginPage(pluginMatch[1], pluginMatch[2], query, stale); return; }
     if (await mountCore(path, query, stale)) return;
     if (stale()) return;
     clear(content).append(h('div', { class: 'card' }, h('h2', null, 'Page not found'), h('p', { class: 'muted' }, 'The page you requested does not exist.'), h('a', { class: 'btn', href: '/' }, 'Go home')));
     setCrumbs(['Not found']);
   } catch (err) {
+    if (stale()) return;
     if (err?.status === 401) { redirectToLogin(); return; }
     clear(content).append(h('div', { class: 'alert danger' }, errorMessage(err)));
     setCrumbs(['Error']);

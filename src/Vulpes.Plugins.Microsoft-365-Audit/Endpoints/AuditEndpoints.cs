@@ -149,7 +149,7 @@ public static class AuditEndpoints
     /// <summary>KPIs for the overview page, computed with a handful of aggregations.</summary>
     private static async Task<IResult> OverviewAsync(int? hours, string? tenantId, IEventSearch search, AuditDbContext db, CancellationToken ct)
     {
-        var window = Math.Clamp(hours ?? 24, 1, 24 * 30);
+        var window = Math.Clamp(hours ?? 24, 1, 24 * 730);
         var to = DateTimeOffset.UtcNow;
         var from = to.AddHours(-window);
         var interval = window <= 24 ? "1h" : window <= 24 * 7 ? "6h" : "1d";
@@ -205,35 +205,37 @@ public static class AuditEndpoints
         }
 
         var latest = new Dictionary<string, SecureScoreRow>(StringComparer.OrdinalIgnoreCase);
-        try
+        foreach (var client in clients)
         {
-            var found = await search.SearchAsync(new EventQuery
+            try
             {
-                PluginId = Normalizers.PluginId,
-                Source = Sources.SecureScore,
-                Size = 200,
-                Sort = SortDirection.Descending,
-                Filters = string.IsNullOrEmpty(tenantId) ? [] : [new FieldFilter("vc.tenantId", FilterOperator.Equals, [tenantId])],
-            }, ct);
-            foreach (var hit in found.Hits)
-            {
-                var id = Text(hit.Document, "vc", "tenantId");
-                if (string.IsNullOrEmpty(id) || latest.ContainsKey(id))
+                var found = await search.SearchAsync(new EventQuery
+                {
+                    PluginId = Normalizers.PluginId,
+                    Source = Sources.SecureScore,
+                    Size = 1,
+                    Sort = SortDirection.Descending,
+                    Filters = [new FieldFilter("vc.tenantId", FilterOperator.Equals, [client.TenantId])],
+                }, ct);
+                if (found.Hits.Count == 0)
                 {
                     continue;
                 }
 
-                latest[id] = new SecureScoreRow(
-                    Text(hit.Document, "vc", "tenantName") ?? id,
-                    id,
+                var hit = found.Hits[0];
+
+                latest[client.TenantId] = new SecureScoreRow(
+                    client.DisplayName,
+                    client.TenantId,
                     Text(hit.Document, "labels", "currentScore") ?? Text(hit.Document, "data", "currentScore"),
                     Text(hit.Document, "labels", "maxScore") ?? Text(hit.Document, "data", "maxScore"),
                     Text(hit.Document, "labels", "percent"),
                     Stamp(hit.Document));
             }
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
-        {
+            catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
+            {
+                break;
+            }
         }
 
         return clients.Select(t => latest.TryGetValue(t.TenantId, out var score)
@@ -372,31 +374,7 @@ public static class AuditEndpoints
         {
             foreach (var collector in scheduler.Collectors.Values)
             {
-                try
-                {
-                    var counts = await search.AggregateAsync(new EventAggregationQuery
-                    {
-                        PluginId = Normalizers.PluginId,
-                        Source = collector.Source,
-                        Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", 50)],
-                    }, ct);
-                    if (!counts.Aggregations.TryGetValue("tenants", out var buckets))
-                    {
-                        continue;
-                    }
-
-                    foreach (var bucket in buckets)
-                    {
-                        if (bucket.Key.Length > 0)
-                        {
-                            stored[(collector.Source, bucket.Key)] = bucket.Count;
-                        }
-                    }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    // A missing count API, or a failed count, must not take down the status page.
-                }
+                await CountStoredAsync(search, collector.Source, tenants, stored, ct);
             }
         }
 
@@ -425,6 +403,58 @@ public static class AuditEndpoints
             }).ToList(),
             recentRuns = runs.Select(r => new { r.Id, r.TenantId, tenant = tenantNames.GetValueOrDefault(r.TenantId), r.Source, r.StartedAt, r.FinishedAt, r.Status, r.Count, r.Duplicates, r.Failed, r.Alerts, r.Error }).ToList(),
         }, Json);
+    }
+
+    /// <summary><see cref="IEventSearch.CountByTenantAsync"/> returns at most this many directory ids.</summary>
+    private const int TenantCountPage = 200;
+
+    /// <summary>
+    /// Stored events per directory. A directory the count page did not return is zero when that page was not full.
+    /// A full page can hide a client, so those directories are counted one by one. A failed count stays unknown.
+    /// </summary>
+    private static async Task CountStoredAsync(IEventSearch search, string source, IReadOnlyList<Tenant> tenants, Dictionary<(string Source, string TenantId), long> stored, CancellationToken ct)
+    {
+        IReadOnlyDictionary<string, long> counts;
+        try
+        {
+            counts = await search.CountByTenantAsync(Normalizers.PluginId, source, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return;
+        }
+
+        var truncated = counts.Count >= TenantCountPage;
+        foreach (var tenant in tenants)
+        {
+            if (counts.TryGetValue(tenant.TenantId, out var count))
+            {
+                stored[(source, tenant.TenantId)] = count;
+                continue;
+            }
+
+            if (!truncated)
+            {
+                stored[(source, tenant.TenantId)] = 0;
+                continue;
+            }
+
+            try
+            {
+                var page = await search.SearchAsync(new EventQuery
+                {
+                    PluginId = Normalizers.PluginId,
+                    Source = source,
+                    Size = 1,
+                    Filters = [new FieldFilter("vc.tenantId", FilterOperator.Equals, [tenant.TenantId])],
+                }, ct);
+                stored[(source, tenant.TenantId)] = page.Total;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // This directory was past the count page and the direct count failed. Leave it unknown.
+            }
+        }
     }
 
     private static async Task<IResult> GetTenantAsync(Guid id, TenantService tenants, AuditDbContext db, ITenantDirectory directory, IEntraApplication application, CancellationToken ct)

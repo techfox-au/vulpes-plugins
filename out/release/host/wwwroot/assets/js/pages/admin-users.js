@@ -1,9 +1,20 @@
-import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell370';
-import { confirmIdentity } from '../reauth.js?v=shell398';
+import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell409';
+import { confirmIdentity } from '../reauth.js?v=shell408';
 
 let root;
-export async function mount(el, ctx) { root = el; ctx.setTitle(['Users']); await render(ctx); }
-export function unmount() { root = null; }
+let generation = 0;
+export async function mount(el, ctx) {
+  const gen = ++generation;
+  root = el;
+  ctx.setTitle(['Users']);
+  await render(ctx);
+  return gen;
+}
+export function unmount(gen) {
+  if (gen !== generation) return;
+  generation += 1;
+  root = null;
+}
 
 const roleOptions = [{ value: 'Viewer', label: 'Viewer' }, { value: 'Analyst', label: 'Analyst' }, { value: 'Admin', label: 'Admin' }];
 
@@ -20,24 +31,30 @@ async function withReauth(ctx, action) {
 }
 
 async function render(ctx) {
-  clear(root);
+  const gen = generation;
+  const host = root;
+  if (!host || gen !== generation) return;
+  clear(host);
   const users = await ctx.api.get('/api/admin/users');
+  if (gen !== generation || root !== host) return;
   // Accounts are created here and enrolled with a single-use link (docs/security.md).
-  root.append(h('div', { class: 'page-header' },
+  host.append(h('div', { class: 'page-header' },
     h('h1', null, 'Users'),
     h('button', { class: 'btn primary', onClick: () => createUser(ctx) }, 'New user')));
 
-  root.append(table({
+  host.append(table({
     columns: [
       { title: 'User', render: (u) => h('div', null, h('div', null, h('strong', null, u.displayName || u.username)), h('div', { class: 'small muted' }, u.username)) },
       { title: 'Role', render: (u) => badge(u.role || '-', u.role === 'Admin' ? 'primary' : '') },
       { title: 'Sign-in', render: (u) => {
-        const passwordOn = u.passwordSet === true && u.passwordLoginEnabled === true;
+        const permitted = u.passwordPermitted === true;
+        const passwordOn = permitted && u.passwordSet === true && u.passwordLoginEnabled === true;
         return h('div', { class: 'flex wrap' },
           passwordOn ? badge(u.mustChangePassword ? 'temp password' : 'password', u.mustChangePassword ? 'warning' : '') : null,
           !passwordOn && u.passwordSet === true ? badge('password off', 'warning') : null,
+          !u.passwordSet && permitted ? badge('password allowed', '') : null,
           u.passkeyCount > 0 ? badge(`${u.passkeyCount} passkey${u.passkeyCount > 1 ? 's' : ''}`, 'success') : null,
-          !u.passwordSet && u.passkeyCount === 0 ? badge('not enrolled', 'warning') : null);
+          !u.passwordSet && !permitted && u.passkeyCount === 0 ? badge('not enrolled', 'warning') : null);
       } },
       { title: 'Status', render: (u) => u.isActive ? (u.lockedOut ? badge('locked', 'danger', true) : badge('active', 'success', true)) : badge('disabled', 'danger', true) },
       { title: 'Last login', render: (u) => h('span', { class: 'cell-muted' }, u.lastLoginAt ? `${fmt.relative(u.lastLoginAt)} (${u.lastLoginMethod})` : 'never') },
@@ -57,7 +74,15 @@ async function createUser(ctx) {
     { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: true },
   ], {
     submitLabel: 'Create',
-    onSubmit: (values) => withReauth(ctx, () => ctx.api.post('/api/admin/users', { ...values, email: values.email || null })),
+    onSubmit: async (values) => {
+      const created = await withReauth(ctx, () => ctx.api.post('/api/admin/users', { ...values, email: values.email || null }));
+      if (!created) {
+        const cancelled = new Error('Confirm it is you was cancelled.');
+        cancelled.code = 'reauth_cancelled';
+        throw cancelled;
+      }
+      return created;
+    },
   });
   if (!res) return;
   await showEnrollmentLink(res.enrollment, res.user.username);
@@ -157,7 +182,7 @@ async function editUser(ctx, user) {
     { name: 'displayName', label: 'Display name', value: user.displayName || '' },
     { name: 'email', label: 'Email', type: 'email', value: user.email || '' },
     { name: 'role', label: 'Role', type: 'select', options: roleOptions, value: user.role },
-    { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: user.passwordLoginEnabled === true },
+    { name: 'passwordLoginEnabled', label: 'Allow password sign-in', type: 'checkbox', value: user.passwordPermitted === true },
   ];
   const values = await modal.form('Edit user', fields, {
     onSubmit: (v) => ctx.api.patch(`/api/admin/users/${encodeURIComponent(user.id)}`, { displayName: v.displayName, email: v.email || '', role: v.role, passwordLoginEnabled: v.passwordLoginEnabled }),

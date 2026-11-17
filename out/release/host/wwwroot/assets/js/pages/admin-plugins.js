@@ -2,9 +2,21 @@ import { h, badge, fmt, modal, errorMessage, clear, kv, pageNote, setBusy } from
 
 let root;
 let renderToken = 0;
+let generation = 0;
 const pendingInstalls = new Set();
-export async function mount(el, ctx) { root = el; ctx.setTitle(['Plugins']); await render(ctx); }
-export function unmount() { renderToken += 1; root = null; }
+export async function mount(el, ctx) {
+  const gen = ++generation;
+  root = el;
+  ctx.setTitle(['Plugins']);
+  await render(ctx);
+  return gen;
+}
+export function unmount(gen) {
+  if (gen !== generation) return;
+  generation += 1;
+  renderToken += 1;
+  root = null;
+}
 
 function dedupeReleases(offers) {
   const chosen = new Map();
@@ -33,9 +45,10 @@ function preferRelease(offer, existing) {
 }
 
 async function render(ctx) {
+  const gen = generation;
   const token = ++renderToken;
   const data = await ctx.api.get('/api/admin/plugins');
-  if (token !== renderToken || !root) return;
+  if (token !== renderToken || gen !== generation || !root) return;
   clear(root);
   const plugins = dedupePlugins(data.plugins);
   // Releases of techfox-au/vulpes-plugins. Each offer's action is install, upgrade, reinstall, or current.
@@ -83,6 +96,7 @@ async function render(ctx) {
 
   root.append(h('h2', { class: 'mt' }, 'Available plugins'));
   if (data.catalogError) root.append(h('div', { class: 'alert warning' }, data.catalogError));
+  if (data.privateCatalogError) root.append(h('div', { class: 'alert warning' }, data.privateCatalogError));
   const releases = dedupeReleases(data.available || [])
     .filter((offer) => offer.action === 'upgrade' || offer.action === 'reinstall' || offer.action === 'install' || !offer.action)
     .sort((a, b) => actionRank(a.action) - actionRank(b.action) || a.name.localeCompare(b.name));
@@ -95,7 +109,7 @@ async function render(ctx) {
       h('p', { class: 'muted small' }, fmt.bytes(offer.size)),
       installButton(ctx, offer, 'btn sm primary', action === 'upgrade' ? 'Upgrade' : action === 'reinstall' ? 'Reinstall' : 'Install')));
   }
-  if (!data.catalogError && releases.length === 0) offers.append(h('div', { class: 'card muted' }, (data.available || []).length === 0 ? 'No plugins available.' : 'No updates or new plugins.'));
+  if (!data.catalogError && !data.privateCatalogError && releases.length === 0) offers.append(h('div', { class: 'card muted' }, (data.available || []).length === 0 ? 'No plugins available.' : 'No updates or new plugins.'));
   const refreshButton = h('button', { class: 'btn', onClick: (event) => refreshCatalog(ctx, event.currentTarget) }, 'Refresh');
   root.append(offers, h('div', { class: 'btn-group mt' }, refreshButton));
   if (!data.catalogFetchedAt) refreshCatalog(ctx, refreshButton);

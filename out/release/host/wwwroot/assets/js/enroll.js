@@ -1,7 +1,7 @@
 import { api, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage, fmt } from './ui.js';
-import * as webauthn from './webauthn.js?v=shell125';
-import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell398';
+import * as webauthn from './webauthn.js?v=shell407';
+import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell407';
 import './pwa.js?v=shell388';
 
 setRedirectOnUnauthorized(false);
@@ -64,6 +64,7 @@ $('submit-passkey').addEventListener('click', async () => {
   } finally { setBusy(btn, false); }
 });
 
+let passwordSaved = false;
 $('panel-password').addEventListener('submit', async (e) => {
   e.preventDefault();
   showError('');
@@ -73,7 +74,10 @@ $('panel-password').addEventListener('submit', async (e) => {
   const btn = $('submit-password');
   setBusy(btn, true, 'Saving…');
   try {
-    await api.post('/auth/enroll/password', { token, password });
+    if (!passwordSaved) {
+      await api.post('/auth/enroll/password', { token, password });
+      passwordSaved = true;
+    }
     await establishWithPassword(password);
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }

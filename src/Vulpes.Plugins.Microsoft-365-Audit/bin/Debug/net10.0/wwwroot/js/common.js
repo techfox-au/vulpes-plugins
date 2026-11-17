@@ -103,13 +103,33 @@ export function bucketsToBarList(ui, buckets, opts) {
   return ui.barList((buckets || []).map((b) => ({ key: b.key, count: b.count })), opts);
 }
 
+/** Overview drill-down: a missing-value bucket is notExists, not the literal "(none)". */
+export function drillFilter(query, key, field) {
+  if (query?.[`${key}Missing`] === '1') return { field, operator: 'notExists', values: [] };
+  if (query?.[key]) return { field, operator: 'equals', values: [query[key]] };
+  return null;
+}
+
 /**
  * Generic event explorer: time range, tenant, free text, filter chips, paginated table and a detail drawer.
  * columns: [{ title, path | render(doc, row), filterField?, class? }]
  */
-export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [], ranges = RANGES, selects = [] }) {
+export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaultRange = '24h', pageSize = 50, initialFilters = [], detailFields = [], ranges = RANGES, selects = [], initialState = null, skipFilter = null }) {
   const { h, clear, table, drawer, fmt, errorMessage, jsonView, kv, badge } = ctx.ui;
-  const state = { range: defaultRange, tenant: '', text: '', filters: [...initialFilters], hits: [], total: 0, searchAfter: null, loading: false, fields: [], picks: {} };
+  const query = new URLSearchParams(location.search);
+  const carriedFilters = initialState?.filters?.map((f) => ({ field: f.field, operator: f.operator, values: [...(f.values || [])], ...(f.drill ? { drill: true } : {}) }));
+  const state = {
+    range: initialState?.range || defaultRange,
+    tenant: initialState?.tenant ?? (query.get('tenant') || ''),
+    text: initialState?.text || '',
+    filters: carriedFilters || [...initialFilters],
+    hits: [],
+    total: 0,
+    searchAfter: null,
+    loading: false,
+    fields: [],
+    picks: { ...(initialState?.picks || {}) },
+  };
 
   const toolbar = h('div', { class: 'toolbar' });
   const chips = h('div', { class: 'flex wrap' });
@@ -141,31 +161,53 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   });
   customFrom.addEventListener('change', () => { if (state.range === 'custom') reload(); });
   customTo.addEventListener('change', () => { if (state.range === 'custom') reload(); });
-  const textInput = h('input', { class: 'input', placeholder: 'Search text (AND, OR, "phrase", prefix*)', 'aria-label': 'Search text' });
+  if (state.range === 'custom') {
+    customFrom.hidden = false;
+    customTo.hidden = false;
+    customFrom.value = initialState?.customFrom || '';
+    customTo.value = initialState?.customTo || '';
+  }
+  const textInput = h('input', { class: 'input', value: state.text, placeholder: 'Search text (AND, OR, "phrase", prefix*)', 'aria-label': 'Search text' });
   textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.text = textInput.value.trim(); reload(); } });
   const searchBtn = h('button', { class: 'btn', onClick: () => { state.text = textInput.value.trim(); reload(); } }, 'Search');
   const addFilterBtn = h('button', { class: 'btn', onClick: () => addFilterDialog() }, 'Add filter');
   const refreshBtn = h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: () => reload() }, ctx.ui.icon('refresh'));
   toolbar.append(rangeSel, customFrom, customTo, textInput, searchBtn, addFilterBtn, refreshBtn);
   for (const spec of selects) {
-    state.picks[spec.key] = spec.value || '';
+    if (spec.hidden || state.picks[spec.key] === undefined) state.picks[spec.key] = spec.value || '';
+    if (spec.hidden) {
+      state.filters = state.filters.filter((filter) => filter.field !== spec.field);
+      continue;
+    }
     const sel = ctx.ui.dropdown(
       [{ value: '', label: spec.allLabel }, ...spec.options.map(([value, label]) => ({ value, label }))],
       { value: state.picks[spec.key], ariaLabel: spec.ariaLabel },
     );
-    sel.addEventListener('change', () => { state.picks[spec.key] = sel.value; reload(); });
+    spec.control = sel;
+    sel.addEventListener('change', () => {
+      state.picks[spec.key] = sel.value;
+      state.filters = state.filters.filter((filter) => filter.field !== spec.field);
+      reload();
+    });
     toolbar.insertBefore(sel, textInput);
   }
-  tenantSelect(ctx, (v) => { state.tenant = v; reload(); }).then((sel) => toolbar.insertBefore(sel, textInput));
+  tenantSelect(ctx, (v) => { state.tenant = v; reload(); }, state.tenant).then((sel) => toolbar.insertBefore(sel, textInput));
 
   ctx.api.get(`${ctx.plugin.apiBase}/sources`).then((sources) => { state.fields = sources.find((s) => s.source === source)?.fields || []; }).catch(() => {});
 
+  function selectField(field) {
+    return selects.some((spec) => spec.field === field);
+  }
+
   function renderChips() {
+    // A select owns its field. A chip for that field would show a value the search does not use.
+    state.filters = state.filters.filter((filter) => !selectField(filter.field));
     clear(chips);
     state.filters.forEach((f, i) => {
+      if (skipFilter?.(f)) return;
       chips.append(h('span', { class: 'chip' }, `${f.field} ${f.operator} ${(f.values || []).join(' | ')}`, h('button', { type: 'button', 'aria-label': 'Remove filter', onClick: () => { state.filters.splice(i, 1); reload(); } }, '×')));
     });
-    if (state.filters.length > 0) chips.append(h('button', { class: 'btn ghost sm', onClick: () => { state.filters = []; reload(); } }, 'Clear all'));
+    if (state.filters.some((f) => !skipFilter?.(f))) chips.append(h('button', { class: 'btn ghost sm', onClick: () => { state.filters = state.filters.filter((f) => skipFilter?.(f)); reload(); } }, 'Clear all'));
   }
 
   function fieldType(path) {
@@ -190,7 +232,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   }
 
   async function addFilterDialog(preset) {
-    const fieldSel = ctx.ui.dropdown(state.fields.map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: preset?.field || '', ariaLabel: 'Field' });
+    const fieldSel = ctx.ui.dropdown(state.fields.filter((f) => !selectField(f.path)).map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: preset?.field || '', ariaLabel: 'Field' });
     const opSel = ctx.ui.dropdown(operatorsFor(fieldType(fieldSel.value)), { value: 'equals', ariaLabel: 'Operator' });
     const valueInput = h('input', { class: 'input', value: preset?.value || '', placeholder: 'value' });
     const syncOperator = () => {
@@ -205,9 +247,11 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     await ctx.ui.modal.show({ title: 'Add filter', content: box, actions: [{ label: 'Cancel', value: false }, { label: 'Add', kind: 'primary', onClick: () => {
       const op = opSel.value;
       const type = fieldType(fieldSel.value);
+      if (selectField(fieldSel.value)) { ctx.ui.panelNote(box, 'That field is set by a control on this page.'); return false; }
       const values = op.endsWith('xists') ? [] : (op === 'in' || op === 'notIn' ? valueInput.value.split(',').map((s) => s.trim()).filter(Boolean) : [valueInput.value.trim()]);
       if (!operatorsFor(type).some(([value]) => value === op)) { ctx.ui.panelNote(box, 'That operator is not valid for this field.'); return false; }
       if (!op.endsWith('xists') && values.length === 0) { ctx.ui.panelNote(box, 'A value is required.'); valueInput.classList.add('invalid'); return false; }
+      if (op === 'contains' && values.some((value) => value.length > 64)) { ctx.ui.panelNote(box, 'Contains filters are limited to 64 characters.'); valueInput.classList.add('invalid'); return false; }
       if (values.some((value) => !valueFits(type, value))) { ctx.ui.panelNote(box, `Enter a valid ${type === 'wholenumber' ? 'number' : type}.`); valueInput.classList.add('invalid'); return false; }
       state.filters.push({ field: fieldSel.value, operator: op, values });
       reload();
@@ -217,7 +261,17 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
 
   function addQuickFilter(field, value) {
     if (value === undefined || value === null || value === '') return;
-    state.filters.push({ field, operator: 'equals', values: [String(value)] });
+    const spec = selects.find((item) => item.field === field);
+    if (spec) {
+      state.picks[spec.key] = String(value);
+      if (spec.control) spec.control.value = String(value);
+      state.filters = state.filters.filter((filter) => filter.field !== field);
+      reload();
+      return;
+    }
+    const text = String(value);
+    state.filters = state.filters.filter((filter) => filter.field !== field || filter.operator !== 'equals');
+    state.filters.push({ field, operator: 'equals', values: [text] });
     reload();
   }
 
@@ -228,7 +282,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
 
   function buildBody(more) {
     const { from, to } = currentBounds();
-    const filters = [...state.filters];
+    const filters = state.filters.filter((filter) => !skipFilter?.(filter) && !selectField(filter.field)).map(({ field, operator, values }) => ({ field, operator, values }));
     if (state.tenant) filters.push({ field: 'vc.tenantId', operator: 'equals', values: [state.tenant] });
     for (const spec of selects) {
       if (state.picks[spec.key]) filters.push({ field: spec.field, operator: 'equals', values: [state.picks[spec.key]] });
@@ -245,14 +299,20 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
         const doc = row.doc;
         let content = c.render ? c.render(doc, row) : (c.path ? get(doc, c.path) : '');
         if (content === undefined || content === null) content = '';
-        if (c.filterField && content !== '' && !(content instanceof Node)) {
+        if (c.filterField) {
           const value = c.path ? get(doc, c.path) : content;
-          return h('a', { href: '#', class: 'truncate', title: 'Filter by this value', onClick: (e) => { e.preventDefault(); e.stopPropagation(); addQuickFilter(c.filterField, value); } }, String(content));
+          if (value !== undefined && value !== null && value !== '' && !(value instanceof Node)) {
+            return h('a', { href: '#', class: content instanceof Node ? null : 'truncate', title: 'Filter by this value', onClick: (e) => { e.preventDefault(); e.stopPropagation(); addQuickFilter(c.filterField, value); } }, content instanceof Node ? content : String(content));
+          }
         }
         return content;
       },
     }));
     results.append(table({ columns: cols, rows: state.hits, onRowClick: (row) => openDetail(row), emptyText: state.loading ? 'Loading…' : 'No events match.' }));
+    renderPager();
+  }
+
+  function renderPager() {
     clear(pager);
     const eventCount = fmt.number(state.total);
     const eventLabel = state.hits.length < state.total ? `${eventCount} events · showing ${state.hits.length}` : `${eventCount} events`;
@@ -290,7 +350,9 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     drawer.open({ title: doc.message || get(doc, 'event.action') || 'Event', content: h('div', { class: 'col gap-lg' }, kv(pairs), labels.length ? h('div', null, h('h3', null, 'Labels'), kv(labels)) : null, h('details', { class: 'json', open: true }, h('summary', null, 'Raw record'), jsonView(doc.data || doc))) });
   }
 
+  let loadToken = 0;
   async function load(more) {
+    const token = ++loadToken;
     const bounds = currentBounds();
     if (bounds?.error) {
       state.loading = false;
@@ -302,16 +364,30 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     if (more && document.activeElement && el.contains(document.activeElement)) document.activeElement.blur();
     state.loading = true;
     if (!more) { state.hits = []; state.total = 0; state.searchAfter = null; renderTable(); }
+    let res;
     try {
-      const res = await ctx.api.post(`${ctx.plugin.apiBase}/search`, buildBody(more));
-      state.hits = more ? state.hits.concat(res.hits) : res.hits;
-      state.total = res.total;
-      state.searchAfter = res.hits.length ? res.hits[res.hits.length - 1].sort : null;
+      res = await ctx.api.post(`${ctx.plugin.apiBase}/search`, buildBody(more));
     } catch (err) {
-      clear(results).append(h('div', { class: 'alert ' + (err.status === 503 ? 'warning' : 'danger') }, err.status === 503 ? 'Search backend unavailable: ' + errorMessage(err) : errorMessage(err)));
+      if (token !== loadToken) return;
       state.loading = false;
+      const alert = h('div', { class: 'alert ' + (err.status === 503 ? 'warning' : 'danger') }, err.status === 503 ? 'Search backend unavailable: ' + errorMessage(err) : errorMessage(err));
+      if (more) {
+        renderTable();
+        results.prepend(alert);
+        if (place) {
+          restoreScroll(place);
+          requestAnimationFrame(() => restoreScroll(place));
+        }
+      } else {
+        clear(results).append(alert);
+        renderPager();
+      }
       return;
     }
+    if (token !== loadToken) return;
+    state.hits = more ? state.hits.concat(res.hits) : res.hits;
+    state.total = res.total;
+    state.searchAfter = res.hits.length ? res.hits[res.hits.length - 1].sort : null;
     state.loading = false;
     renderTable();
     if (place) {
@@ -323,5 +399,21 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   function reload() { renderChips(); load(false); }
 
   reload();
-  return { reload, addQuickFilter, state, destroy() { drawer.close(); } };
+  return {
+    reload,
+    addQuickFilter,
+    state,
+    snapshot() {
+      return {
+        range: state.range,
+        tenant: state.tenant,
+        text: state.text,
+        filters: state.filters.map((f) => ({ field: f.field, operator: f.operator, values: [...(f.values || [])], ...(f.drill ? { drill: true } : {}) })),
+        picks: { ...state.picks },
+        customFrom: customFrom.value,
+        customTo: customTo.value,
+      };
+    },
+    destroy() { loadToken += 1; drawer.close(); },
+  };
 }

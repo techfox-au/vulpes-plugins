@@ -19,7 +19,7 @@ public sealed class NormalizerGoldenTests
     [MemberData(nameof(Cases))]
     public void Matches_golden_file(string name)
     {
-        var input = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Golden", name + ".input.json"))).RootElement;
+        var input = JsonElement.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Golden", name + ".input.json")));
         var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Golden", name + ".expected.json")))!.AsObject();
 
         SecurityEvent? actual = name switch
@@ -77,9 +77,9 @@ public sealed class NormalizerEdgeCaseTests
     [Fact]
     public void Skips_records_without_id_or_timestamp()
     {
-        Assert.Null(Normalizers.SignIn(JsonDocument.Parse("""{"createdDateTime":"2026-10-29T09:15:22Z"}""").RootElement, "t", null, "interactive"));
-        Assert.Null(Normalizers.SignIn(JsonDocument.Parse("""{"id":"x"}""").RootElement, "t", null, "interactive"));
-        Assert.Null(Normalizers.AuditLogRecord(JsonDocument.Parse("""{"id":"x"}""").RootElement, "t", null));
+        Assert.Null(Normalizers.SignIn(JsonElement.Parse("""{"createdDateTime":"2026-10-29T09:15:22Z"}"""), "t", null, "interactive"));
+        Assert.Null(Normalizers.SignIn(JsonElement.Parse("""{"id":"x"}"""), "t", null, "interactive"));
+        Assert.Null(Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"x"}"""), "t", null));
     }
 
     [Theory]
@@ -109,7 +109,7 @@ public sealed class NormalizerEdgeCaseTests
     [Fact]
     public void Exchange_records_do_not_get_file_fields()
     {
-        var e = Normalizers.AuditLogRecord(JsonDocument.Parse("""{"id":"e1","createdDateTime":"2026-10-29T10:03:11Z","auditLogRecordType":"exchangeAdmin","operation":"New-InboxRule","userPrincipalName":"bob@contoso.com","objectId":"bob@contoso.com\\Forward all","auditData":{"Workload":"Exchange","ResultStatus":"True"}}""").RootElement, "t", null);
+        var e = Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"e1","createdDateTime":"2026-10-29T10:03:11Z","auditLogRecordType":"exchangeAdmin","operation":"New-InboxRule","userPrincipalName":"bob@contoso.com","objectId":"bob@contoso.com\\Forward all","auditData":{"Workload":"Exchange","ResultStatus":"True"}}"""), "t", null);
         Assert.NotNull(e);
         Assert.Equal("email", e.Category);
         Assert.Null(e.FilePath);

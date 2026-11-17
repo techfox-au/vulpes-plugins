@@ -24,6 +24,7 @@ async function render(ctx) {
     columns: [
       { title: 'Name', render: (t) => h('div', null, h('strong', null, t.displayName), t.discoveredName && t.discoveredName !== t.displayName ? h('div', { class: 'small muted' }, t.discoveredName) : null) },
       { title: 'Directory id', render: (t) => h('span', { class: 'mono small' }, t.directoryId || '') },
+      { title: 'Short name', render: (t) => t.shortName || '' },
       { title: 'Status', render: (t) => t.enabled ? badge('enabled', 'success') : badge('disabled', 'warning') },
       { title: '', class: 'right', render: (t) => h('div', { class: 'flex' },
         h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); editClient(ctx, t); } }, 'Edit'),
@@ -44,24 +45,40 @@ async function mirrorPsa(ctx, id, organisationName) {
 async function editClient(ctx, existing) {
   const { h, modal, errorMessage, panelNote } = ctx.ui;
   const name = h('input', { class: 'input', value: existing?.displayName || '', required: true });
-  const directory = h('input', { class: 'input', value: existing?.directoryId || '', spellcheck: false, placeholder: '00000000-0000-0000-0000-000000000000' });
+  const shortName = h('input', { class: 'input', value: existing?.shortName || '', maxlength: '16', spellcheck: false });
+  const directory = h('input', { class: 'input', value: existing?.directoryId || '', spellcheck: false, readOnly: !!existing?.directoryId, placeholder: '00000000-0000-0000-0000-000000000000' });
   const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled : true });
   const form = h('div', { class: 'col' },
     h('div', { class: 'field' }, h('label', null, 'Display name'), name),
+    h('div', { class: 'field' }, h('label', null, 'Short name'), shortName),
     h('div', { class: 'field' }, h('label', null, 'Directory id'), directory),
     h('label', { class: 'checkbox' }, enabled, h('span', null, 'Collection enabled')),
     existing ? h('div', { class: 'stack mt' },
       h('h3', null, 'Danger'),
       h('p', { class: 'small muted' }, 'Deletes this client’s stored audit logs and collects them again from the lookback window.'),
       h('button', { class: 'btn danger', type: 'button', onClick: () => purgeClient(ctx, existing) }, 'Purge & Reset')) : null);
+  let addedId = null;
   const saved = await modal.show({ title: existing ? 'Edit client' : 'Add client', content: form, actions: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Add', kind: 'primary', value: true, onClick: async () => {
     try {
-      const body = { displayName: name.value.trim(), directoryId: directory.value.trim(), enabled: enabled.checked };
-      const savedClient = existing
-        ? await ctx.api.put(`/api/admin/tenants/${existing.id}`, body)
-        : await ctx.api.post('/api/admin/tenants', body);
-      const id = existing ? existing.id : savedClient.id;
-      await mirrorPsa(ctx, id, name.value.trim());
+      const directoryId = directory.value.trim();
+      if (existing?.directoryId && !directoryId) { panelNote(form, 'Directory id cannot be cleared.'); return false; }
+      const body = { displayName: name.value.trim(), enabled: enabled.checked, shortName: shortName.value.trim() };
+      if (directoryId) body.directoryId = directoryId;
+      let id = existing?.id || addedId;
+      if (existing) await ctx.api.put(`/api/admin/tenants/${existing.id}`, body);
+      else if (!addedId) {
+        const savedClient = await ctx.api.post('/api/admin/tenants', body);
+        addedId = savedClient.id;
+        id = addedId;
+      }
+      try { await mirrorPsa(ctx, id, name.value.trim()); }
+      catch (err) {
+        await render(ctx);
+        const message = 'The PSA mirror did not update. ' + errorMessage(err);
+        ctx.ui.pageNote(root, message);
+        panelNote(form, message);
+        return false;
+      }
     } catch (err) { panelNote(form, errorMessage(err)); return false; }
   } }] });
   if (saved) { await render(ctx); ctx.ui.pageNote(root, existing ? 'Client saved.' : 'Client added.', 'success'); }
@@ -80,9 +97,13 @@ async function purgeClient(ctx, tenant) {
 async function removeClient(ctx, tenant) {
   if (!(await ctx.ui.modal.confirm('Delete client', `Stop collecting from ${tenant.displayName}?`, { danger: true, confirmLabel: 'Delete' }))) return;
   try {
-    try { await ctx.api.delete(`${psa}/${tenant.id}`); } catch (err) { if (err.status !== 404) throw err; }
-    await ctx.api.delete(`/api/admin/tenants/${tenant.id}`);
+    try { await ctx.api.delete(`/api/admin/tenants/${tenant.id}`); }
+    catch (err) { if (err.status !== 404) throw err; }
     await render(ctx);
+    try { await ctx.api.delete(`${psa}/${tenant.id}`); }
+    catch (err) {
+      if (err.status !== 404) { ctx.ui.pageNote(root, 'The PSA mirror did not update. ' + ctx.ui.errorMessage(err)); return; }
+    }
     ctx.ui.pageNote(root, 'Client removed.', 'success');
   } catch (err) { ctx.ui.pageNote(root, ctx.ui.errorMessage(err)); }
 }
@@ -118,11 +139,11 @@ async function collection(ctx, tenant) {
   for (const s of sources.filter((x) => x.collector)) {
     const cfg = (detail.settings?.sources || {})[s.source] || {};
     const blocked = s.unavailable === true;
-    const en = h('input', { type: 'checkbox', checked: blocked ? false : cfg.enabled !== false, disabled: blocked });
+    const en = h('input', { type: 'checkbox', checked: cfg.enabled !== false, disabled: blocked });
     const interval = h('input', { class: 'input sm', type: 'number', min: 1, placeholder: String(s.collector.defaultIntervalMinutes), value: cfg.intervalMinutes ?? '' });
     const nonInteractive = s.source === 'signins' ? h('input', { type: 'checkbox', checked: cfg.includeNonInteractive !== false }) : null;
     const recordTypes = s.source === 'activity' ? h('input', { class: 'input sm', placeholder: 'default record types', value: (cfg.recordTypes || []).join(',') }) : null;
-    rows.push({ source: s.source, en, interval, nonInteractive, recordTypes, keepEnabled: blocked ? cfg.enabled !== false : null });
+    rows.push({ source: s.source, en, interval, nonInteractive, recordTypes });
     box.append(h('div', { class: 'form-row' },
       h('label', { class: 'checkbox' }, en, h('span', null, s.collector.title)),
       h('div', { class: 'flex' }, h('span', { class: 'small muted nowrap' }, 'every'), interval, h('span', { class: 'small muted' }, 'min')),
@@ -132,7 +153,7 @@ async function collection(ctx, tenant) {
   const saved = await modal.show({ title: tenant.displayName, content: form, wide: true, actions: [{ label: 'Cancel', value: false }, { label: 'Save', kind: 'primary', value: true, onClick: async () => {
     const settings = { sources: {} };
     for (const r of rows) {
-      const entry = { enabled: r.keepEnabled === null ? r.en.checked : r.keepEnabled };
+      const entry = { enabled: r.en.checked };
       if (r.interval.value) entry.intervalMinutes = Number(r.interval.value);
       if (r.nonInteractive) entry.includeNonInteractive = r.nonInteractive.checked;
       if (r.recordTypes && r.recordTypes.value.trim()) entry.recordTypes = r.recordTypes.value.split(',').map((s) => s.trim()).filter(Boolean);

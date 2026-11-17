@@ -1,5 +1,5 @@
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell398';
+import { requireUserDataKey } from '../data-key.js?v=shell407';
 
 let status = null;
 let shareTimer = null;
@@ -8,8 +8,18 @@ let keyPrompted = false;
 let pendingFocus = '';
 let focusScroll = false;
 let focusNote = '';
+let generation = 0;
 
 export async function mount(el, ctx) {
+  const gen = ++generation;
+  let ownedTimer = null;
+  const leave = () => {
+    if (ownedTimer && shareTimer === ownedTimer) {
+      clearInterval(ownedTimer);
+      shareTimer = null;
+    }
+    return gen;
+  };
   status = null;
   ctx.setTitle(['Home']);
   const greeting = h('div', { class: 'page-header' },
@@ -21,13 +31,16 @@ export async function mount(el, ctx) {
   el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), sharesCard);
 
   try {
-    status = await ctx.api.get('/api/status');
+    const nextStatus = await ctx.api.get('/api/status');
+    if (gen !== generation) return leave();
+    status = nextStatus;
     statusGrid.append(
       kpi('Search backend', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'Healthy' : 'Unreachable') : 'Not configured', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'success' : 'danger') : 'warning', esDetail(status.elasticsearch)),
       kpi('Alert rules', String(status.alerts?.enabledRules ?? 0), '', `${fmt.number(status.alerts?.alertsLast24h ?? 0)} alerts in 24h`),
       kpi('Notifications', status.notifications?.smtpConfigured ? 'Email ready' : 'Email not set', status.notifications?.smtpConfigured ? 'success' : 'warning', status.notifications?.pending ? `${status.notifications.pending} pending` : ''),
     );
   } catch (err) {
+    if (gen !== generation) return leave();
     statusGrid.append(h('div', { class: 'alert danger' }, errorMessage(err)));
   }
 
@@ -35,6 +48,7 @@ export async function mount(el, ctx) {
     const pluginsPromise = ctx.api.get('/api/plugins');
     const updatesPromise = ctx.hasRole('Admin') ? ctx.api.get('/api/admin/plugins').catch(() => null) : Promise.resolve(null);
     const [plugins, adminPlugins] = await Promise.all([pluginsPromise, updatesPromise]);
+    if (gen !== generation) return leave();
     const updateIds = new Set();
     for (const offer of adminPlugins?.available || []) {
       if (offer.action !== 'upgrade') continue;
@@ -59,32 +73,46 @@ export async function mount(el, ctx) {
       focusScroll = !!pendingFocus;
       focusNote = '';
       await renderShares(ctx, sharesCard);
+      if (gen !== generation) return leave();
       if (shareTimer) clearInterval(shareTimer);
-      shareTimer = setInterval(() => {
+      const timer = setInterval(() => {
+        if (gen !== generation) {
+          clearInterval(timer);
+          if (shareTimer === timer) shareTimer = null;
+          return;
+        }
         if (document.hidden || document.querySelector('.modal')) return;
         renderShares(ctx, sharesCard, true);
       }, 5000);
+      shareTimer = ownedTimer = timer;
     }
   } catch (err) {
+    if (gen !== generation) return leave();
     pluginsCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
   }
 
+  if (gen !== generation) return leave();
   if (ctx.hasRole('Admin', 'Analyst')) {
     try {
       const alerts = await ctx.api.get('/api/alerts/instances?pageSize=8');
+      if (gen !== generation) return leave();
       alertsCard.lastChild.replaceWith(alerts.items.length === 0 ? empty('No alerts yet.', 'bell')
         : h('div', { class: 'col' }, alerts.items.map((a) => h('div', { class: 'flex between' },
           h('div', { class: 'grow' }, h('div', { class: 'truncate' }, badge(a.severity, severityKind(a.severity)), ' ', a.summary), h('div', { class: 'small muted' }, `${a.ruleName} · ${fmt.relative(a.createdAt)}${a.count > 1 ? ` · ×${a.count}` : ''}`)),
           badge(a.status, a.status === 'new' ? 'primary' : '')))));
     } catch (err) {
+      if (gen !== generation) return leave();
       alertsCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
     }
   } else {
     alertsCard.lastChild.replaceWith(empty('No alerts.', 'bell'));
   }
+  return gen;
 }
 
-export function unmount() {
+export function unmount(gen) {
+  if (gen !== generation) return;
+  generation += 1;
   if (shareTimer) clearInterval(shareTimer);
   shareTimer = null;
   pendingFocus = '';
@@ -115,8 +143,9 @@ function applyFocus(card) {
   if (focusScroll) {
     item.scrollIntoView({ block: 'center' });
     const id = pendingFocus;
+    const focusGen = generation;
     focusScroll = false;
-    setTimeout(() => { if (pendingFocus === id) pendingFocus = ''; }, 2400);
+    setTimeout(() => { if (focusGen !== generation || pendingFocus !== id) return; pendingFocus = ''; }, 2400);
   }
 }
 
@@ -127,19 +156,25 @@ function shareHeader(ctx) {
 }
 
 async function renderShares(ctx, card, quiet) {
+  const gen = generation;
   card.hidden = false;
   const canCollect = ctx.hasRole('Admin', 'Analyst');
   if (!quiet) card.replaceChildren(shareHeader(ctx), h('p', { class: 'muted' }, 'Loading…'));
   try {
     await ensureCrypto();
+    if (gen !== generation) return;
     const data = await ctx.api.get('/api/plugins/secret-sharing/home');
+    if (gen !== generation) return;
     const items = (data.items || []).filter((item) => canCollect || item.kind !== 'collect');
-    if (!keyPrompted && !window.SecretUdk.loadUserDataKey(ctx.user?.id) && items.some((item) => item.encryptedLabel || item.privateNoteCiphertext || item.hasOwnerKey)) {
-      keyPrompted = true;
+    if (gen === generation && !keyPrompted && !window.SecretUdk.loadUserDataKey(ctx.user?.id) && items.some((item) => item.encryptedLabel || item.privateNoteCiphertext || item.hasOwnerKey)) {
       try { await requireUserDataKey(); } catch { /* names stay locked until a later attempt */ }
+      if (gen !== generation) return;
+      keyPrompted = true;
     }
+    if (gen !== generation) return;
     const rows = [];
     for (const item of items) rows.push(await shareItem(ctx, card, item));
+    if (gen !== generation) return;
     const list = items.length === 0
       ? h('p', { class: 'muted share-empty' }, canCollect ? 'No sends or collects yet.' : 'No sends yet.')
       : h('div', { class: 'share-list' }, rows);
@@ -147,6 +182,7 @@ async function renderShares(ctx, card, quiet) {
     card.replaceChildren(header, list);
     applyFocus(card);
   } catch (err) {
+    if (gen !== generation) return;
     const note = h('div', { class: 'alert danger' }, errorMessage(err));
     if (quiet && card.querySelector('.share-list, .share-empty')) panelNote(card, errorMessage(err));
     else card.replaceChildren(shareHeader(ctx), note);

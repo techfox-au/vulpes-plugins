@@ -19,7 +19,8 @@
         "runtime": {
           "lib/net10.0/SharpCompress.dll": {
             "assemblyVersion": "0.50.7.0",
-            "fileVersion": "0.50.7.0"
+            "fileVersion": "0.50.7.0",
+            "localPath": "SharpCompress.dll"
           }
         }
       },

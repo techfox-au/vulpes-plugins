@@ -1,16 +1,15 @@
 // Interactive and non-interactive Entra ID sign-ins (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get, locationCell } from './common.js?v=shell365';
+import { createExplorer, outcomeBadge, severityBadge, get, locationCell, drillFilter } from './common.js?v=shell367';
 
 let explorer;
 export async function mount(el, ctx) {
   const { h, fmt } = ctx.ui;
   const q = ctx.query || {};
   const initialFilters = [];
-  if (q.user) initialFilters.push({ field: 'user.name', operator: 'equals', values: [q.user] });
-  if (q.ip) initialFilters.push({ field: 'source.address', operator: 'equals', values: [q.ip] });
-  if (q.country) initialFilters.push({ field: 'source.geo.country_name', operator: 'equals', values: [q.country] });
-  if (q.app) initialFilters.push({ field: 'client.appName', operator: 'equals', values: [q.app] });
-  if (q.outcome) initialFilters.push({ field: 'event.outcome', operator: 'equals', values: [q.outcome] });
+  for (const [key, field] of [['user', 'user.name'], ['ip', 'source.address'], ['country', 'source.geo.country_name'], ['app', 'client.appName'], ['outcome', 'event.outcome']]) {
+    const filter = drillFilter(q, key, field);
+    if (filter) initialFilters.push(filter);
+  }
 
   explorer = createExplorer(el.querySelector('[data-role="explorer"]'), ctx, {
     source: 'signins',

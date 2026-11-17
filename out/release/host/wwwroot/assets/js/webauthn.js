@@ -89,9 +89,42 @@ export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra 
   const publicKey = withPrf(parseCreationOptions(options));
   const credential = await navigator.credentials.create({ publicKey, signal });
   if (!credential) throw new Error('No credential was created.');
-  const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
-  if (onCredential) await onCredential(credential);
-  return result;
+  const prf = credential.getClientExtensionResults?.().prf?.results?.first;
+  if (!prf || new Uint8Array(prf).byteLength !== 32) {
+    throw new Error('This passkey cannot protect encryption. Use one that supports the PRF extension.');
+  }
+  let dataKey = null;
+  if (finishUrl === '/auth/enroll/passkey') {
+    dataKey = await import('./data-key.js?v=shell407');
+    dataKey.armEnrollment(extra?.token || null);
+  }
+  try {
+    const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
+    if (onCredential) {
+      try {
+        await onCredential(credential);
+      } catch (err) {
+        if (dataKey) await dataKey.abandonEnrollment(credential);
+        else await dropStoredPasskey(finishUrl, credential);
+        throw err;
+      }
+    }
+    return result;
+  } finally {
+    dataKey?.armEnrollment(null);
+  }
+}
+
+async function dropStoredPasskey(finishUrl, credential) {
+  const id = credential?.id;
+  if (!id) return;
+  if (finishUrl === '/auth/setup/passkey') {
+    try { await api.post('/auth/setup/abandon'); } catch { /* the setup page shows the wrap error */ }
+    return;
+  }
+  if (finishUrl === '/auth/enroll/passkey' || finishUrl === '/api/account/passkeys') {
+    try { await api.delete(`/api/account/passkeys/${encodeURIComponent(id)}`); } catch { /* the last sign-in cannot be removed here */ }
+  }
 }
 
 /**

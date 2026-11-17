@@ -1,4 +1,4 @@
-import { statusBadge } from './common.js?v=shell365';
+import { statusBadge } from './common.js?v=shell367';
 
 let timer;
 // Collector health per tenant and source. Refreshes every 15 seconds (docs/audit-plugin.md).
@@ -11,13 +11,21 @@ export async function mount(el, ctx) {
 
 export function unmount() { clearInterval(timer); timer = null; }
 
+let renderToken = 0;
 async function render(el, ctx) {
+  const token = ++renderToken;
   const { h, clear, table, fmt, errorMessage, badge } = ctx.ui;
   const matrix = el.querySelector('[data-role="matrix"]');
   const runs = el.querySelector('[data-role="runs"]');
   let status;
   try { status = await ctx.api.get(`${ctx.plugin.apiBase}/status`); }
-  catch (err) { clear(matrix).append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
+  catch (err) {
+    if (token !== renderToken) return;
+    clear(matrix).append(h('div', { class: 'alert danger' }, errorMessage(err)));
+    clear(runs);
+    return;
+  }
+  if (token !== renderToken) return;
 
   clear(matrix);
   if (status.tenants.length === 0) { matrix.append(h('div', { class: 'card muted' }, 'No tenants configured.')); }
@@ -29,6 +37,7 @@ async function render(el, ctx) {
       ...sources.map((s) => ({ title: s.title.replace(/^(Entra ID|Microsoft 365|Microsoft) /, ''), render: (r) => {
         const c = r.byName[s.source];
         if (!c) return h('span', { class: 'cell-muted' }, '-');
+        // null is a count that was not loaded. Zero is a directory the count did return, including one with no events.
         const stored = c.storedCount == null ? '—' : `${fmt.number(c.storedCount)} ev`;
         return h('div', { title: c.lastError || '' }, statusBadge(ctx.ui, c.lastStatus), h('div', { class: 'small muted nowrap' }, c.lastSuccessAt ? fmt.relative(c.lastSuccessAt) : 'never'), h('div', { class: 'small faint nowrap' }, stored));
       } })),

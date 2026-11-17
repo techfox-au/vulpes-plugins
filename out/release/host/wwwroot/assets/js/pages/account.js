@@ -1,8 +1,8 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
-import * as webauthn from '../webauthn.js?v=shell127';
-import { preparePasswordWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell398';
-import { confirmIdentity as reauth } from '../reauth.js?v=shell398';
+import * as webauthn from '../webauthn.js?v=shell407';
+import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell407';
+import { confirmIdentity as reauth } from '../reauth.js?v=shell407';
 
 let root;
 let flash;
@@ -112,9 +112,15 @@ function plusBadge() {
 async function render(ctx) {
   const el = root;
   clear(el);
-  const me = await ctx.api.get('/api/account');
-  const passkeys = await ctx.api.get('/api/account/passkeys');
+  const [me, passkeys, keyPack] = await Promise.all([
+    ctx.api.get('/api/account'),
+    ctx.api.get('/api/account/passkeys'),
+    ctx.api.get('/api/account/data-key'),
+  ]);
   if (root !== el) return;
+  const wraps = Array.isArray(keyPack?.wraps) ? keyPack.wraps : [];
+  const passwordWrapped = wraps.some((wrap) => wrap.kind === 'password' || wrap.kind === 'legacy');
+  const passkeyWrapped = wraps.some((wrap) => wrap.kind === 'passkey');
   const pending = flash;
   flash = null;
 
@@ -164,7 +170,7 @@ async function render(ctx) {
       { title: 'Added', render: (p) => fmt.date(p.createdAt) },
       { title: 'Backed up', render: (p) => badge(p.isBackedUp ? 'synced' : 'device-bound', p.isBackedUp ? 'info' : '') },
       { title: '', class: 'right', render: (p) => {
-        const passwordActive = me.passwordSet && me.userPasswordLoginEnabled && me.passwordLoginAvailable;
+        const passwordActive = me.passwordSet && me.userPasswordLoginEnabled && me.passwordLoginAvailable && (passwordWrapped || me.mustChangePassword || !passkeyWrapped);
         const lastWayIn = passkeys.length === 1 && !passwordActive;
         return h('div', { class: 'btn-group' },
           h('button', { class: 'btn sm', onClick: () => rename(ctx, p) }, 'Rename'),
@@ -206,12 +212,17 @@ async function render(ctx) {
       }
       setBusy(submit, true, 'Saving…');
       try {
-        if (!appliedPassword && !me.mustChangePassword) await preparePasswordWrap(v.currentPassword || null, { createIfMissing: !me.passwordSet });
+        // A passkey wrap is the key to keep. Replacing the temporary password must not mint a second one.
+        const pack = me.mustChangePassword ? await ctx.api.get('/api/account/data-key') : null;
+        const passkeyWrapped = Array.isArray(pack?.wraps) && pack.wraps.some((wrap) => wrap.kind === 'passkey');
+        const replaceKey = me.mustChangePassword && !passkeyWrapped;
+        if (passkeyWrapped) await preparePasswordWrap(null);
+        else if (!replaceKey) await preparePasswordWrap(v.currentPassword || null, { createIfMissing: true });
         if (!appliedPassword) {
           await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
           appliedPassword = v.newPassword;
         }
-        if (me.mustChangePassword) await replaceAfterTemporaryPassword(appliedPassword);
+        if (replaceKey) await replaceAfterTemporaryPassword(appliedPassword);
         else await commitPasswordWrap(appliedPassword);
         if (me.mustChangePassword) { location.assign('/'); return; }
         flash = { panel: 'password', message: 'Password updated.', kind: 'success' };
@@ -271,8 +282,11 @@ async function addPasskey(ctx, btn) {
 }
 
 async function registerPasskey(ctx, btn, name) {
-  setBusy(btn, true, 'Waiting for your passkey…');
+  setBusy(btn, true, 'Unlocking encryption…');
   try {
+    await preparePasskeyWrap();
+    if (!(await window.SecretUdk.canRewrap())) throw new Error('Could not unlock encryption to wrap it with this passkey.');
+    setBusy(btn, true, 'Waiting for your passkey…');
     await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name }, onCredential: (credential) => unlockWithPasskey(credential) });
     flash = { panel: 'passkeys', message: 'Passkey added.', kind: 'success' };
     await render(ctx);

@@ -255,9 +255,25 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
             var emailed = false;
             if (recipients.Length > 0)
             {
-                if (!store.SealEmailRecipients(id, string.Join(", ", recipients)))
+                try
                 {
-                    throw new ArgumentException("This link has already been emailed. It cannot be sent to any further address.");
+                    if (!store.SealEmailRecipients(id, string.Join(", ", recipients)))
+                    {
+                        throw new ArgumentException("This link has already been emailed. It cannot be sent to any further address. " + link);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // No data key is available, so the addresses are not stored. The mail still goes out.
+                }
+                catch (ArgumentException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // The ciphertext is already stored. The link is the only copy of the key, so the tool error has to carry it.
+                    throw new ArgumentException("The recipient list could not be stored. The link is still valid: " + link, ex);
                 }
 
                 var subject = password.Length > 0 ? "Secret link (password required)" : "Secret link";

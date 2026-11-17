@@ -110,7 +110,8 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
 
     private static async Task<JsonObject> ListClientsAsync(AuditDbContext db, CancellationToken ct)
     {
-        var rows = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).Select(t => new { t.DisplayName, t.TenantId, t.Enabled, t.LookbackDays }).ToListAsync(ct);
+        var rows = await db.Tenants.AsNoTracking().Select(t => new { t.DisplayName, t.TenantId, t.Enabled, t.LookbackDays }).ToListAsync(ct);
+        rows.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         var clients = new JsonArray();
         foreach (var row in rows)
         {
@@ -122,7 +123,8 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
 
     private static async Task<JsonObject> IngestionAsync(AuditDbContext db, CollectionScheduler scheduler, CancellationToken ct)
     {
-        var tenants = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
+        var tenants = await db.Tenants.AsNoTracking().ToListAsync(ct);
+        tenants.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
         var clients = new JsonArray();
         foreach (var tenant in tenants)

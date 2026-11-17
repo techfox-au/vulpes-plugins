@@ -1,4 +1,4 @@
-import { kpiCard } from './common.js?v=shell367';
+import { kpiCard } from './common.js?v=shell368';
 
 let timer;
 
@@ -83,7 +83,7 @@ async function render(el, ctx) {
       { title: 'Share', class: 'num', render: (r) => share(r.documents, docs) },
       { title: 'Estimated storage', class: 'num', render: (r) => fmt.bytes(r.estimatedBytes) },
     ],
-    rows: data.tenants || [],
+    rows: (data.tenants || []).slice().sort((left, right) => (left.name || '').localeCompare(right.name || '', undefined, { sensitivity: 'base' })),
     emptyText: 'No documents stored.',
   }));
 }

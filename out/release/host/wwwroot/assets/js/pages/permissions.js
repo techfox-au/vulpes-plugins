@@ -32,7 +32,8 @@ async function load(ctx, button) {
       host.append(h('div', { class: 'card muted' }, 'No clients added yet.'));
       return;
     }
-    host.append(h('div', { class: 'card col' }, ...data.tenants.map((tenant) => {
+    const tenants = data.tenants.slice().sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
+    host.append(h('div', { class: 'card col' }, ...tenants.map((tenant) => {
       const missing = tenant.missing || [];
       return h('div', { class: 'subcard' },
         h('div', { class: 'card-header' }, h('h2', null, tenant.displayName), tenant.enabled ? null : badge('disabled', 'warning')),

@@ -9,6 +9,10 @@ export async function mount(el, ctx) {
 }
 export function unmount() { root = null; }
 
+function alphabetical(rows, name) {
+  return rows.slice().sort((left, right) => (name(left) || '').localeCompare(name(right) || '', undefined, { sensitivity: 'base' }));
+}
+
 async function render(ctx) {
   const { h, clear, table, badge, errorMessage } = ctx.ui;
   clear(root);
@@ -32,7 +36,7 @@ async function render(ctx) {
         t.directoryId ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testClient(ctx, t, e.currentTarget); } }, 'Test') : null,
         h('button', { class: 'btn sm danger', onClick: (e) => { e.stopPropagation(); removeClient(ctx, t); } }, 'Delete')) },
     ],
-    rows: data.tenants || [],
+    rows: alphabetical(data.tenants || [], (row) => row.displayName),
     emptyText: 'No clients yet.',
   }));
 }

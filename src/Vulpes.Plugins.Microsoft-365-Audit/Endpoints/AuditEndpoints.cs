@@ -198,7 +198,8 @@ public static class AuditEndpoints
 
     private static async Task<IReadOnlyList<SecureScoreRow>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, CancellationToken ct)
     {
-        var clients = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
+        var clients = await db.Tenants.AsNoTracking().ToListAsync(ct);
+        clients.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrEmpty(tenantId))
         {
             clients = clients.Where(t => t.TenantId == tenantId).ToList();
@@ -340,8 +341,8 @@ public static class AuditEndpoints
             }).OrderByDescending(s => s.storedBytes).ThenBy(s => s.title, StringComparer.OrdinalIgnoreCase),
             tenants = tenants
                 .Select(t => new { name = t.Key, documents = t.Value.Docs, estimatedBytes = (long)Math.Round(t.Value.Bytes) })
-                .OrderByDescending(t => t.estimatedBytes)
-                .ThenBy(t => t.name, StringComparer.OrdinalIgnoreCase),
+                .OrderBy(t => t.name, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(t => t.estimatedBytes),
         }, Json);
     }
 
@@ -360,12 +361,17 @@ public static class AuditEndpoints
         return DateTimeOffset.TryParse(stamp.GetString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed) ? parsed : null;
     }
 
-    private static async Task<IResult> TenantNamesAsync(AuditDbContext db, CancellationToken ct) =>
-        Results.Json(await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).Select(t => new { t.Id, t.TenantId, t.DisplayName, t.DiscoveredName, t.Enabled }).ToListAsync(ct), Json);
+    private static async Task<IResult> TenantNamesAsync(AuditDbContext db, CancellationToken ct)
+    {
+        var names = await db.Tenants.AsNoTracking().Select(t => new { t.Id, t.TenantId, t.DisplayName, t.DiscoveredName, t.Enabled }).ToListAsync(ct);
+        names.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
+        return Results.Json(names, Json);
+    }
 
     private static async Task<IResult> StatusAsync(AuditDbContext db, CollectionScheduler scheduler, IEventSearch search, CancellationToken ct)
     {
-        var tenants = await db.Tenants.AsNoTracking().OrderBy(t => t.DisplayName).ToListAsync(ct);
+        var tenants = await db.Tenants.AsNoTracking().ToListAsync(ct);
+        tenants.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
         var runs = RunQueries.LatestPerQuery(await db.RunLog.AsNoTracking().OrderByDescending(r => r.Id).Take(500).ToListAsync(ct)).Take(100).ToList();
         var tenantNames = tenants.ToDictionary(t => t.Id, t => t.DisplayName);

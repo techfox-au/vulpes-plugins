@@ -33,7 +33,7 @@ async function render(ctx) {
         pluginReady ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t, e.currentTarget); } }, 'Test') : null,
         h('button', { class: 'btn sm danger', onClick: (e) => { e.stopPropagation(); removeTenant(ctx, t); } }, 'Delete')) },
     ],
-    rows: data.tenants || [],
+    rows: (data.tenants || []).slice().sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' })),
     emptyText: 'No clients yet.',
   }));
 }
@@ -160,7 +160,7 @@ function applicationCard(ctx, app, permissions, tenants) {
     }
   });
   paintConsent();
-  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || ''));
+  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || '')).sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
   const savedClient = savedClients.length
     ? dropdown([['', 'Choose a saved client'], ...savedClients.map((t) => [t.directoryId, t.displayName])], { value: '', ariaLabel: 'Saved client' })
     : null;

@@ -85,7 +85,7 @@ export function statusBadge(ui, status) {
 export async function tenantSelect(ctx, onChange, selected) {
   const sel = ctx.ui.dropdown([{ value: '', label: 'All tenants' }], { value: selected || '', ariaLabel: 'Tenant' });
   try {
-    const tenants = await ctx.api.get(`${ctx.plugin.apiBase}/tenants/names`);
+    const tenants = (await ctx.api.get(`${ctx.plugin.apiBase}/tenants/names`) || []).slice().sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
     sel.setOptions([
       { value: '', label: 'All tenants' },
       ...tenants.map((t) => ({ value: t.tenantId, label: `${t.displayName}${t.discoveredName && t.discoveredName !== t.displayName ? ` (${t.discoveredName})` : ''}` })),

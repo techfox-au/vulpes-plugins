@@ -108,7 +108,7 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
     catch (err) { panelNote(card, errorMessage(err)); }
   });
   paintConsent();
-  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || ''));
+  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || '')).sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
   const savedClient = savedClients.length
     ? dropdown([['', 'Choose a saved client'], ...savedClients.map((t) => [t.directoryId, t.displayName])], { value: '', ariaLabel: 'Saved client' })
     : null;

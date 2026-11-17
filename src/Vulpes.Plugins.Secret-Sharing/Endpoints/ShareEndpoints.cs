@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -233,7 +234,7 @@ public static class ShareEndpoints
         if (!IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
         {
             await audit.RecordAsync("secret.collect.ip_denied", id, "Collect retrieval denied: IP not allowed.", actor: UserId(http) ?? "anonymous", cancellationToken: http.RequestAborted);
-            return CollectIpDenied();
+            return CollectIpDenied(http);
         }
 
         var error = pow.TryConsume("collect", id, body?.ChallengeId, body?.Nonce, body?.Hash, browser, body?.ClientTime);
@@ -358,7 +359,7 @@ public static class ShareEndpoints
         if (meta.Status == "ready" && !IpRestriction.AllowsClient(store.CollectRetrieveAllowedIps(), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled))
         {
             await audit.RecordAsync("secret.collect.ip_denied", id, "Collect retrieval denied: IP not allowed.", actor: UserId(http) ?? "anonymous", cancellationToken: http.RequestAborted);
-            return CollectIpDenied();
+            return CollectIpDenied(http);
         }
 
         var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, browser, body.ClientTime);
@@ -504,13 +505,24 @@ public static class ShareEndpoints
     private static IResult Gone() =>
         Results.Json(new { error = "gone", message = "This secret is no longer available." }, statusCode: StatusCodes.Status404NotFound);
 
-    private static IResult CollectIpDenied() =>
-        Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
+    private static IResult CollectIpDenied(HttpContext http) =>
+        Results.Json(new { error = "ip", message = "Collecting this submission is not available from your IP address. " + SeenIp(http) }, statusCode: StatusCodes.Status403Forbidden);
 
     private static async Task<IResult> IpDenied(HttpContext http, IHostAuditLog audit, string id)
     {
         await audit.RecordAsync("secret.send.ip_denied", id, $"Send access denied: IP not allowed (id {id})", actor: "anonymous", cancellationToken: http.RequestAborted);
-        return Results.Json(new { error = "ip", message = "This send is not available from your IP address." }, statusCode: StatusCodes.Status403Forbidden);
+        return Results.Json(new { error = "ip", message = "This send is not available from your IP address. " + SeenIp(http) }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    private static string SeenIp(HttpContext http)
+    {
+        var ip = http.Connection.RemoteIpAddress;
+        if (ip is null)
+        {
+            return "unknown";
+        }
+
+        return (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
     }
 
     private static bool Plausible(string? id) => !string.IsNullOrEmpty(id) && id.Length is >= 1 and <= 128;

@@ -270,7 +270,8 @@ async function render(ctx) {
       ctx.api.get('/api/admin/settings/runtime'),
       ctx.api.get('/api/admin/settings/sqlite'),
     ]);
-    const hours = Array.from({ length: 24 }, (_, hour) => [String(hour), String(hour).padStart(2, '0') + ':00 UTC']);
+    const zone = sqlite.timeZone || 'local';
+    const hours = Array.from({ length: 24 }, (_, hour) => [String(hour), String(hour).padStart(2, '0') + ':00 ' + zone]);
     const levels = ['Trace', 'Debug', 'Information', 'Warning', 'Error', 'Critical', 'None'].map((name) => [name, name]);
     const form = h('form', { class: 'col', novalidate: true });
     const input = (name, label, value, type = 'text', help) => h('div', { class: 'field' },

@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell407';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell414';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -337,7 +337,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell411`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell413`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
@@ -413,12 +413,32 @@ function renderChrome() {
   document.getElementById('footer').textContent = `v${state.app?.version || ''} · ${state.user.roles?.join(', ') || ''}`;
 }
 
+async function hideBankPaymentsUnlessConfigured() {
+  const present = state.nav?.sections?.some((section) => section.items?.some((item) => item.pluginId === 'psa' && item.page === 'bank'));
+  if (!present) return;
+  let configured = false;
+  try {
+    const status = await api.get('/api/plugins/psa/redbark');
+    configured = status?.configured === true;
+  } catch {
+    configured = false;
+  }
+  if (configured) return;
+  state.nav = {
+    ...state.nav,
+    sections: state.nav.sections
+      .map((section) => ({ ...section, items: section.items.filter((item) => !(item.pluginId === 'psa' && item.page === 'bank')) }))
+      .filter((section) => section.items.length > 0),
+  };
+}
+
 async function boot() {
   const s = await session(true);
   if (!s.authenticated) { redirectToLogin(); return; }
   state.user = s.user;
   state.app = s.app;
   state.nav = await api.get('/api/nav');
+  await hideBankPaymentsUnlessConfigured();
   await applyBusinessPremiumNav();
   renderChrome();
   renderNav();

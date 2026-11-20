@@ -68,6 +68,14 @@ async function request(method, url, body, opts = {}) {
     throw new ApiError(401, 'unauthorized', 'Session expired');
   }
 
+  if (res.status === 404 && redirectOnUnauthorized && !opts.noRedirect) {
+    const current = await session(true);
+    if (!current.authenticated) {
+      redirectToLogin();
+      throw new ApiError(401, 'unauthorized', 'Session expired');
+    }
+  }
+
   if (res.status === 204) return null;
   const text = await res.text();
   let data = null;

@@ -1,5 +1,5 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
-import { api, session, invalidateSession, redirectToLogin } from './api.js';
+import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell414';
 import './pwa.js?v=shell388';
 
@@ -327,9 +327,13 @@ async function mountPluginPage(pluginId, page, query, stale) {
     return;
   }
 
-  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell405`, { credentials: 'same-origin' });
+  const res = await fetch(`/plugins/${pluginId}/pages/${page}.html?v=shell420`, { credentials: 'same-origin' });
   if (stale()) return;
-  if (!res.ok) throw new Error(`Page not found (${res.status})`);
+  if (res.status === 401 || res.status === 404) {
+    const s = await session(true);
+    if (res.status === 401 || !s.authenticated) { redirectToLogin(); return; }
+  }
+  if (!res.ok) throw Object.assign(new Error(`Page not found (${res.status})`), { status: res.status });
   const html = await res.text();
   if (stale()) return;
   // Fragments are trusted plugin content served from our own origin under CSP (no inline script can run).
@@ -374,6 +378,10 @@ async function route() {
   } catch (err) {
     if (stale()) return;
     if (err?.status === 401) { redirectToLogin(); return; }
+    try {
+      const s = await session(true);
+      if (!s.authenticated) { redirectToLogin(); return; }
+    } catch { /* a failed session check still shows the page error below */ }
     clear(content).append(h('div', { class: 'alert danger' }, errorMessage(err)));
     setCrumbs(['Error']);
   }

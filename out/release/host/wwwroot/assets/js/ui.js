@@ -122,7 +122,7 @@ export const fmt = {
 };
 
 /** Renders a table. columns: [{ key, title, render?(row), class?, width? }] */
-export function table({ columns, rows, onRowClick, emptyText = 'Nothing to show', rowKey, className = '' }) {
+export function table({ columns, rows, onRowClick, emptyText = 'Nothing to show', rowKey, className = '', rowClass }) {
   const wrap = h('div', { class: 'table-wrap' });
   const tbl = h('table', { class: className ? `table ${className}` : 'table' });
   const thead = h('thead', null, h('tr', null, columns.map((c) => h('th', { class: c.class || '' }, c.title))));
@@ -131,7 +131,13 @@ export function table({ columns, rows, onRowClick, emptyText = 'Nothing to show'
     tbody.append(h('tr', null, h('td', { colspan: String(columns.length) }, h('div', { class: 'empty' }, emptyText))));
   } else {
     for (const row of rows) {
-      const tr = h('tr', { class: onRowClick ? 'clickable' : '' });
+      const classes = [];
+      if (onRowClick) classes.push('clickable');
+      if (rowClass) {
+        const extra = rowClass(row);
+        if (extra) classes.push(extra);
+      }
+      const tr = h('tr', classes.length ? { class: classes.join(' ') } : null);
       if (rowKey) tr.dataset.key = rowKey(row);
       for (const c of columns) {
         const value = c.render ? c.render(row) : (c.key ? valueAt(row, c.key) : '');

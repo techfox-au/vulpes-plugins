@@ -4,12 +4,13 @@ using Microsoft.EntityFrameworkCore;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Normalization;
 using Vulpes.Plugins.Microsoft365Audit.Scheduling;
+using Vulpes.Plugins.Microsoft365Audit.Tenants;
 using Vulpes.Sdk;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Endpoints;
 
 /// <summary>Read-only audit tools registered on the shared MCP server. A caller cannot change tenants, settings, or events.</summary>
-public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertFieldCatalog catalog, CollectionScheduler scheduler, TimeProvider time) : IMcpToolSource
+public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertFieldCatalog catalog, CollectionScheduler scheduler, TimeProvider time, ISharedClientDirectory? directory = null) : IMcpToolSource
 {
     public string PluginId => Normalizers.PluginId;
 
@@ -69,8 +70,8 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
             var payload = name switch
             {
                 "list_sources" => ListSources(catalog),
-                "list_clients" => await ListClientsAsync(db, cancellationToken),
-                "ingestion_status" => await IngestionAsync(db, scheduler, cancellationToken),
+                "list_clients" => await ListClientsAsync(cancellationToken),
+                "ingestion_status" => await IngestionAsync(cancellationToken),
                 "search_events" => await SearchAsync(arguments, search, time, cancellationToken),
                 "aggregate_events" => await AggregateAsync(arguments, search, time, cancellationToken),
                 "get_event" => await GetAsync(arguments, search, cancellationToken),
@@ -108,9 +109,10 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
         return new JsonObject { ["sources"] = sources };
     }
 
-    private static async Task<JsonObject> ListClientsAsync(AuditDbContext db, CancellationToken ct)
+    private async Task<JsonObject> ListClientsAsync(CancellationToken ct)
     {
-        var rows = await db.Tenants.AsNoTracking().Select(t => new { t.DisplayName, t.TenantId, t.Enabled, t.LookbackDays }).ToListAsync(ct);
+        var hidden = directory is null ? new HashSet<Guid>() : await DisabledClientIds.LoadAsync(directory, ct);
+        var rows = await db.Tenants.AsNoTracking().Where(t => !hidden.Contains(t.Id)).Select(t => new { t.DisplayName, t.TenantId, t.Enabled, t.LookbackDays }).ToListAsync(ct);
         rows.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         var clients = new JsonArray();
         foreach (var row in rows)
@@ -121,9 +123,10 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
         return new JsonObject { ["clients"] = clients };
     }
 
-    private static async Task<JsonObject> IngestionAsync(AuditDbContext db, CollectionScheduler scheduler, CancellationToken ct)
+    private async Task<JsonObject> IngestionAsync(CancellationToken ct)
     {
-        var tenants = await db.Tenants.AsNoTracking().ToListAsync(ct);
+        var hidden = directory is null ? new HashSet<Guid>() : await DisabledClientIds.LoadAsync(directory, ct);
+        var tenants = await db.Tenants.AsNoTracking().Where(t => !hidden.Contains(t.Id)).ToListAsync(ct);
         tenants.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
         var clients = new JsonArray();

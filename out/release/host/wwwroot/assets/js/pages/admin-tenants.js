@@ -1,5 +1,5 @@
 import { confirmIdentity } from '../reauth.js?v=shell407';
-import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell370';
+import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell426';
 
 let root;
 const plugin = '/api/plugins/microsoft-365-audit';
@@ -26,14 +26,15 @@ async function render(ctx) {
     columns: [
       { title: 'Name', render: (t) => h('div', null, h('strong', null, t.displayName), t.shortName ? h('span', { class: 'small muted' }, ' ' + t.shortName) : null, t.discoveredName && t.discoveredName !== t.displayName ? h('div', { class: 'small muted' }, t.discoveredName) : null) },
       { title: 'Directory id', render: (t) => h('span', { class: 'mono small' }, t.directoryId) },
-      { title: 'Status', render: (t) => t.enabled ? badge('enabled', 'success') : badge('disabled', 'warning') },
+      { title: 'Status', render: (t) => t.disabled ? badge('Disabled', 'warning') : t.enabled ? badge('enabled', 'success') : badge('collection off', 'warning') },
       { title: '', class: 'right', render: (t) => h('div', { class: 'flex' },
         h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); editTenant(ctx, t); } }, 'Edit'),
-        pluginReady ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); collection(ctx, t); } }, 'Collection') : null,
-        pluginReady ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t, e.currentTarget); } }, 'Test') : null,
-        h('button', { class: 'btn sm danger', onClick: (e) => { e.stopPropagation(); removeTenant(ctx, t); } }, 'Delete')) },
+        pluginReady && !t.disabled ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); collection(ctx, t); } }, 'Collection') : null,
+        pluginReady && !t.disabled ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t, e.currentTarget); } }, 'Test') : null,
+        h('button', { class: t.disabled ? 'btn sm' : 'btn sm danger', onClick: (e) => { e.stopPropagation(); setTenantEnabled(ctx, t); } }, t.disabled ? 'Enable' : 'Disable')) },
     ],
     rows: (data.tenants || []).slice().sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' })),
+    rowClass: (t) => t.disabled ? 'is-disabled' : '',
     emptyText: 'No clients yet.',
   }));
 }
@@ -160,7 +161,7 @@ function applicationCard(ctx, app, permissions, tenants) {
     }
   });
   paintConsent();
-  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || '')).sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
+  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || '') && !t.disabled).sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
   const savedClient = savedClients.length
     ? dropdown([['', 'Choose a saved client'], ...savedClients.map((t) => [t.directoryId, t.displayName])], { value: '', ariaLabel: 'Saved client' })
     : null;
@@ -223,7 +224,7 @@ async function editTenant(ctx, existing) {
   const name = h('input', { class: 'input', value: existing?.displayName || '', required: true });
   const shortName = h('input', { class: 'input', value: existing?.shortName || '', maxlength: '16', spellcheck: false, autocomplete: 'off' });
   const directory = h('input', { class: 'input', value: existing?.directoryId || '', spellcheck: false, placeholder: '00000000-0000-0000-0000-000000000000' });
-  const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled : true });
+  const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled && !existing.disabled : true, disabled: !!existing?.disabled });
   const form = h('div', { class: 'col' },
     h('div', { class: 'field' }, h('label', null, 'Display name'), name),
     h('div', { class: 'field' }, h('label', null, 'Short name'), shortName),
@@ -239,12 +240,17 @@ async function editTenant(ctx, existing) {
   if (saved) { await render(ctx); pageNote(root, existing ? 'Client saved.' : 'Client added.', 'success'); }
 }
 
-async function removeTenant(ctx, tenant) {
-  if (!(await ctx.ui.modal.confirm('Delete client', `Stop collecting from ${tenant.displayName}?`, { danger: true, confirmLabel: 'Delete' }))) return;
+async function setTenantEnabled(ctx, tenant) {
+  const disabling = !tenant.disabled;
+  const title = disabling ? 'Disable client' : 'Enable client';
+  const message = disabling
+    ? `Disable ${tenant.displayName}? Audit collection stops and their stored audit logs are deleted.`
+    : `Enable ${tenant.displayName}?`;
+  if (!(await ctx.ui.modal.confirm(title, message, { danger: disabling, confirmLabel: disabling ? 'Disable' : 'Enable' }))) return;
   try {
-    await ctx.api.delete(`/api/admin/tenants/${tenant.id}`);
+    await ctx.api.post(`/api/admin/tenants/${tenant.id}/${disabling ? 'disable' : 'enable'}`, {});
     await render(ctx);
-    pageNote(root, 'Client removed.', 'success');
+    pageNote(root, disabling ? 'Client disabled.' : 'Client enabled.', 'success');
   } catch (err) { pageNote(root, errorMessage(err)); }
 }
 

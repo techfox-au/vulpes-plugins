@@ -84,6 +84,7 @@ public sealed class AuditPlugin : IPlugin
         services.AddSingleton(options);
         services.AddSingleton<ISourceAvailability>(new AuditSourceAvailability(options));
         services.AddSingleton<IGraphPermissionSource, AuditGraphPermissions>();
+        services.AddSingleton<IDisabledClient, AuditDisabledClient>();
         services.AddSingleton<IEntraTokenSource, EntraTokenSource>();
         services.AddScoped<ITenantConnectionTester, AuditConnectionTester>();
         services.AddSingleton(new AuditSettingsStore(Path.Combine(context.DataDirectory, "settings.json"), options));

@@ -407,6 +407,10 @@ table.table.cols-audit td { overflow-wrap: anywhere; }
 .table th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--text-muted); font-weight: 600; font-size: calc(12px + 2pt); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 .table tbody tr:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
 .table tbody tr.clickable { cursor: pointer; }
+.table tbody tr.is-disabled td { color: var(--text-faint); }
+.table tbody tr.is-disabled td .btn { color: var(--text); }
+.table tbody tr.is-disabled td .btn.danger { color: var(--danger); }
+.table tbody tr.is-disabled td .btn.primary { color: var(--primary-contrast); }
 .table tbody tr:last-child td { border-bottom: none; }
 .table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table .cell-muted { color: var(--text-muted); }

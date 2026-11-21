@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell414';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell426';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -14,8 +14,8 @@ const corePages = {
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell408'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell408'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell410'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell417'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell426'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell426'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
 };
@@ -341,7 +341,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell424`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell426`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }

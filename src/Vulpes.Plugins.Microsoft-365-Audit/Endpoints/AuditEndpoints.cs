@@ -147,7 +147,7 @@ public static class AuditEndpoints
     }
 
     /// <summary>KPIs for the overview page, computed with a handful of aggregations.</summary>
-    private static async Task<IResult> OverviewAsync(int? hours, string? tenantId, IEventSearch search, AuditDbContext db, CancellationToken ct)
+    private static async Task<IResult> OverviewAsync(int? hours, string? tenantId, IEventSearch search, AuditDbContext db, ISharedClientDirectory clients, CancellationToken ct)
     {
         var window = Math.Clamp(hours ?? 24, 1, 24 * 730);
         var to = DateTimeOffset.UtcNow;
@@ -175,7 +175,7 @@ public static class AuditEndpoints
         var alerts = await Agg(Sources.SecurityAlerts, [], new AggregationSpec("bySeverity", AggregationKind.Terms, "event.severity", 5), new AggregationSpec("byStatus", AggregationKind.Terms, "labels.status", 5));
         var risk = await Agg(Sources.Risk, [new FieldFilter("labels.riskType", FilterOperator.Equals, ["detection"])], new AggregationSpec("byLevel", AggregationKind.Terms, "labels.riskLevel", 5), new AggregationSpec("byType", AggregationKind.Terms, "event.action", 10));
         var system = await Agg(Sources.System, [], new AggregationSpec("byCollector", AggregationKind.Terms, "labels.collector", 10));
-        var secureScores = await SecureScoresAsync(search, db, tenantId, ct);
+        var secureScores = await SecureScoresAsync(search, db, tenantId, await DisabledClientIds.LoadAsync(clients, ct), ct);
 
         return Results.Json(new
         {
@@ -196,9 +196,9 @@ public static class AuditEndpoints
 
     private sealed record SecureScoreRow(string Name, string TenantId, string? Current, string? Max, string? Percent, string? At);
 
-    private static async Task<IReadOnlyList<SecureScoreRow>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, CancellationToken ct)
+    private static async Task<IReadOnlyList<SecureScoreRow>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, HashSet<Guid> hidden, CancellationToken ct)
     {
-        var clients = await db.Tenants.AsNoTracking().ToListAsync(ct);
+        var clients = await db.Tenants.AsNoTracking().Where(t => !hidden.Contains(t.Id)).ToListAsync(ct);
         clients.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrEmpty(tenantId))
         {
@@ -257,7 +257,7 @@ public static class AuditEndpoints
         return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
     }
 
-    private static async Task<IResult> StatisticsAsync(IEventSearch search, IAlertFieldCatalog catalog, CancellationToken ct)
+    private static async Task<IResult> StatisticsAsync(IEventSearch search, IAlertFieldCatalog catalog, ISharedClientDirectory clients, CancellationToken ct)
     {
         if (!search.IsAvailable)
         {
@@ -319,6 +319,26 @@ public static class AuditEndpoints
             }
         }
 
+        var hiddenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tenant in await clients.ListAllAsync(ct))
+        {
+            if (!tenant.Disabled)
+            {
+                continue;
+            }
+
+            hiddenNames.Add(tenant.DisplayName);
+            if (!string.IsNullOrWhiteSpace(tenant.DiscoveredName))
+            {
+                hiddenNames.Add(tenant.DiscoveredName);
+            }
+        }
+
+        foreach (var name in hiddenNames)
+        {
+            tenants.Remove(name);
+        }
+
         return Results.Json(new
         {
             available = usage.Available,
@@ -361,19 +381,21 @@ public static class AuditEndpoints
         return DateTimeOffset.TryParse(stamp.GetString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed) ? parsed : null;
     }
 
-    private static async Task<IResult> TenantNamesAsync(AuditDbContext db, CancellationToken ct)
+    private static async Task<IResult> TenantNamesAsync(AuditDbContext db, ISharedClientDirectory clients, CancellationToken ct)
     {
-        var names = await db.Tenants.AsNoTracking().Select(t => new { t.Id, t.TenantId, t.DisplayName, t.DiscoveredName, t.Enabled }).ToListAsync(ct);
+        var hidden = await DisabledClientIds.LoadAsync(clients, ct);
+        var names = await db.Tenants.AsNoTracking().Where(t => !hidden.Contains(t.Id)).Select(t => new { t.Id, t.TenantId, t.DisplayName, t.DiscoveredName, t.Enabled }).ToListAsync(ct);
         names.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         return Results.Json(names, Json);
     }
 
-    private static async Task<IResult> StatusAsync(AuditDbContext db, CollectionScheduler scheduler, IEventSearch search, CancellationToken ct)
+    private static async Task<IResult> StatusAsync(AuditDbContext db, CollectionScheduler scheduler, IEventSearch search, ISharedClientDirectory clients, CancellationToken ct)
     {
-        var tenants = await db.Tenants.AsNoTracking().ToListAsync(ct);
+        var hidden = await DisabledClientIds.LoadAsync(clients, ct);
+        var tenants = await db.Tenants.AsNoTracking().Where(t => !hidden.Contains(t.Id)).ToListAsync(ct);
         tenants.Sort(static (left, right) => string.Compare(left.DisplayName, right.DisplayName, StringComparison.OrdinalIgnoreCase));
         var checkpoints = await db.Checkpoints.AsNoTracking().ToListAsync(ct);
-        var runs = RunQueries.LatestPerQuery(await db.RunLog.AsNoTracking().OrderByDescending(r => r.Id).Take(500).ToListAsync(ct)).Take(100).ToList();
+        var runs = RunQueries.LatestPerQuery(await db.RunLog.AsNoTracking().Where(r => !hidden.Contains(r.TenantId)).OrderByDescending(r => r.Id).Take(500).ToListAsync(ct)).Take(100).ToList();
         var tenantNames = tenants.ToDictionary(t => t.Id, t => t.DisplayName);
         var stored = new Dictionary<(string Source, string TenantId), long>();
         if (search.IsAvailable)
@@ -490,49 +512,27 @@ public static class AuditEndpoints
             return Error(404, "not_found", "Client not found.");
         }
 
-        if (!readiness.IsReady)
-        {
-            return Error(503, "search_unavailable", "Elasticsearch is not ready.");
-        }
-
-        if (!scheduler.TryBeginPurge(id))
-        {
-            return Error(409, "busy", "A collector is still running for this client. Try again when it finishes.");
-        }
-
         try
         {
-            long? deleted;
-            try
-            {
-                deleted = await store.DeleteTenantAsync(Normalizers.PluginId, tenant.TenantId, ct);
-            }
-            catch (ArgumentException ex)
-            {
-                return Error(400, "validation", ex.Message);
-            }
-            catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
-            {
-                return Error(503, "search_unavailable", "Elasticsearch could not delete the stored logs.");
-            }
-
-            var checkpoints = await db.Checkpoints.Where(c => c.TenantId == id).ToListAsync(ct);
-            db.Checkpoints.RemoveRange(checkpoints);
-            var runs = await db.RunLog.Where(r => r.TenantId == id).ToListAsync(ct);
-            db.RunLog.RemoveRange(runs);
-            await db.SaveChangesAsync(ct);
-            await audit.RecordAsync("audit.tenant.purged", tenant.DisplayName, $"directory={tenant.TenantId} deleted={deleted?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "0"}", cancellationToken: ct);
-            return Results.Json(new { deleted = deleted ?? 0 }, Json);
+            var deleted = await AuditClientPurge.RunAsync(tenant, scheduler, store, readiness, db, ct);
+            await audit.RecordAsync("audit.tenant.purged", tenant.DisplayName, $"directory={tenant.TenantId} deleted={deleted.ToString(System.Globalization.CultureInfo.InvariantCulture)}", cancellationToken: ct);
+            return Results.Json(new { deleted }, Json);
         }
-        finally
+        catch (ClientUnavailableException ex)
         {
-            scheduler.EndPurge(id);
+            var status = ex.Code == "busy" ? 409 : ex.Code == "validation" ? 400 : 503;
+            return Error(status, ex.Code, ex.Message);
         }
     }
 
-    private static async Task<IResult> UpdateCollectionAsync(Guid id, CollectionRequest request, TenantService tenants, ITenantDirectory directory, IEntraApplication application, CancellationToken ct)
+    private static async Task<IResult> UpdateCollectionAsync(Guid id, CollectionRequest request, TenantService tenants, ITenantDirectory directory, ISharedClientDirectory clients, IEntraApplication application, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if ((await DisabledClientIds.LoadAsync(clients, ct)).Contains(id))
+        {
+            return Error(400, "validation", "This client is disabled.");
+        }
+
         var remote = await directory.ListAsync(ct);
         var shared = await application.GetAsync(ct);
         if (remote.Count > 0 || shared is not null)

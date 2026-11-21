@@ -9,7 +9,7 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell408'),
+  '/': () => import('./pages/home.js?v=shell422'),
   '/account': () => import('./pages/account.js?v=shell407'),
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell408'),

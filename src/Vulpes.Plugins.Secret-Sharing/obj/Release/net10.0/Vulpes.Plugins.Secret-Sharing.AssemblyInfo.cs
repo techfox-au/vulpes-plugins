@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Vulpes plugin: send and collect encrypted secrets.")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.35.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.35+94cf4e68db38b0d131da5bee8c2ea0bc3e9e6d03")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.35+af37269b7036a02a0522d433b7131841f652140f")]
 [assembly: System.Reflection.AssemblyProductAttribute("Vulpes")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Vulpes.Plugins.Secret-Sharing")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.35.0")]

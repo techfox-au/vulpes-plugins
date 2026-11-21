@@ -32,7 +32,6 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
       meta = await SecretTransfer.postJson('/api/plugins/secret-sharing/public/sends/' + encodeURIComponent(id) + '/meta', solution);
     }
   } catch (err) {
-    if (kind === 'send' && askIpv4(err)) return;
     fail(err.message || 'This secret is no longer available.');
     return;
   } finally {
@@ -180,7 +179,6 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
         setAlert('warning', 'The decryption key in this link is wrong.');
         return;
       }
-      if (kind === 'send' && askIpv4(err)) return;
       if (message.indexOf('not available from your IP') !== -1) {
         fail(message);
         return;
@@ -237,23 +235,6 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
     let diff = 0;
     for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
     return diff === 0;
-  }
-
-  function askIpv4(err) {
-    if (!err || (err.code !== 'ipv4' && err.message !== 'ipv4')) return false;
-    var mark = 'vulpes-send-ipv4-' + id;
-    var again = false;
-    try { again = sessionStorage.getItem(mark) === '1'; } catch (e) { again = true; }
-    if (again) {
-      fail('This send could not be opened from this connection.');
-      return true;
-    }
-    try { sessionStorage.setItem(mark, '1'); } catch (e) { /* the next load still has the handoff */ }
-    var hash = fragment || '';
-    if (hash && hash.charAt(0) !== '#') hash = '#' + hash;
-    try { window.name = 'vulpes-sk-handoff:' + hash; } catch (e) { /* name can be blocked */ }
-    location.replace(location.pathname + location.search);
-    return true;
   }
 
   function setAlert(kind, message) {

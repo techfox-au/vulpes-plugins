@@ -62,7 +62,6 @@
           if (xhr.status >= 200 && xhr.status < 300) { resolve(data); return; }
           var err = new Error((data && (data.message || data.error)) || "Upload was rejected.");
           err.status = xhr.status;
-          err.code = data && data.error;
           reject(err);
         };
         xhr.onerror = function () { reject(new Error("Network error while uploading.")); };
@@ -92,10 +91,7 @@
           var buf = xhr.response instanceof ArrayBuffer ? xhr.response : new ArrayBuffer(0);
           if (xhr.status >= 200 && xhr.status < 300) { resolve(buf); return; }
           var data = parseJson(new TextDecoder().decode(buf));
-          var err = new Error((data && (data.message || data.error)) || (xhr.status === 404 ? "This secret is no longer available." : "Download failed."));
-          err.status = xhr.status;
-          err.code = data && data.error;
-          reject(err);
+          reject(new Error((data && (data.message || data.error)) || (xhr.status === 404 ? "This secret is no longer available." : "Download failed.")));
         };
         xhr.onerror = function () { reject(new Error("Network error while downloading.")); };
         xhr.send(body == null ? null : JSON.stringify(body));

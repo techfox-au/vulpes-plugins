@@ -36,7 +36,7 @@ export async function mount(el, ctx) {
   const highCard = h('div', { class: 'card' }, cveHeader('High CVEs', 'https://radar.cloudflare.com/zero-wire/cves?severity=HIGH'), h('div', { class: 'muted' }, 'Loading…'));
   const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
   const sharesCard = h('div', { class: 'card share-panel', hidden: true });
-  el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, cveCard, highCard), h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), sharesCard);
+  el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), h('div', { class: 'grid cols-2' }, cveCard, highCard), sharesCard);
   await renderCves(ctx, cveCard, highCard);
   if (gen !== generation) return leave();
   cveTimer = ownedCveTimer = setInterval(() => {
@@ -388,16 +388,19 @@ function cveHeader(title, href) {
 
 function cveRows(items, emptyText) {
   return items.length === 0 ? empty(emptyText, 'shield')
-    : h('div', { class: 'col' }, items.map((item) => h('a', {
-      class: 'flex between',
-      href: item.url,
-      target: '_blank',
-      rel: 'noopener noreferrer',
-    },
-      h('div', { class: 'grow' },
-        h('div', { class: 'truncate' }, h('strong', null, item.id), ' ', item.severity ? badge(item.severity, severityKind(String(item.severity).toLowerCase())) : '', item.score != null ? ' ' + item.score : ''),
-        h('div', { class: 'small muted truncate' }, item.title || item.summary || '')),
-      h('div', { class: 'small muted' }, fmt.relative(item.published)))));
+    : h('div', { class: 'col' }, items.map((item) => {
+      const severity = item.severity || 'Not scored';
+      return h('a', {
+        class: 'flex between cve-row',
+        href: item.url,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+        h('div', { class: 'grow' },
+          h('div', { class: 'cve-copy' }, h('strong', null, item.id), ' ', badge(severity, severityKind(severity.toLowerCase())), item.score != null ? ' ' + item.score : ''),
+          h('div', { class: 'small muted cve-copy' }, item.title || item.summary || '')),
+        h('div', { class: 'small muted cve-when' }, fmt.relative(item.published)));
+    }));
 }
 
 async function renderCves(ctx, card, highCard, quiet) {

@@ -33,7 +33,7 @@ export async function mount(el, ctx) {
   const statusGrid = h('div', { class: 'grid cols-3' });
   const pluginsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), h('div', { class: 'muted' }, 'Loading…'));
   const cveCard = h('div', { class: 'card' }, cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves'), h('div', { class: 'muted' }, 'Loading…'));
-  const highCard = h('div', { class: 'card' }, cveHeader('High CVEs', 'https://radar.cloudflare.com/zero-wire/cves?severity=HIGH'), h('div', { class: 'muted' }, 'Loading…'));
+  const highCard = h('div', { class: 'card' }, cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves'), h('div', { class: 'muted' }, 'Loading…'));
   const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
   const sharesCard = h('div', { class: 'card share-panel', hidden: true });
   el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), h('div', { class: 'grid cols-2' }, cveCard, highCard), sharesCard);
@@ -389,7 +389,7 @@ function cveHeader(title, href) {
 function cveRows(items, emptyText) {
   return items.length === 0 ? empty(emptyText, 'shield')
     : h('div', { class: 'col' }, items.map((item) => {
-      const severity = item.severity || 'Not scored';
+      const severity = (item.severity || 'not scored').toLowerCase();
       return h('a', {
         class: 'flex between cve-row',
         href: item.url,
@@ -397,7 +397,7 @@ function cveRows(items, emptyText) {
         rel: 'noopener noreferrer',
       },
         h('div', { class: 'grow' },
-          h('div', { class: 'cve-copy' }, h('strong', null, item.id), ' ', badge(severity, severityKind(severity.toLowerCase())), item.score != null ? ' ' + item.score : ''),
+          h('div', { class: 'cve-copy' }, h('strong', null, item.id), ' ', badge(severity, severityKind(severity)), item.score != null ? ' ' + item.score : ''),
           h('div', { class: 'small muted cve-copy' }, item.title || item.summary || '')),
         h('div', { class: 'small muted cve-when' }, fmt.relative(item.published)));
     }));
@@ -406,7 +406,7 @@ function cveRows(items, emptyText) {
 async function renderCves(ctx, card, highCard, quiet) {
   const gen = generation;
   const latestHeader = () => cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves');
-  const highHeader = () => cveHeader('High CVEs', 'https://radar.cloudflare.com/zero-wire/cves?severity=HIGH');
+  const highHeader = () => cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves');
   if (!quiet) {
     card.replaceChildren(latestHeader(), h('div', { class: 'muted' }, 'Loading…'));
     highCard.replaceChildren(highHeader(), h('div', { class: 'muted' }, 'Loading…'));
@@ -415,7 +415,7 @@ async function renderCves(ctx, card, highCard, quiet) {
     const data = await ctx.api.get('/api/radar/cves');
     if (gen !== generation) return;
     card.replaceChildren(latestHeader(), cveRows(data.items || [], 'No CVEs published.'));
-    highCard.replaceChildren(highHeader(), cveRows(data.high || [], 'No High CVEs published.'));
+    highCard.replaceChildren(highHeader(), cveRows(data.high || [], 'No High or Critical CVEs published.'));
   } catch (err) {
     if (gen !== generation) return;
     const alert = h('div', { class: 'alert danger' }, errorMessage(err));

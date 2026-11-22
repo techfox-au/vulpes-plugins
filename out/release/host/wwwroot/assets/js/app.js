@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell426';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -9,7 +9,7 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell440'),
+  '/': () => import('./pages/home.js?v=shell441'),
   '/account': () => import('./pages/account.js?v=shell407'),
   '/alerts': () => import('./pages/alerts.js?v=shell370'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell408'),
@@ -121,7 +121,10 @@ function renderNav() {
     for (const item of section.items) {
       if (item.hidden) continue;
       const disabled = item.disabled === true;
-      const active = !disabled && (isHomeLink(item.href, path) || item.href === path);
+      const secretsHome = path === '/' && new URLSearchParams(location.search).get('panel') === 'secrets';
+      const active = !disabled && (secretsHome
+        ? item.href === '/p/secret-sharing/secrets'
+        : (isHomeLink(item.href, path) || item.href === path));
       const label = [icon(item.icon || 'dot'), h('span', { class: 'truncate' }, item.title)];
       items.append(disabled
         ? h('span', { class: 'nav-link disabled', 'aria-disabled': 'true', title: 'Disabled in Microsoft 365 Business Premium mode' }, ...label)
@@ -312,6 +315,10 @@ async function mountCore(path, query, stale) {
 
 async function mountPluginPage(pluginId, page, query, stale) {
   if (!/^[a-z][a-z0-9-]{1,31}$/.test(pluginId) || !/^[a-z][a-z0-9-]{0,63}$/.test(page)) throw new Error('Invalid page');
+  if (pluginId === 'secret-sharing' && page === 'secrets') {
+    navigate('/?panel=secrets');
+    return;
+  }
   const navItem = state.nav.sections.flatMap((s) => s.items).find((i) => i.pluginId === pluginId && i.page === page);
   if (!navItem) throw Object.assign(new Error('You do not have access to that page.'), { status: 403 });
   if (stale()) return;

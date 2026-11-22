@@ -76,7 +76,7 @@ export function icon(name, cls = 'icon') {
   svg.setAttribute('class', cls);
   svg.setAttribute('aria-hidden', 'true');
   const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-  use.setAttribute('href', '/assets/img/icons.svg?v=stroke12#' + (ICONS.has(name) ? name : 'dot'));
+  use.setAttribute('href', '/assets/img/icons.svg?v=stroke13#' + (ICONS.has(name) ? name : 'dot'));
   svg.append(use);
   return svg;
 }

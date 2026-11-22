@@ -225,6 +225,9 @@ async function renderShares(ctx, card, quiet) {
       : h('div', { class: 'share-list' }, rows);
     const header = card.querySelector(':scope > .card-header') || shareHeader(ctx);
     card.replaceChildren(header, list);
+    if (!quiet && ctx.query?.panel === 'secrets') {
+      card.scrollIntoView({ block: 'start' });
+    }
     applyFocus(card);
   } catch (err) {
     if (gen !== generation) return;

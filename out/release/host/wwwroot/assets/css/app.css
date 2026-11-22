@@ -115,6 +115,7 @@ p { margin: 0 0 10px; }
 .cve-row { align-items: flex-start; }
 .cve-row .grow { min-width: 0; }
 .cve-copy { overflow-wrap: anywhere; white-space: normal; }
+.news-title { overflow-wrap: anywhere; white-space: normal; line-height: 1.4; min-height: 2.8em; }
 .cve-when { flex: none; white-space: nowrap; }
 .right { text-align: right; }
 .center { text-align: center; }

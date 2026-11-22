@@ -402,12 +402,18 @@ function esDetail(es) {
   return es.error || '';
 }
 
+function newsWire(label, href) {
+  return h('a', { class: 'btn sm', href, target: '_blank', rel: 'noopener noreferrer' }, label);
+}
+
 function newsHeader() {
-  return h('div', { class: 'card-header' },
-    h('h2', null, 'Security news'),
-    h('div', { class: 'flex' },
-      h('a', { class: 'btn sm', href: 'https://www.cyberdaily.au/security', target: '_blank', rel: 'noopener noreferrer' }, 'Cyber Daily'),
-      h('a', { class: 'btn sm', href: 'https://www.itnews.com.au/category/security', target: '_blank', rel: 'noopener noreferrer' }, 'iTnews')));
+  return h('div', { class: 'card-header' }, h('h2', null, 'Security news'));
+}
+
+function newsColumn(items, label, href) {
+  return h('div', { class: 'col' },
+    h('div', { class: 'flex end' }, newsWire(label, href)),
+    newsRows(items));
 }
 
 function newsRows(items) {
@@ -418,7 +424,7 @@ function newsRows(items) {
       target: '_blank',
       rel: 'noopener noreferrer',
     },
-      h('div', { class: 'grow' }, h('div', { class: 'cve-copy' }, item.title)),
+      h('div', { class: 'grow' }, h('div', { class: 'news-title' }, item.title)),
       item.published ? h('div', { class: 'small muted cve-when' }, fmt.relative(item.published)) : null)));
 }
 
@@ -427,7 +433,10 @@ async function renderNews(ctx, card, quiet) {
   try {
     const data = await ctx.api.get('/api/news/security');
     if (gen !== generation) return;
-    card.replaceChildren(newsHeader(), h('div', { class: 'grid cols-2' }, newsRows(data.items || []), newsRows(data.itNews || [])));
+    card.replaceChildren(newsHeader(), h('div', { class: 'grid cols-3' },
+      newsColumn(data.items || [], 'Cyber Daily', 'https://www.cyberdaily.au/security'),
+      newsColumn(data.itNews || [], 'iTnews', 'https://www.itnews.com.au/category/security'),
+      newsColumn(data.hackerNews || [], 'The Hacker News', 'https://thehackernews.com')));
   } catch (err) {
     if (gen !== generation || quiet) return;
     card.replaceChildren(newsHeader(), h('div', { class: 'alert danger' }, errorMessage(err)));

@@ -405,7 +405,9 @@ function esDetail(es) {
 function newsHeader() {
   return h('div', { class: 'card-header' },
     h('h2', null, 'Security news'),
-    h('a', { class: 'btn sm', href: 'https://www.cyberdaily.au/security', target: '_blank', rel: 'noopener noreferrer' }, 'Cyber Daily'));
+    h('div', { class: 'flex' },
+      h('a', { class: 'btn sm', href: 'https://www.cyberdaily.au/security', target: '_blank', rel: 'noopener noreferrer' }, 'Cyber Daily'),
+      h('a', { class: 'btn sm', href: 'https://www.itnews.com.au/category/security', target: '_blank', rel: 'noopener noreferrer' }, 'iTnews')));
 }
 
 function newsRows(items) {
@@ -425,7 +427,7 @@ async function renderNews(ctx, card, quiet) {
   try {
     const data = await ctx.api.get('/api/news/security');
     if (gen !== generation) return;
-    card.replaceChildren(newsHeader(), newsRows(data.items || []));
+    card.replaceChildren(newsHeader(), h('div', { class: 'grid cols-2' }, newsRows(data.items || []), newsRows(data.itNews || [])));
   } catch (err) {
     if (gen !== generation || quiet) return;
     card.replaceChildren(newsHeader(), h('div', { class: 'alert danger' }, errorMessage(err)));

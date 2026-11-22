@@ -44,110 +44,32 @@ export async function mount(el, ctx) {
   const newsCard = h('div', { class: 'card' }, newsHeader(), h('div', { class: 'muted' }, 'Loading…'));
   const sharesCard = h('div', { class: 'card share-panel', hidden: true });
   el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), h('div', { class: 'grid cols-2' }, cveCard, highCard), newsCard, sharesCard);
-  await renderNews(ctx, newsCard);
-  if (gen !== generation) return leave();
-  newsTimer = ownedNewsTimer = setInterval(() => {
-    if (gen !== generation) {
-      if (newsTimer === ownedNewsTimer) {
-        clearInterval(ownedNewsTimer);
-        newsTimer = null;
-      }
-      return;
-    }
-    if (document.hidden) return;
+  const cachedStatus = homeRead('status');
+  const cachedPlugins = homeRead('plugins');
+  const cachedAlerts = homeRead('alerts');
+  const cachedCves = homeRead('cves');
+  const cachedNews = homeRead('news');
+  const cachedShares = homeRead('shares');
+  if (cachedStatus) paintStatus(statusGrid, cachedStatus);
+  if (cachedPlugins) paintPlugins(pluginsCard, cachedPlugins.plugins, cachedPlugins.admin, cachedStatus);
+  if (cachedAlerts) paintAlerts(alertsCard, cachedAlerts);
+  else if (!ctx.hasRole('Admin', 'Analyst')) alertsCard.lastChild.replaceWith(empty('No alerts.', 'bell'));
+  if (cachedCves) paintCves(cveCard, highCard, cachedCves);
+  if (cachedNews) paintNews(newsCard, cachedNews);
+  if (cachedShares && cachedPlugins?.plugins?.some((plugin) => plugin.id === 'secret-sharing')) {
+    void renderShares(ctx, sharesCard, true, cachedShares);
+  }
+  const watchFeeds = () => {
+    if (gen !== generation || document.hidden) return;
     renderNews(ctx, newsCard, true);
-  }, 30 * 60 * 1000);
-  await renderCves(ctx, cveCard, highCard);
-  if (gen !== generation) return leave();
-  cveTimer = ownedCveTimer = setInterval(() => {
-    if (gen !== generation) {
-      if (cveTimer === ownedCveTimer) {
-        clearInterval(ownedCveTimer);
-        cveTimer = null;
-      }
-      return;
-    }
-    if (document.hidden) return;
     renderCves(ctx, cveCard, highCard, true);
-  }, 30 * 60 * 1000);
-
-  try {
-    const nextStatus = await ctx.api.get('/api/status');
-    if (gen !== generation) return leave();
-    status = nextStatus;
-    statusGrid.append(
-      kpi('Search backend', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'Healthy' : 'Unreachable') : 'Not configured', status.elasticsearch?.enabled ? (status.elasticsearch.healthy ? 'success' : 'danger') : 'warning', esDetail(status.elasticsearch)),
-      kpi('Alert rules', String(status.alerts?.enabledRules ?? 0), '', `${fmt.number(status.alerts?.alertsLast24h ?? 0)} alerts in 24h`),
-      kpi('Notifications', status.notifications?.smtpConfigured ? 'Email ready' : 'Email not set', status.notifications?.smtpConfigured ? 'success' : 'warning', status.notifications?.pending ? `${status.notifications.pending} pending` : ''),
-    );
-  } catch (err) {
-    if (gen !== generation) return leave();
-    statusGrid.append(h('div', { class: 'alert danger' }, errorMessage(err)));
-  }
-
-  try {
-    const pluginsPromise = ctx.api.get('/api/plugins');
-    const updatesPromise = ctx.hasRole('Admin') ? ctx.api.get('/api/admin/plugins').catch(() => null) : Promise.resolve(null);
-    const [plugins, adminPlugins] = await Promise.all([pluginsPromise, updatesPromise]);
-    if (gen !== generation) return leave();
-    const updateIds = new Set();
-    for (const offer of adminPlugins?.available || []) {
-      if (offer.action !== 'upgrade') continue;
-      if (offer.pluginId) updateIds.add(offer.pluginId);
-      for (const plugin of plugins) {
-        if (offerMatches(plugin.id, offer.name)) updateIds.add(plugin.id);
-      }
-    }
-    const loadedIds = new Set(plugins.map((m) => m.id));
-    const failures = (status?.plugins?.failures || []).filter((f) => f.id && !loadedIds.has(f.id));
-    const rows = [
-      ...plugins.map((m) => h('div', { class: 'flex between' },
-        h('div', null, h('div', null, h('strong', null, m.name), ' ', badge('v' + m.version), ' ', pluginHealth(m.id, updateIds))),
-        h('a', { class: 'btn sm', href: `/p/${m.id}/${m.pages[0] || ''}` }, 'Open'))),
-      ...failures.map((f) => h('div', { class: 'flex between' },
-        h('div', null, h('div', null, h('strong', null, f.id), ' ', badge(f.unhealthy ? 'unhealthy' : 'failed', 'danger', true))))),
-    ];
-    const body = pluginsCard.lastChild;
-    body.replaceWith(rows.length === 0 ? empty('No plugins installed.', 'plug') : h('div', { class: 'col' }, rows));
-    if (plugins.some((plugin) => plugin.id === 'secret-sharing')) {
-      pendingFocus = String(ctx.query?.focus || '').trim();
-      focusScroll = !!pendingFocus;
-      focusNote = '';
-      await renderShares(ctx, sharesCard);
-      if (gen !== generation) return leave();
-      if (shareTimer) clearInterval(shareTimer);
-      const timer = setInterval(() => {
-        if (gen !== generation) {
-          clearInterval(timer);
-          if (shareTimer === timer) shareTimer = null;
-          return;
-        }
-        if (document.hidden || document.querySelector('.modal')) return;
-        renderShares(ctx, sharesCard, true);
-      }, 5000);
-      shareTimer = ownedTimer = timer;
-    }
-  } catch (err) {
-    if (gen !== generation) return leave();
-    pluginsCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
-  }
-
-  if (gen !== generation) return leave();
-  if (ctx.hasRole('Admin', 'Analyst')) {
-    try {
-      const alerts = await ctx.api.get('/api/alerts/instances?pageSize=8');
-      if (gen !== generation) return leave();
-      alertsCard.lastChild.replaceWith(alerts.items.length === 0 ? empty('No alerts yet.', 'bell')
-        : h('div', { class: 'col' }, alerts.items.map((a) => h('div', { class: 'flex between' },
-          h('div', { class: 'grow' }, h('div', { class: 'truncate' }, badge(a.severity, severityKind(a.severity)), ' ', a.summary), h('div', { class: 'small muted' }, `${a.ruleName} · ${fmt.relative(a.createdAt)}${a.count > 1 ? ` · ×${a.count}` : ''}`)),
-          badge(a.status, a.status === 'new' ? 'primary' : '')))));
-    } catch (err) {
-      if (gen !== generation) return leave();
-      alertsCard.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
-    }
-  } else {
-    alertsCard.lastChild.replaceWith(empty('No alerts.', 'bell'));
-  }
+  };
+  newsTimer = ownedNewsTimer = setInterval(watchFeeds, 60 * 1000);
+  void loadStatus(ctx, statusGrid, pluginsCard, gen);
+  void loadPlugins(ctx, pluginsCard, sharesCard, gen, (timer) => { ownedTimer = timer; });
+  void loadAlerts(ctx, alertsCard, gen);
+  void renderNews(ctx, newsCard, !!cachedNews);
+  void renderCves(ctx, cveCard, highCard, !!cachedCves);
   return gen;
 }
 
@@ -200,16 +122,20 @@ function shareHeader(ctx) {
   return h('div', { class: 'card-header' }, h('h2', null, 'Secret sharing'), h('div', { class: 'btn-group' }, actions));
 }
 
-async function renderShares(ctx, card, quiet) {
+async function renderShares(ctx, card, quiet, preloaded) {
   const gen = generation;
   card.hidden = false;
   const canCollect = ctx.hasRole('Admin', 'Analyst');
-  if (!quiet) card.replaceChildren(shareHeader(ctx), h('p', { class: 'muted' }, 'Loading…'));
+  if (!quiet && !preloaded) card.replaceChildren(shareHeader(ctx), h('p', { class: 'muted' }, 'Loading…'));
   try {
     await ensureCrypto();
     if (gen !== generation) return;
-    const data = await ctx.api.get('/api/plugins/secret-sharing/home');
+    const data = preloaded || await ctx.api.get('/api/plugins/secret-sharing/home');
     if (gen !== generation) return;
+    if (!preloaded) {
+      if (quiet && homeSame(homeRead('shares'), data)) return;
+      homeWrite('shares', data);
+    }
     const items = (data.items || []).filter((item) => canCollect || item.kind !== 'collect');
     if (gen === generation && !keyPrompted && !window.SecretUdk.loadUserDataKey(ctx.user?.id) && items.some((item) => item.encryptedLabel || item.privateNoteCiphertext || item.hasOwnerKey)) {
       try { await requireUserDataKey(); } catch { /* names stay locked until a later attempt */ }
@@ -225,7 +151,8 @@ async function renderShares(ctx, card, quiet) {
       : h('div', { class: 'share-list' }, rows);
     const header = card.querySelector(':scope > .card-header') || shareHeader(ctx);
     card.replaceChildren(header, list);
-    if (!quiet && ctx.query?.panel === 'secrets') {
+    if (ctx.query?.panel === 'secrets' && card.dataset.secretsScroll !== '1') {
+      card.dataset.secretsScroll = '1';
       card.scrollIntoView({ block: 'start' });
     }
     applyFocus(card);
@@ -431,17 +358,27 @@ function newsRows(items) {
       item.published ? h('div', { class: 'small muted cve-when' }, fmt.relative(item.published)) : null)));
 }
 
-async function renderNews(ctx, card, quiet) {
+function paintNews(card, data) {
+  card.replaceChildren(newsHeader(), h('div', { class: 'grid cols-3' },
+    newsColumn(data.items || [], 'Cyber Daily', 'https://www.cyberdaily.au/security'),
+    newsColumn(data.itNews || [], 'iTnews', 'https://www.itnews.com.au/category/security'),
+    newsColumn(data.hackerNews || [], 'The Hacker News', 'https://thehackernews.com')));
+}
+
+async function renderNews(ctx, card, quiet, preloaded) {
   const gen = generation;
+  if (preloaded) {
+    paintNews(card, preloaded);
+    return;
+  }
   try {
     const data = await ctx.api.get('/api/news/security');
     if (gen !== generation) return;
-    card.replaceChildren(newsHeader(), h('div', { class: 'grid cols-3' },
-      newsColumn(data.items || [], 'Cyber Daily', 'https://www.cyberdaily.au/security'),
-      newsColumn(data.itNews || [], 'iTnews', 'https://www.itnews.com.au/category/security'),
-      newsColumn(data.hackerNews || [], 'The Hacker News', 'https://thehackernews.com')));
+    if (homeSame(homeRead('news'), data)) return;
+    homeWrite('news', data);
+    paintNews(card, data);
   } catch (err) {
-    if (gen !== generation || quiet) return;
+    if (gen !== generation || quiet || homeRead('news')) return;
     card.replaceChildren(newsHeader(), h('div', { class: 'alert danger' }, errorMessage(err)));
   }
 }
@@ -469,24 +406,160 @@ function cveRows(items, emptyText) {
     }));
 }
 
-async function renderCves(ctx, card, highCard, quiet) {
+function paintCves(card, highCard, data) {
+  card.replaceChildren(cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves'), cveRows(data.items || [], 'No CVEs published.'));
+  highCard.replaceChildren(cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves'), cveRows(data.high || [], 'No High or Critical CVEs published.'));
+}
+
+async function renderCves(ctx, card, highCard, quiet, preloaded) {
   const gen = generation;
-  const latestHeader = () => cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves');
-  const highHeader = () => cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves');
-  if (!quiet) {
-    card.replaceChildren(latestHeader(), h('div', { class: 'muted' }, 'Loading…'));
-    highCard.replaceChildren(highHeader(), h('div', { class: 'muted' }, 'Loading…'));
+  if (preloaded) {
+    paintCves(card, highCard, preloaded);
+    return;
   }
   try {
     const data = await ctx.api.get('/api/radar/cves');
     if (gen !== generation) return;
-    card.replaceChildren(latestHeader(), cveRows(data.items || [], 'No CVEs published.'));
-    highCard.replaceChildren(highHeader(), cveRows(data.high || [], 'No High or Critical CVEs published.'));
+    if (homeSame(homeRead('cves'), data)) return;
+    homeWrite('cves', data);
+    paintCves(card, highCard, data);
   } catch (err) {
-    if (gen !== generation) return;
+    if (gen !== generation || quiet || homeRead('cves')) return;
     const alert = h('div', { class: 'alert danger' }, errorMessage(err));
-    card.replaceChildren(latestHeader(), alert);
-    highCard.replaceChildren(highHeader(), alert.cloneNode(true));
+    card.replaceChildren(cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves'), alert);
+    highCard.replaceChildren(cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves'), alert.cloneNode(true));
+  }
+}
+
+function paintStatus(grid, data) {
+  status = data;
+  grid.replaceChildren(
+    kpi('Search backend', data.elasticsearch?.enabled ? (data.elasticsearch.healthy ? 'Healthy' : 'Unreachable') : 'Not configured', data.elasticsearch?.enabled ? (data.elasticsearch.healthy ? 'success' : 'danger') : 'warning', esDetail(data.elasticsearch)),
+    kpi('Alert rules', String(data.alerts?.enabledRules ?? 0), '', `${fmt.number(data.alerts?.alertsLast24h ?? 0)} alerts in 24h`),
+    kpi('Notifications', data.notifications?.smtpConfigured ? 'Email ready' : 'Email not set', data.notifications?.smtpConfigured ? 'success' : 'warning', data.notifications?.pending ? `${data.notifications.pending} pending` : ''),
+  );
+}
+
+function paintPlugins(card, plugins, adminPlugins, snapshot) {
+  const updateIds = new Set();
+  for (const offer of adminPlugins?.available || []) {
+    if (offer.action !== 'upgrade') continue;
+    if (offer.pluginId) updateIds.add(offer.pluginId);
+    for (const plugin of plugins || []) {
+      if (offerMatches(plugin.id, offer.name)) updateIds.add(plugin.id);
+    }
+  }
+  const loadedIds = new Set((plugins || []).map((item) => item.id));
+  const failures = (snapshot?.plugins?.failures || []).filter((item) => item.id && !loadedIds.has(item.id));
+  const rows = [
+    ...(plugins || []).map((item) => h('div', { class: 'flex between' },
+      h('div', null, h('div', null, h('strong', null, item.name), ' ', badge('v' + item.version), ' ', pluginHealth(item.id, updateIds))),
+      h('a', { class: 'btn sm', href: `/p/${item.id}/${item.pages[0] || ''}` }, 'Open'))),
+    ...failures.map((item) => h('div', { class: 'flex between' },
+      h('div', null, h('div', null, h('strong', null, item.id), ' ', badge(item.unhealthy ? 'unhealthy' : 'failed', 'danger', true))))),
+  ];
+  card.replaceChildren(h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), rows.length === 0 ? empty('No plugins installed.', 'plug') : h('div', { class: 'col' }, rows));
+}
+
+function paintAlerts(card, alerts) {
+  card.replaceChildren(
+    h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts')),
+    !alerts?.items?.length ? empty('No alerts yet.', 'bell')
+      : h('div', { class: 'col' }, alerts.items.map((item) => h('div', { class: 'flex between' },
+        h('div', { class: 'grow' }, h('div', { class: 'truncate' }, badge(item.severity, severityKind(item.severity)), ' ', item.summary), h('div', { class: 'small muted' }, `${item.ruleName} · ${fmt.relative(item.createdAt)}${item.count > 1 ? ` · ×${item.count}` : ''}`)),
+        badge(item.status, item.status === 'new' ? 'primary' : '')))));
+}
+
+async function loadStatus(ctx, grid, pluginsCard, gen) {
+  try {
+    const data = await ctx.api.get('/api/status');
+    if (gen !== generation) return;
+    status = data;
+    if (homeSame(homeRead('status'), data)) return;
+    homeWrite('status', data);
+    paintStatus(grid, data);
+    const plugins = homeRead('plugins');
+    if (plugins) paintPlugins(pluginsCard, plugins.plugins, plugins.admin, data);
+  } catch (err) {
+    if (gen !== generation || homeRead('status')) return;
+    grid.replaceChildren(h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
+}
+
+async function loadPlugins(ctx, card, sharesCard, gen, assignTimer) {
+  try {
+    const pluginsPromise = ctx.api.get('/api/plugins');
+    const updatesPromise = ctx.hasRole('Admin') ? ctx.api.get('/api/admin/plugins').catch(() => null) : Promise.resolve(null);
+    const [plugins, admin] = await Promise.all([pluginsPromise, updatesPromise]);
+    if (gen !== generation) return;
+    const pack = { plugins, admin };
+    if (!homeSame(homeRead('plugins'), pack)) {
+      homeWrite('plugins', pack);
+      paintPlugins(card, plugins, admin, status || homeRead('status'));
+    }
+    if (!plugins.some((plugin) => plugin.id === 'secret-sharing')) return;
+    pendingFocus = String(ctx.query?.focus || '').trim();
+    focusScroll = !!pendingFocus;
+    focusNote = '';
+    if (!shareTimer) {
+      const timer = setInterval(() => {
+        if (gen !== generation) {
+          clearInterval(timer);
+          if (shareTimer === timer) shareTimer = null;
+          return;
+        }
+        if (document.hidden || document.querySelector('.modal')) return;
+        renderShares(ctx, sharesCard, true);
+      }, 5000);
+      shareTimer = timer;
+      assignTimer(timer);
+    }
+    void renderShares(ctx, sharesCard, true);
+  } catch (err) {
+    if (gen !== generation || homeRead('plugins')) return;
+    card.replaceChildren(h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
+}
+
+async function loadAlerts(ctx, card, gen) {
+  if (!ctx.hasRole('Admin', 'Analyst')) {
+    card.lastChild.replaceWith(empty('No alerts.', 'bell'));
+    return;
+  }
+  try {
+    const data = await ctx.api.get('/api/alerts/instances?pageSize=8');
+    if (gen !== generation) return;
+    if (homeSame(homeRead('alerts'), data)) return;
+    homeWrite('alerts', data);
+    paintAlerts(card, data);
+  } catch (err) {
+    if (gen !== generation || homeRead('alerts')) return;
+    card.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
+}
+
+function homeRead(name) {
+  try {
+    const text = sessionStorage.getItem('vulpes-home:' + name);
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+function homeWrite(name, value) {
+  try {
+    sessionStorage.setItem('vulpes-home:' + name, JSON.stringify(value));
+  } catch {
+    // The page still paints when storage is full.
+  }
+}
+
+function homeSame(left, right) {
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
   }
 }
 

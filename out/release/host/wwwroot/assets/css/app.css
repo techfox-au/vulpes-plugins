@@ -116,12 +116,12 @@ p { margin: 0 0 10px; }
 .cve-row .grow { min-width: 0; }
 .cve-copy { overflow-wrap: anywhere; white-space: normal; }
 .news-title { overflow-wrap: anywhere; white-space: normal; line-height: 1.4; min-height: 2.8em; }
-.news-row { align-items: flex-start; }
-.news-row .cve-when { line-height: 1.4; }
 .cve-when { flex: none; white-space: nowrap; }
 .right { text-align: right; }
 .center { text-align: center; }
 .flex { display: flex; gap: 10px; align-items: center; }
+.flex.news-row { align-items: flex-start; }
+.flex.news-row .cve-when { line-height: 1.4; padding-top: 0; }
 .loc { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .flag { font-size: 15px; line-height: 1; flex: none; }
 .flex.wrap { flex-wrap: wrap; }

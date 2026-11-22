@@ -4,6 +4,7 @@ import { requireUserDataKey } from '../data-key.js?v=shell407';
 let status = null;
 let shareTimer = null;
 let cveTimer = null;
+let newsTimer = null;
 let cryptoReady = null;
 let keyPrompted = false;
 let pendingFocus = '';
@@ -15,6 +16,7 @@ export async function mount(el, ctx) {
   const gen = ++generation;
   let ownedTimer = null;
   let ownedCveTimer = null;
+  let ownedNewsTimer = null;
   const leave = () => {
     if (ownedTimer && shareTimer === ownedTimer) {
       clearInterval(ownedTimer);
@@ -23,6 +25,10 @@ export async function mount(el, ctx) {
     if (ownedCveTimer && cveTimer === ownedCveTimer) {
       clearInterval(ownedCveTimer);
       cveTimer = null;
+    }
+    if (ownedNewsTimer && newsTimer === ownedNewsTimer) {
+      clearInterval(ownedNewsTimer);
+      newsTimer = null;
     }
     return gen;
   };
@@ -35,8 +41,22 @@ export async function mount(el, ctx) {
   const cveCard = h('div', { class: 'card' }, cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves'), h('div', { class: 'muted' }, 'Loading…'));
   const highCard = h('div', { class: 'card' }, cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves'), h('div', { class: 'muted' }, 'Loading…'));
   const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
+  const newsCard = h('div', { class: 'card' }, newsHeader(), h('div', { class: 'muted' }, 'Loading…'));
   const sharesCard = h('div', { class: 'card share-panel', hidden: true });
-  el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), h('div', { class: 'grid cols-2' }, cveCard, highCard), sharesCard);
+  el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), h('div', { class: 'grid cols-2' }, cveCard, highCard), newsCard, sharesCard);
+  await renderNews(ctx, newsCard);
+  if (gen !== generation) return leave();
+  newsTimer = ownedNewsTimer = setInterval(() => {
+    if (gen !== generation) {
+      if (newsTimer === ownedNewsTimer) {
+        clearInterval(ownedNewsTimer);
+        newsTimer = null;
+      }
+      return;
+    }
+    if (document.hidden) return;
+    renderNews(ctx, newsCard, true);
+  }, 30 * 60 * 1000);
   await renderCves(ctx, cveCard, highCard);
   if (gen !== generation) return leave();
   cveTimer = ownedCveTimer = setInterval(() => {
@@ -138,6 +158,8 @@ export function unmount(gen) {
   shareTimer = null;
   if (cveTimer) clearInterval(cveTimer);
   cveTimer = null;
+  if (newsTimer) clearInterval(newsTimer);
+  newsTimer = null;
   pendingFocus = '';
   focusScroll = false;
   focusNote = '';
@@ -378,6 +400,36 @@ function pluginHealth(id, updateIds) {
 function esDetail(es) {
   if (!es?.enabled || es.healthy) return '';
   return es.error || '';
+}
+
+function newsHeader() {
+  return h('div', { class: 'card-header' },
+    h('h2', null, 'Security news'),
+    h('a', { class: 'btn sm', href: 'https://www.cyberdaily.au/security', target: '_blank', rel: 'noopener noreferrer' }, 'Cyber Daily'));
+}
+
+function newsRows(items) {
+  return items.length === 0 ? empty('No security news.')
+    : h('div', { class: 'col' }, items.map((item) => h('a', {
+      class: 'flex between cve-row',
+      href: item.url,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    },
+      h('div', { class: 'grow' }, h('div', { class: 'cve-copy' }, item.title)),
+      item.published ? h('div', { class: 'small muted cve-when' }, fmt.relative(item.published)) : null)));
+}
+
+async function renderNews(ctx, card, quiet) {
+  const gen = generation;
+  try {
+    const data = await ctx.api.get('/api/news/security');
+    if (gen !== generation) return;
+    card.replaceChildren(newsHeader(), newsRows(data.items || []));
+  } catch (err) {
+    if (gen !== generation || quiet) return;
+    card.replaceChildren(newsHeader(), h('div', { class: 'alert danger' }, errorMessage(err)));
+  }
 }
 
 function cveHeader(title, href) {

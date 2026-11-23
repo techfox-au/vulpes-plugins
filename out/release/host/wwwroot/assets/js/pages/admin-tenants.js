@@ -222,7 +222,14 @@ function applicationCard(ctx, app, permissions, tenants) {
 async function editTenant(ctx, existing) {
   const { h, modal } = ctx.ui;
   const name = h('input', { class: 'input', value: existing?.displayName || '', required: true });
-  const shortName = h('input', { class: 'input', value: existing?.shortName || '', maxlength: '16', spellcheck: false, autocomplete: 'off' });
+  const shortName = h('input', {
+    class: 'input',
+    value: (existing?.shortName || '').toUpperCase(),
+    maxlength: '16',
+    spellcheck: false,
+    autocomplete: 'off',
+    onInput: (event) => { event.target.value = event.target.value.toUpperCase(); },
+  });
   const directory = h('input', { class: 'input', value: existing?.directoryId || '', spellcheck: false, placeholder: '00000000-0000-0000-0000-000000000000' });
   const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled && !existing.disabled : true, disabled: !!existing?.disabled });
   const form = h('div', { class: 'col' },
@@ -232,7 +239,7 @@ async function editTenant(ctx, existing) {
     h('label', { class: 'checkbox' }, enabled, h('span', null, 'Collection enabled')));
   const saved = await modal.show({ title: existing ? 'Edit client' : 'Add client', content: form, actions: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Add', kind: 'primary', value: true, onClick: async () => {
     try {
-      const body = { displayName: name.value.trim(), shortName: shortName.value.trim(), directoryId: directory.value.trim(), enabled: enabled.checked };
+      const body = { displayName: name.value.trim(), shortName: shortName.value.trim().toUpperCase(), directoryId: directory.value.trim(), enabled: enabled.checked };
       if (existing) await ctx.api.put(`/api/admin/tenants/${existing.id}`, body);
       else await ctx.api.post('/api/admin/tenants', body);
     } catch (err) { panelNote(form, errorMessage(err)); return false; }

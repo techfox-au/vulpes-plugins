@@ -519,7 +519,7 @@
       }
     },
     "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj": {
-      "version": "1.0.1",
+      "version": "1.0.2",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
         "projectName": "Vulpes.Sdk",

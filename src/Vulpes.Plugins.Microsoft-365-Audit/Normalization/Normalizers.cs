@@ -122,7 +122,7 @@ public static class Normalizers
             TenantName = tenantName,
             Category = CategoryForDirectory(r.Str("category")),
             Action = activity,
-            Outcome = result is null ? null : result.Equals("success", StringComparison.OrdinalIgnoreCase) ? "success" : result.Equals("failure", StringComparison.OrdinalIgnoreCase) ? "failure" : "unknown",
+            Outcome = DirectoryOutcome(result),
             Dataset = "entra.directory",
             Severity = SeverityForDirectory(activity),
             UserId = user?.Str("id"),
@@ -210,7 +210,7 @@ public static class Normalizers
             TenantName = tenantName,
             Category = category,
             Action = operation,
-            Outcome = resultStatus is null ? null : resultStatus.StartsWith("Succe", StringComparison.OrdinalIgnoreCase) || resultStatus.Equals("True", StringComparison.OrdinalIgnoreCase) ? "success" : resultStatus.StartsWith("Fail", StringComparison.OrdinalIgnoreCase) ? "failure" : "unknown",
+            Outcome = ActivityOutcome(resultStatus, recordType, data),
             Dataset = workload is null ? "purview.audit" : "purview." + workload.ToLowerInvariant(),
             Severity = SeverityForOperation(operation),
             UserId = r.Str("userId") is { } uid && Guid.TryParse(uid, out _) ? uid : data?.Str("UserKey"),
@@ -219,7 +219,7 @@ public static class Normalizers
             SourceIp = CleanIp(ip),
             UserAgent = data?.Str("UserAgent"),
             ClientAppId = data?.Str("ApplicationId") ?? data?.Str("AppId"),
-            ClientAppName = data?.Str("ClientAppId") ?? data?.Str("ApplicationDisplayName") ?? data?.Str("ClientInfoString"),
+            ClientAppName = ActivityAppName(data),
             FilePath = isFile ? objectId : null,
             FileName = isFile ? fileName : null,
             Message = J.Truncate($"{upn ?? "(unknown)"} {operation ?? "?"}{(objectId is null ? string.Empty : " " + objectId)}", 1000),
@@ -581,6 +581,80 @@ public static class Normalizers
         }
 
         return NotableOperations.Any(o => operation.Equals(o, StringComparison.OrdinalIgnoreCase)) ? "medium" : "informational";
+    }
+
+    /// <summary>Graph directoryAudits uses success, failure, and timeout. A timeout is a change that did not finish.</summary>
+    private static string? DirectoryOutcome(string? result)
+    {
+        if (result is null)
+        {
+            return null;
+        }
+
+        if (result.Equals("success", StringComparison.OrdinalIgnoreCase))
+        {
+            return "success";
+        }
+
+        if (result.Equals("failure", StringComparison.OrdinalIgnoreCase)
+            || result.Equals("timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return "failure";
+        }
+
+        return "unknown";
+    }
+
+    /// <summary>
+    /// Exchange admin uses True/False. An Entra STS logon reports ResultStatus Succeeded for the HTTP call;
+    /// LogonError is what says the sign-in failed.
+    /// </summary>
+    private static string? ActivityOutcome(string? resultStatus, string? recordType, JsonElement? data)
+    {
+        if (recordType is not null
+            && recordType.Equals("azureActiveDirectoryStsLogon", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(data?.Str("LogonError")))
+        {
+            return "failure";
+        }
+
+        if (resultStatus is null)
+        {
+            return null;
+        }
+
+        if (resultStatus.Equals("False", StringComparison.OrdinalIgnoreCase)
+            || resultStatus.StartsWith("Fail", StringComparison.OrdinalIgnoreCase))
+        {
+            return "failure";
+        }
+
+        if (resultStatus.StartsWith("Succe", StringComparison.OrdinalIgnoreCase)
+            || resultStatus.Equals("True", StringComparison.OrdinalIgnoreCase))
+        {
+            return "success";
+        }
+
+        return "unknown";
+    }
+
+    /// <summary>Mailbox records put a GUID in ClientAppId and the client description in ClientInfoString.</summary>
+    private static string? ActivityAppName(JsonElement? data)
+    {
+        var info = data?.Str("ClientInfoString");
+        if (!string.IsNullOrWhiteSpace(info))
+        {
+            return info;
+        }
+
+        var named = data?.Str("ApplicationDisplayName");
+        if (!string.IsNullOrWhiteSpace(named))
+        {
+            return named;
+        }
+
+        var id = data?.Str("ClientAppId");
+        return string.IsNullOrWhiteSpace(id) || Guid.TryParse(id, out _) ? null : id;
     }
 
     internal static string? CleanIp(string? ip)

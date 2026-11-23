@@ -55,6 +55,7 @@
   }
 
   function parseStrictIp(host) {
+    if (host.length >= 2 && host.charAt(0) === "[" && host.charAt(host.length - 1) === "]") host = host.slice(1, -1);
     if (host.indexOf(":") >= 0) return parseStrictIPv6(host);
     return parseStrictIPv4(host);
   }
@@ -73,7 +74,15 @@
   }
 
   function parseStrictIPv6(host) {
-    if (host.indexOf(".") >= 0) return { ok: false, error: "Use a plain IPv4 address, not an IPv4-mapped IPv6 form." };
+    if (host.indexOf(".") >= 0) {
+      var lastColon = host.lastIndexOf(":");
+      if (lastColon < 0) return { ok: false, error: "Invalid IPv6 address." };
+      var dotted = parseStrictIPv4(host.slice(lastColon + 1));
+      if (!dotted.ok) return { ok: false, error: "Invalid IPv6 address." };
+      var hi = ((dotted.bytes[0] << 8) | dotted.bytes[1]).toString(16);
+      var lo = ((dotted.bytes[2] << 8) | dotted.bytes[3]).toString(16);
+      host = host.slice(0, lastColon + 1) + hi + ":" + lo;
+    }
     if (!/^[0-9A-Fa-f:]+$/.test(host)) return { ok: false, error: "Invalid IPv6 address." };
     var dbl = host.indexOf("::");
     if (dbl !== host.lastIndexOf("::")) return { ok: false, error: "Invalid IPv6 address." };

@@ -1,0 +1,71 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+const { valueFits, customDayBounds } = await import('../../src/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/common.js');
+
+test('filter values match dates and addresses the search will accept', () => {
+  assert.equal(valueFits('date', '2026'), false);
+  assert.equal(valueFits('date', '2026-11'), true);
+  assert.equal(valueFits('date', '2026-02-31'), false);
+  assert.equal(valueFits('date', '2026-02-31T00:00:00Z'), false);
+  assert.equal(valueFits('date', '2026-02-29'), false);
+  assert.equal(valueFits('date', '02/31/2026'), false);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00Z'), true);
+  assert.equal(valueFits('date', '2026-11-13T02:00:00+10:00'), true);
+  assert.equal(valueFits('date', '2024-02-29'), true);
+  assert.equal(valueFits('date', 'November 13, 2026'), true);
+  assert.equal(valueFits('date', '13 November 2026'), true);
+  assert.equal(valueFits('date', 'November 31, 2026'), false);
+  assert.equal(valueFits('date', 'February 31, 2026'), false);
+  assert.equal(valueFits('date', '2026-11-13T24:00:00Z'), false);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00+14:00'), true);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00-14:00'), true);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00+14:01'), false);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00+15:00'), false);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00+1500'), false);
+  assert.equal(valueFits('date', '2026-02-31t00:00:00Z'), false);
+  assert.equal(valueFits('date', '2026-11-13t24:00:00Z'), false);
+  assert.equal(valueFits('date', '2026-11-13t00:00:00Z'), true);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00z'), true);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00+1000'), true);
+  assert.equal(valueFits('date', '2026-11-13T00:00:00+1401'), false);
+  assert.equal(valueFits('date', '2026/02/31'), false);
+  assert.equal(valueFits('date', '2026/02/31 00:00'), false);
+  assert.equal(valueFits('date', '2026/11/13'), true);
+  assert.equal(valueFits('date', '2026-2-31'), false);
+  assert.equal(valueFits('date', '02/31/2026 00:00'), false);
+  assert.equal(valueFits('date', 'November 31, 2026 00:00'), false);
+  assert.equal(valueFits('date', 'November 13, 2026 UTC'), false);
+  assert.equal(valueFits('date', '2026-11-13 3:45 PM'), true);
+  assert.equal(valueFits('date', '2026-11-13 9:30'), true);
+  assert.equal(valueFits('date', '2026-11-13 00:00:00 +00:00'), true);
+  assert.equal(valueFits('date', '2026-11-13 15:00:00 -5:00'), true);
+  assert.equal(valueFits('date', '2026-11-13 00:00:00 GMT'), true);
+  assert.equal(valueFits('date', 'Fri, 13 Nov 2026 00:00:00 GMT'), true);
+  assert.equal(valueFits('date', '2026-11-13 GMT'), true);
+  assert.equal(valueFits('date', '2026-2-3T00:00:00Z'), true);
+  assert.equal(valueFits('date', '2026-11-13 3:45PM'), true);
+  assert.equal(valueFits('date', 'Sept 13, 2026'), false);
+  assert.equal(valueFits('date', 'Sep 13, 2026'), true);
+  assert.equal(valueFits('date', '9:30'), true);
+  assert.equal(valueFits('date', 'Friday, November 13, 2026'), true);
+  assert.equal(valueFits('date', 'Mon, 13 Nov 2026 00:00:00 GMT'), false);
+  assert.equal(valueFits('date', '2026-11-13T23:59:59Z'), true);
+  assert.equal(valueFits('date', '0001-01-01'), true);
+  assert.equal(valueFits('date', '0099-06-15'), true);
+
+  assert.equal(valueFits('ip', '999.999.999.999'), false);
+  assert.equal(valueFits('ip', 'not:an:ip'), false);
+  assert.equal(valueFits('ip', '008.0.0.1'), false);
+  assert.equal(valueFits('ip', '::ffff:999.1.1.1'), false);
+  assert.equal(valueFits('ip', '203.0.113.10'), true);
+  assert.equal(valueFits('ip', '010.0.0.1'), true);
+  assert.equal(valueFits('ip', '2001:db8::1'), true);
+  assert.equal(valueFits('ip', '::1'), true);
+  assert.equal(valueFits('ip', '::ffff:192.0.2.1'), true);
+});
+
+test('a 730-day custom range survives a daylight-saving hour', () => {
+  assert.equal(customDayBounds('2024-04-06', '2026-04-05').error, undefined);
+  assert.equal(customDayBounds('2024-04-06', '2026-04-06').error, 'A custom range can cover at most 730 days.');
+});

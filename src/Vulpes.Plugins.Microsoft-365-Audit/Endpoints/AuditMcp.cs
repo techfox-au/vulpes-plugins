@@ -271,7 +271,7 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
             throw new ArgumentException("Event not found.");
         }
 
-        var item = Summarize(doc.Value, includeRaw: true);
+        var item = Summarize(doc.Value, includeRaw: true, truncateRaw: false);
         item["id"] = id;
         return item;
     }
@@ -300,7 +300,7 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
 
         if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("filters", out var list) && list.ValueKind == JsonValueKind.Array)
         {
-            if (list.GetArrayLength() > 20)
+            if (list.GetArrayLength() > 20 || filters.Count + list.GetArrayLength() > 20)
             {
                 throw new ArgumentException("At most 20 filters.");
             }
@@ -309,14 +309,23 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
                 item.TryGetProperty("field", out var field) ? field.GetString() ?? string.Empty : string.Empty,
                 item.TryGetProperty("operator", out var op) ? op.GetString() ?? string.Empty : string.Empty,
                 item.TryGetProperty("values", out var values) && values.ValueKind == JsonValueKind.Array
-                    ? values.EnumerateArray().Select(v => v.GetString() ?? string.Empty).ToList()
+                    ? values.EnumerateArray().Select(FilterValue).ToList()
                     : [])).ToList()));
         }
 
         return (source, from, to, filters);
     }
 
-    private static JsonObject Summarize(JsonElement doc, bool includeRaw)
+    private static string FilterValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() ?? string.Empty,
+        JsonValueKind.Number => value.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => string.Empty,
+    };
+
+    private static JsonObject Summarize(JsonElement doc, bool includeRaw, bool truncateRaw = true)
     {
         var item = new JsonObject
         {
@@ -340,7 +349,7 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
         if (includeRaw && doc.ValueKind == JsonValueKind.Object && doc.TryGetProperty("data", out var data))
         {
             var raw = data.GetRawText();
-            if (raw.Length > 6000)
+            if (truncateRaw && raw.Length > 6000)
             {
                 item["dataTruncated"] = true;
                 item["data"] = raw[..6000];

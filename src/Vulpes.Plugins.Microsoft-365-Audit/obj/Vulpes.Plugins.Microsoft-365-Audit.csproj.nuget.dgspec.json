@@ -5,7 +5,7 @@
   },
   "projects": {
     "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj": {
-      "version": "1.0.46",
+      "version": "1.0.52",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes-plugins/src/Vulpes.Plugins.Microsoft-365-Audit/Vulpes.Plugins.Microsoft-365-Audit.csproj",
         "projectName": "Vulpes.Plugins.Microsoft-365-Audit",
@@ -519,7 +519,7 @@
       }
     },
     "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj": {
-      "version": "1.0.2",
+      "version": "1.0.3",
       "restore": {
         "projectUniqueName": "/Users/lappy/vulpes/src/Vulpes.Sdk/Vulpes.Sdk.csproj",
         "projectName": "Vulpes.Sdk",

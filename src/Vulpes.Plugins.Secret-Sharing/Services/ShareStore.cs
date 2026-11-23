@@ -428,7 +428,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, Uploaded, OwnerPrivateKeyProtected, PrivateNoteCiphertext, PublicKey
+                SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, Uploaded, OwnerPrivateKeyProtected, PrivateNoteCiphertext, PublicKey, HideTextByDefault
                 FROM collects WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 100
                 """;
             cmd.Parameters.AddWithValue("@owner", ownerId);
@@ -441,6 +441,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
                     HasOwnerKey = !reader.IsDBNull(10),
                     PrivateNoteCiphertext = reader.IsDBNull(11) ? null : reader.GetString(11),
                     PublicKey = reader.IsDBNull(12) ? null : reader.GetString(12),
+                    HideText = !reader.IsDBNull(13) && reader.GetInt32(13) == 1,
                 };
                 if (item.Status is not ("expired" or "consumed")) items.Add(item);
             }

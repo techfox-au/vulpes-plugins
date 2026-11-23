@@ -275,7 +275,7 @@ public static class AuditEndpoints
         }
 
         var titles = catalog.GetSources(Normalizers.PluginId).ToDictionary(s => s.Source, s => s.Title, StringComparer.Ordinal);
-        var tenants = new Dictionary<string, (long Docs, double Bytes)>(StringComparer.OrdinalIgnoreCase);
+        var usageRows = new List<(string Key, long Count, double Bytes)>();
         var spans = new Dictionary<string, (DateTimeOffset? Oldest, DateTimeOffset? Newest)>(StringComparer.Ordinal);
         foreach (var source in usage.Sources.Where(s => s.Documents > 0))
         {
@@ -289,7 +289,7 @@ public static class AuditEndpoints
                 {
                     PluginId = Normalizers.PluginId,
                     Source = source.Source,
-                    Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantName", 50)],
+                    Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", 50)],
                 }, ct);
                 if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
                 {
@@ -300,18 +300,16 @@ public static class AuditEndpoints
                 foreach (var bucket in buckets)
                 {
                     counted += bucket.Count;
-                    var name = string.IsNullOrWhiteSpace(bucket.Key) || bucket.Key == "(none)" ? "Unknown" : bucket.Key;
                     var share = (double)bucket.Count / source.Documents * source.StoredBytes;
-                    tenants.TryGetValue(name, out var current);
-                    tenants[name] = (current.Docs + bucket.Count, current.Bytes + share);
+                    var key = string.IsNullOrWhiteSpace(bucket.Key) || bucket.Key == "(none)" ? "\0unknown" : bucket.Key;
+                    AddUsage(usageRows, key, bucket.Count, share);
                 }
 
                 var remainder = source.Documents - counted;
                 if (remainder > 0)
                 {
                     var share = (double)remainder / source.Documents * source.StoredBytes;
-                    tenants.TryGetValue("Other clients", out var current);
-                    tenants["Other clients"] = (current.Docs + remainder, current.Bytes + share);
+                    AddUsage(usageRows, "\0other", remainder, share);
                 }
             }
             catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
@@ -319,25 +317,7 @@ public static class AuditEndpoints
             }
         }
 
-        var hiddenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var tenant in await clients.ListAllAsync(ct))
-        {
-            if (!tenant.Disabled)
-            {
-                continue;
-            }
-
-            hiddenNames.Add(tenant.DisplayName);
-            if (!string.IsNullOrWhiteSpace(tenant.DiscoveredName))
-            {
-                hiddenNames.Add(tenant.DiscoveredName);
-            }
-        }
-
-        foreach (var name in hiddenNames)
-        {
-            tenants.Remove(name);
-        }
+        var tenants = TenantBreakdown(usageRows, await clients.ListAllAsync(ct));
 
         return Results.Json(new
         {
@@ -360,7 +340,7 @@ public static class AuditEndpoints
                 };
             }).OrderByDescending(s => s.storedBytes).ThenBy(s => s.title, StringComparer.OrdinalIgnoreCase),
             tenants = tenants
-                .Select(t => new { name = t.Key, documents = t.Value.Docs, estimatedBytes = (long)Math.Round(t.Value.Bytes) })
+                .Select(t => new { name = t.Name, documents = t.Documents, estimatedBytes = t.EstimatedBytes })
                 .OrderBy(t => t.name, StringComparer.OrdinalIgnoreCase)
                 .ThenByDescending(t => t.estimatedBytes),
         }, Json);
@@ -542,6 +522,67 @@ public static class AuditEndpoints
 
         var error = await tenants.UpdateCollectionAsync(id, request.LookbackDays, request.Settings, ct);
         return error is null ? Results.NoContent() : Error(400, "validation", error);
+    }
+
+    private static void AddUsage(List<(string Key, long Count, double Bytes)> rows, string key, long count, double bytes)
+    {
+        var index = rows.FindIndex(row => string.Equals(row.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            rows.Add((key, count, bytes));
+            return;
+        }
+
+        var current = rows[index];
+        rows[index] = (current.Key, current.Count + count, current.Bytes + bytes);
+    }
+
+    /// <summary>One statistics row per directory. A disabled client is omitted by directory id, so a same-named enabled client stays.</summary>
+    internal static List<(string Name, long Documents, long EstimatedBytes)> TenantBreakdown(
+        IReadOnlyList<(string Key, long Count, double Bytes)> buckets,
+        IEnumerable<ManagedTenant> clients)
+    {
+        var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var client in clients)
+        {
+            if (string.IsNullOrWhiteSpace(client.DirectoryId) || client.DirectoryPending)
+            {
+                continue;
+            }
+
+            names[client.DirectoryId] = client.DisplayName;
+            if (client.Disabled)
+            {
+                disabled.Add(client.DirectoryId);
+            }
+        }
+
+        var rows = new List<(string Name, long Documents, long EstimatedBytes)>();
+        foreach (var bucket in buckets)
+        {
+            if (bucket.Key == "\0other")
+            {
+                rows.Add(("Other clients", bucket.Count, (long)Math.Round(bucket.Bytes)));
+                continue;
+            }
+
+            if (bucket.Key == "\0unknown")
+            {
+                rows.Add(("Unknown", bucket.Count, (long)Math.Round(bucket.Bytes)));
+                continue;
+            }
+
+            if (disabled.Contains(bucket.Key))
+            {
+                continue;
+            }
+
+            var name = names.TryGetValue(bucket.Key, out var known) ? known : bucket.Key;
+            rows.Add((name, bucket.Count, (long)Math.Round(bucket.Bytes)));
+        }
+
+        return rows;
     }
 
     internal static List<FieldFilter> MapFilters(IReadOnlyList<FilterDto>? filters)

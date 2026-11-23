@@ -220,6 +220,13 @@ public sealed class IpRestrictionTests
         Assert.Contains("dotted decimal", error, StringComparison.OrdinalIgnoreCase);
         Assert.False(IpRestriction.TryNormalize("::ffff:192.0.2.1", out _, out error));
         Assert.Contains("IPv4", error, StringComparison.OrdinalIgnoreCase);
+        Assert.True(IpRestriction.TryNormalize("2001:db8::192.0.2.1", out canonical, out error));
+        Assert.Null(error);
+        Assert.Equal("2001:db8::c000:201", canonical);
+        Assert.True(IpRestriction.TryNormalize("fe80::192.168.1.1", out canonical, out error));
+        Assert.Equal("fe80::c0a8:101", canonical);
+        Assert.True(IpRestriction.TryNormalize("2001:db8::192.0.2.0/120", out canonical, out error));
+        Assert.Equal("2001:db8::c000:200/120", canonical);
         Assert.False(IpRestriction.TryNormalize("fe80::1%eth0", out _, out error));
         Assert.Contains("zone", error, StringComparison.OrdinalIgnoreCase);
         Assert.True(IpRestriction.TryNormalize("2001:db8::1", out canonical, out error));
@@ -411,6 +418,14 @@ public sealed class ShareBurnTests : IDisposable
     {
         var chars = ((40 * 1024 * 1024 + 16 + 2) / 3) * 4;
         Assert.True(ShareStore.MaxCipherChars >= chars);
+    }
+
+    [Fact]
+    public void Home_list_keeps_text_masking_on_a_collect()
+    {
+        _store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, true, null));
+        var collect = Assert.Single(_store.List("owner"), item => item.Kind == "collect");
+        Assert.True(collect.HideText);
     }
 
     [Fact]

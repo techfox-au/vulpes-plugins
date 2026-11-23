@@ -138,12 +138,11 @@ public abstract class WatermarkCollector : ICollector
         throw rejected!;
     }
 
-    /// <summary>The next UTC day after the floor Graph named, or one day after <paramref name="from"/> when that day was already rejected.</summary>
+    /// <summary>The earliest time Graph named, or one UTC day later when that instant was already rejected.</summary>
     private static DateTimeOffset? AdvancePastFloor(DateTimeOffset from, DateTimeOffset minimum, DateTimeOffset now)
     {
-        var afterNamedDay = new DateTimeOffset(minimum.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
-        var candidate = afterNamedDay > from
-            ? afterNamedDay
+        var candidate = minimum > from
+            ? minimum
             : new DateTimeOffset(from.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
         if (candidate > now)
         {
@@ -190,13 +189,38 @@ public abstract class WatermarkCollector : ICollector
         var path = BuildPath(context, from);
         path += path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         path += "%24orderby=" + Uri.EscapeDataString(OrderByField + " asc");
+        var resumeUrl = SavedResume(context, context.State);
+        if (resumeUrl is null)
+        {
+            return await ReadOldestPagesAsync(context, path, moved, cancellationToken);
+        }
+
+        try
+        {
+            return await ReadOldestPagesAsync(context, resumeUrl, moved, cancellationToken);
+        }
+        catch (GraphException ex) when (IsRejectedContinuation(ex))
+        {
+            context.Logger.LogDebug("{Source} continuation link was rejected; reading the window from the watermark", Source);
+            SaveContinuation(context, null, null);
+            return await ReadOldestPagesAsync(context, path, moved, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Oldest-first lists. A partial run stores the Graph next page and leaves the watermark where it is
+    /// when every record read is still inside the overlap. Restarting at watermark minus overlap would repeat that slice.
+    /// </summary>
+    private async Task<CollectorResult> ReadOldestPagesAsync(CollectorContext context, string path, string? moved, CancellationToken cancellationToken)
+    {
         var buffer = new List<SecurityEvent>(500);
         DateTimeOffset? max = null;
         var totals = (Indexed: 0, Duplicates: 0, Failed: 0, Alerts: 0);
         var complete = true;
         var seen = 0;
+        string? resume = null;
 
-        await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun, cancellationToken, UseBeta, c => complete &= c))
+        await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun, cancellationToken, UseBeta, c => complete &= c, url => resume = url))
         {
             if (Map(context, record) is not { } mapped)
             {
@@ -229,8 +253,17 @@ public abstract class WatermarkCollector : ICollector
             return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, "Elasticsearch rejected records; the watermark was not moved");
         }
 
-        // Oldest-first: a partial run has ingested everything from the window start through max.
-        // The next run continues after max. An empty finished run moves the watermark to now.
+        if (!complete)
+        {
+            SaveContinuation(context, resume, null);
+        }
+        else
+        {
+            SaveContinuation(context, null, null);
+        }
+
+        // Oldest-first: a finished run moves the watermark through the newest record read.
+        // An empty finished run moves the watermark to now. A partial run moves it only past the previous watermark.
         DateTimeOffset? newWatermark = max ?? (complete ? context.Checkpoint.Watermark ?? context.Now : context.Checkpoint.Watermark);
         if (newWatermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark))
         {
@@ -238,7 +271,7 @@ public abstract class WatermarkCollector : ICollector
         }
 
         var reason = context.OutOfTime ? "time budget" : "page budget";
-        var partial = complete ? null : $"partial run: {seen} records read ({reason}), resuming from {newWatermark:O}";
+        var partial = complete ? null : $"partial run: {seen} records read ({reason}), continuing from the saved page";
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, complete, partial ?? moved);
     }
 

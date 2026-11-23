@@ -1,4 +1,5 @@
 import { requireUserDataKey } from '/assets/js/data-key.js?v=shell391';
+import { sendLinkNote } from './link-note.js?v=note1';
 
 const pub = '/plugins/secret-sharing/public';
 const FILE_LIMIT = 40 * 1024 * 1024;
@@ -12,7 +13,7 @@ export async function mount(el, ctx) {
   const root = el.querySelector('#send-root');
   await loadCrypto();
   await loadScript(`${pub}/transfer.js?v=crypto6`);
-  await loadScript(`${pub}/cidr.js?v=crypto4`);
+  await loadScript(`${pub}/cidr.js?v=crypto6`);
   const { h, dropdown, filePicker, copyToClipboard } = ctx.ui;
   const field = (label, control) => h('div', { class: 'field' }, h('label', null, label), control);
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. VPN credentials', autocomplete: 'off' });
@@ -43,6 +44,7 @@ export async function mount(el, ctx) {
   let banner = null;
   let linkCount = 0;
   let anyPassword = false;
+  let anyKey = false;
   const syncKind = () => {
     const isFile = fileRadio.checked;
     textPanel.hidden = isFile;
@@ -167,17 +169,12 @@ export async function mount(el, ctx) {
       errors.replaceChildren();
       linkCount += 1;
       anyPassword = anyPassword || passwordProtected;
+      anyKey = anyKey || !passwordProtected;
       if (!banner) {
         banner = h('div', { class: 'alert warning' });
         results.append(banner);
       }
-      banner.textContent = anyPassword
-        ? (linkCount > 1
-          ? 'Save these links and share the password separately. Vulpes never sees the password or the unwrapped key.'
-          : 'Save this link and share the password separately. Vulpes never sees the password or the unwrapped key.')
-        : (linkCount > 1
-          ? 'Save these links now. The links include the decryption key in the # fragment. Vulpes cannot show the key again.'
-          : 'Save this link now. The link includes the decryption key in the # fragment. Vulpes cannot show the key again.');
+      banner.textContent = sendLinkNote(linkCount, anyPassword, anyKey);
       const copy = h('button', { class: 'btn primary', type: 'button' }, 'Copy link');
       const download = h('button', { class: 'btn', type: 'button' }, 'Download .txt');
       const panel = h('div', { class: 'card col' },

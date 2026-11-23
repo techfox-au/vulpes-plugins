@@ -1,5 +1,6 @@
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/plugin.json
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/js/collect.js
+/Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/js/link-note.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/js/send.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/js/settings.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/pages/collect.html

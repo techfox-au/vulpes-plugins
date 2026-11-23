@@ -68,6 +68,31 @@ public sealed class RoleAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task Account_email_changes_are_what_secret_mail_uses()
+    {
+        var admin = await AdminAsync();
+        var smtp = await admin.SendAsync(HttpMethod.Put, "/api/admin/settings/smtp", new { host = "smtp.contoso.com", port = 587, security = "StartTls", username = "mailer", password = "s3cret-password", fromAddress = "alerts@contoso.com", fromName = "Alerts", defaultRecipients = new[] { "soc@contoso.com" }, enabled = true });
+        Assert.Equal(HttpStatusCode.OK, smtp.StatusCode);
+        var (user, userId, _) = await UserWithRoleAsync(admin, "Analyst", "mailchange");
+        var turnedOn = await user.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
+        Assert.Equal("mailchange@example.com", turnedOn.GetProperty("email").GetString());
+
+        var moved = await admin.SendAsync(HttpMethod.Patch, $"/api/admin/users/{userId}", new { email = "moved@example.com" });
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        var afterMove = await user.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/notifications");
+        Assert.Equal("moved@example.com", afterMove.GetProperty("email").GetString());
+        Assert.True(afterMove.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.True(afterMove.GetProperty("notifySendOpened").GetBoolean());
+
+        var cleared = await admin.SendAsync(HttpMethod.Patch, $"/api/admin/users/{userId}", new { email = "" });
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        var afterClear = await user.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/notifications");
+        Assert.Equal(JsonValueKind.Null, afterClear.GetProperty("email").ValueKind);
+        Assert.False(afterClear.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.False(afterClear.GetProperty("notifySendOpened").GetBoolean());
+    }
+
+    [Fact]
     public async Task Send_payload_requires_a_proof_before_it_looks_up_the_secret()
     {
         var anon = NewClient();
@@ -119,6 +144,11 @@ public sealed class RoleAccessTests : IDisposable
     {
         var client = NewClient();
         var setup = await client.SendAsync(HttpMethod.Post, "/auth/setup", new { token = ShareHostFactory.SetupToken, username = "admin", displayName = "Admin", email = "admin@example.com", password = "correct horse battery staple 42" });
+        if (setup.StatusCode == HttpStatusCode.Conflict)
+        {
+            return await LoginAsync("admin", "correct horse battery staple 42");
+        }
+
         Assert.Equal(HttpStatusCode.OK, setup.StatusCode);
         client.Reset();
         return client;

@@ -19,10 +19,17 @@ export async function mount(el, ctx) {
   let savedSend = !!prefs.notifySendOpened;
   const mailConfigured = prefs.mailConfigured === true;
   const noEmail = !mailConfigured || !prefs.email;
-  if (noEmail) {
-    if (collect) collect.disabled = true;
-    send.disabled = true;
+  function lockMailSwitches() {
+    if (!noEmail) {
+      if (collect) collect.disabled = false;
+      send.disabled = false;
+      return;
+    }
+    // A switch that is already on can still be turned off. A switch that is off stays off until mail is configured.
+    if (collect) collect.disabled = !collect.checked;
+    send.disabled = !send.checked;
   }
+  lockMailSwitches();
 
   async function save() {
     if (collect) collect.disabled = true;
@@ -42,10 +49,7 @@ export async function mount(el, ctx) {
       send.checked = savedSend;
       panelNote(note, err.message || 'Could not save settings.');
     } finally {
-      if (!noEmail) {
-        if (collect) collect.disabled = false;
-        send.disabled = false;
-      }
+      lockMailSwitches();
     }
   }
 
@@ -75,7 +79,7 @@ function loadCidr() {
   if (window.SecretCidr) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = '/plugins/secret-sharing/public/cidr.js?v=crypto4';
+    script.src = '/plugins/secret-sharing/public/cidr.js?v=crypto6';
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Could not check the address list.'));
     document.head.append(script);
@@ -122,19 +126,26 @@ async function mountRetrieveIps(root, ctx) {
   setTimeout(refreshIpRestrictions, 3500);
   save.addEventListener('click', async () => {
     save.disabled = true;
+    list.disabled = true;
+    const submitted = list.value;
     try {
-      const parsed = window.SecretCidr.parseAllowedCidr(list.value);
+      const parsed = window.SecretCidr.parseAllowedCidr(submitted);
       if (!parsed.ok) {
         panelNote(note, parsed.error);
         return;
       }
       const next = await ctx.api.put(`${ctx.plugin.apiBase}/collect-retrieve-ips`, { allowedIps: parsed.value || '' });
-      list.value = next.allowedIps || '';
-      panelNote(note, 'Saved.', 'success');
+      if (list.value === submitted) {
+        list.value = next.allowedIps || '';
+        panelNote(note, 'Saved.', 'success');
+      } else {
+        panelNote(note, 'Saved. Save again to keep the newer list in this box.', 'success');
+      }
     } catch (err) {
       panelNote(note, err.message || 'Could not save the address list.');
     } finally {
       save.disabled = false;
+      list.disabled = false;
     }
   });
 }

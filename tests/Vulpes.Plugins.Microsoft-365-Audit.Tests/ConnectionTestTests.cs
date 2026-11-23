@@ -71,6 +71,25 @@ public sealed class ConnectionTestTests : IDisposable
         Assert.NotNull(_db.Tenants.Single().LastTestResultJson);
     }
 
+    [Fact]
+    public async Task A_forbidden_organisation_read_still_probes_the_collectors()
+    {
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("organization", StringComparison.Ordinal), _ => FakeGraphHandler.Json(new { error = new { code = "Authorization_RequestDenied", message = "Insufficient privileges" } }, HttpStatusCode.Forbidden))
+            .Get(p => p.Contains("auditLogs/signIns", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([]))
+            .Get(p => p.Contains("security/alerts_v2", StringComparison.Ordinal), _ => FakeGraphHandler.Json(new { error = new { code = "Authorization_RequestDenied", message = "denied" } }, HttpStatusCode.Forbidden));
+        var service = Service(handler, new SignInsCollector(), new SecurityAlertsCollector());
+
+        var result = await service.TestConnectionAsync(_db.Tenants.Single(), CancellationToken.None);
+
+        Assert.True(result.TokenAcquired);
+        Assert.Null(result.OrganizationName);
+        Assert.Contains("403", result.Error, StringComparison.Ordinal);
+        Assert.Equal("ok", result.Probes.Single(p => p.Source == "signins").Status);
+        Assert.Equal("forbidden", result.Probes.Single(p => p.Source == "security-alerts").Status);
+        Assert.Contains("\"tokenAcquired\":true", _db.Tenants.Single().LastTestResultJson, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         _db.Dispose();

@@ -1,18 +1,24 @@
-import { kpiCard } from './common.js?v=shell368';
+import { kpiCard } from './common.js?v=shell373';
 
 let timer;
+let mountGeneration = 0;
 
 export async function mount(el, ctx) {
+  const generation = ++mountGeneration;
+  clearInterval(timer);
+  timer = null;
   ctx.setTitle(['Statistics']);
   const { h } = ctx.ui;
   el.querySelector('[data-role="actions"]').append(
     h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: () => render(el, ctx) }, ctx.ui.icon('refresh')),
   );
   await render(el, ctx);
-  timer = setInterval(() => render(el, ctx), 60000);
+  if (generation !== mountGeneration) return;
+  timer = setInterval(() => { if (generation === mountGeneration) render(el, ctx); }, 60000);
 }
 
 export function unmount() {
+  mountGeneration += 1;
   clearInterval(timer);
   timer = null;
 }

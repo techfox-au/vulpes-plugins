@@ -88,7 +88,13 @@ public sealed class TenantServiceTests : IDisposable
 
         events.Fail = true;
         await service.SyncFromDirectoryAsync([], application, CancellationToken.None);
-        Assert.Equal(kept, Assert.Single(_db.Tenants).Id);
+        var waiting = Assert.Single(_db.Tenants);
+        Assert.Equal(kept, waiting.Id);
+        Assert.False(waiting.Enabled);
+
+        events.Fail = false;
+        await service.SyncFromDirectoryAsync([], application, CancellationToken.None);
+        Assert.Empty(_db.Tenants);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
@@ -30,6 +31,8 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         {
             if (!await DeleteStoredEventsAsync(gone, ct))
             {
+                // A running collector blocked the delete. Stop every other feed until the next sync can remove the row.
+                gone.Enabled = false;
                 continue;
             }
 
@@ -262,6 +265,7 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         var testedAt = timeProvider.GetUtcNow();
         GraphClient? graph = null;
         string? organization = null;
+        string? orgNote = null;
         try
         {
             try
@@ -272,6 +276,12 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
                 {
                     organization = value[0].Str("displayName");
                 }
+            }
+            catch (GraphException ex) when (ex.StatusCode == HttpStatusCode.Forbidden && graph is not null)
+            {
+                // The token was issued. Directory.Read.All is missing, and the collector probes still apply.
+                logger.LogWarning(ex, "Organisation read was refused for tenant {Tenant}", tenant.DisplayName);
+                orgNote = Sanitize(ex.Message);
             }
             catch (Exception ex) when (TestFailure(ex, ct))
             {
@@ -318,7 +328,7 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             }
         }
 
-        var result = new ConnectionTestResult(true, organization, null, probes, testedAt);
+        var result = new ConnectionTestResult(true, organization, orgNote, probes, testedAt);
         await StoreTestResultAsync(tenant, result, ct);
         return result;
         }

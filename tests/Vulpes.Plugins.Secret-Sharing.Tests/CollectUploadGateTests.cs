@@ -1,8 +1,10 @@
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
 using Vulpes.Plugins.SecretSharing.Data;
 using Vulpes.Plugins.SecretSharing.Services;
@@ -44,6 +46,85 @@ public sealed class CollectUploadGateTests : IDisposable
     }
 
     [Fact]
+    public async Task A_lockout_leaves_a_solved_upload_proof_in_place()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "lockout.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var remote = IPAddress.Parse("203.0.113.50");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(remote.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: remote, scan: scan);
+        Assert.False(locked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
+    }
+
+    [Fact]
+    public async Task A_lockout_behind_a_known_proxy_leaves_the_upload_proof_in_place()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "proxy-lockout.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var visitor = IPAddress.Parse("203.0.113.50");
+        var proxy = IPAddress.Parse("192.0.2.10");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(visitor.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: proxy, scan: scan, forwardedFor: visitor.ToString(), knownProxy: proxy);
+        Assert.False(locked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
+    }
+
+    [Fact]
+    public async Task A_forwarded_address_with_a_port_still_sees_the_visitor_lockout()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "port-lockout.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var visitor = IPAddress.Parse("203.0.113.50");
+        var proxy = IPAddress.Parse("192.0.2.10");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(visitor.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: proxy, scan: scan, forwardedFor: visitor + ":54321", knownProxy: proxy);
+        Assert.False(locked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+    }
+
+    [Fact]
+    public async Task A_trailing_slash_does_not_burn_the_upload_proof()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "slash.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var slashed = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, "/api/plugins/secret-sharing/public/collects/" + id + "/");
+        Assert.False(slashed.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, slashed.MaxRequestBodySize);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, PowClock.Stamp(DateTimeOffset.UtcNow)));
+    }
+
+    [Fact]
     public async Task A_valid_proof_burns_before_the_collect_is_looked_up()
     {
         var database = new ShareDatabase(Path.Combine(_dir, "missing.db"));
@@ -61,16 +142,24 @@ public sealed class CollectUploadGateTests : IDisposable
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
-    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null)
+    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null, IPAddress? remote = null, ShareScanGuard? scan = null, string? forwardedFor = null, IPAddress? knownProxy = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(database);
         services.AddSingleton(pow);
         services.AddSingleton(store);
+        services.AddSingleton(scan ?? new ShareScanGuard(database, new GatePowPolicy()));
+        if (knownProxy is not null)
+        {
+            services.Configure<ForwardedHeadersOptions>(options => options.KnownProxies.Add(knownProxy));
+        }
+
         var provider = services.BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = provider };
+        if (remote is not null) context.Connection.RemoteIpAddress = remote;
         context.Request.Method = HttpMethods.Post;
         context.Request.Path = path ?? "/api/plugins/secret-sharing/public/collects/" + id;
+        if (forwardedFor is not null) context.Request.Headers["X-Forwarded-For"] = forwardedFor;
         context.Request.Headers.Cookie = PowBrowser.CookieName + "=" + browser;
         if (challenge is not null)
         {

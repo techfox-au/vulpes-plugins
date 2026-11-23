@@ -48,6 +48,12 @@ public sealed class PurviewAuditCollector : ICollector
         var start = context.Checkpoint.Watermark is { } wm ? wm - overlap : now.AddDays(-Math.Clamp(context.Tenant.LookbackDays, 1, 180));
         var latest = now - lag;
         var end = start + maxWindow < latest ? start + maxWindow : latest;
+        // An overlap at least as long as the window would end on or before the watermark and then repeat.
+        if (context.Checkpoint.Watermark is { } held && end <= held && latest > held)
+        {
+            start = held;
+            end = start + maxWindow < latest ? start + maxWindow : latest;
+        }
         if (end - start < TimeSpan.FromMinutes(5))
         {
             return CollectorResult.Empty("window too small; waiting for more data");

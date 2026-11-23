@@ -19,7 +19,7 @@ public sealed class SignInsCollector : ICollector
         ArgumentNullException.ThrowIfNull(context);
         var interactive = new Interactive();
         var result = await interactive.CollectAsync(context, cancellationToken);
-        if (!context.Settings.IncludeNonInteractive || !result.Complete)
+        if (!result.Complete)
         {
             return result;
         }
@@ -95,8 +95,13 @@ public sealed class SignInsCollector : ICollector
         /// <summary>Shares the sign-in checkpoint with the interactive feed, so its cursor uses its own keys.</summary>
         protected override string StatePrefix => "nonInteractive";
 
-        protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
-            $"auditLogs/signIns?$filter=createdDateTime%20ge%20{OData.Timestamp(from)}%20and%20signInEventTypes/any(t:%20t%20eq%20'nonInteractiveUser'%20or%20t%20eq%20'servicePrincipal'%20or%20t%20eq%20'managedIdentity')&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
+        protected override string BuildPath(CollectorContext context, DateTimeOffset from)
+        {
+            var types = context.Settings.IncludeNonInteractive
+                ? "t%20eq%20'nonInteractiveUser'%20or%20t%20eq%20'servicePrincipal'%20or%20t%20eq%20'managedIdentity'"
+                : "t%20eq%20'servicePrincipal'%20or%20t%20eq%20'managedIdentity'";
+            return $"auditLogs/signIns?$filter=createdDateTime%20ge%20{OData.Timestamp(from)}%20and%20signInEventTypes/any(t:%20{types})&$top={Math.Clamp(context.Options.GraphPageSize, 1, 999)}";
+        }
 
         protected override (SecurityEvent Event, DateTimeOffset Timestamp)? Map(CollectorContext context, JsonElement record)
         {
@@ -236,7 +241,7 @@ public sealed class RiskCollector : ICollector
             watermark = parsed;
         }
 
-        var shadow = new Data.Checkpoint { TenantId = context.Checkpoint.TenantId, Source = context.Checkpoint.Source, Watermark = watermark };
+        var shadow = new Data.Checkpoint { TenantId = context.Checkpoint.TenantId, Source = context.Checkpoint.Source, Watermark = watermark, StateJson = context.Checkpoint.StateJson };
         var shadowContext = new CollectorContext
         {
             Tenant = context.Tenant,
@@ -250,8 +255,10 @@ public sealed class RiskCollector : ICollector
             Deadline = context.Deadline,
         };
         var result = await collector.CollectAsync(shadowContext, cancellationToken);
+        // The shadow started as a copy of the checkpoint and the feed rewrote its own continuation there.
+        // Copy that back so a cleared resume link does not linger on the parent.
         var next = new Dictionary<string, object?>();
-        foreach (var pair in context.State)
+        foreach (var pair in shadowContext.State)
         {
             if (pair.Value.ValueKind == JsonValueKind.String)
             {
@@ -292,6 +299,9 @@ public sealed class RiskCollector : ICollector
 
         protected override string OrderByField => "riskLastUpdatedDateTime";
 
+        /// <summary>Shares the risk checkpoint, so this feed's continuation uses its own keys.</summary>
+        protected override string StatePrefix => "riskyUsers";
+
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"identityProtection/riskyUsers?$filter=riskLastUpdatedDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 500)}";
 
@@ -310,6 +320,9 @@ public sealed class RiskCollector : ICollector
         public override string ProbePath => "identityProtection/riskyServicePrincipals?$top=1";
 
         protected override string OrderByField => "riskLastUpdatedDateTime";
+
+        /// <summary>Shares the risk checkpoint, so this feed's continuation uses its own keys.</summary>
+        protected override string StatePrefix => "riskyServicePrincipals";
 
         protected override string BuildPath(CollectorContext context, DateTimeOffset from) =>
             $"identityProtection/riskyServicePrincipals?$filter=riskLastUpdatedDateTime%20ge%20{OData.Timestamp(from)}&$top={Math.Clamp(context.Options.GraphPageSize, 1, 500)}";

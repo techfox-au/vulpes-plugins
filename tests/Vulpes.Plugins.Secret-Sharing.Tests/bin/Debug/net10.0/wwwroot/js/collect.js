@@ -1,4 +1,5 @@
 import { requireUserDataKey } from '/assets/js/data-key.js?v=shell391';
+import { collectLinkNote } from './link-note.js?v=note1';
 
 const pub = '/plugins/secret-sharing/public';
 const expiryChoices = [
@@ -33,6 +34,8 @@ export async function mount(el, ctx) {
   const results = h('div', { class: 'col' });
   let banner = null;
   let linkCount = 0;
+  let anyPassword = false;
+  let anyKey = false;
   mode.addEventListener('change', () => {
     const multi = mode.value === 'false';
     maxWrap.hidden = !multi;
@@ -110,13 +113,13 @@ export async function mount(el, ctx) {
       const owner = `${location.origin}/collect?id=${encodeURIComponent(created.id)}${fragment}`;
       errors.replaceChildren();
       linkCount += 1;
+      anyPassword = anyPassword || !!linkPassword;
+      anyKey = anyKey || !linkPassword;
       if (!banner) {
         banner = h('div', { class: 'alert warning' });
         results.append(banner);
       }
-      banner.textContent = linkCount > 1
-        ? 'Save the collect links now. Each collect link’s # fragment is your private key. Send only the upload link.'
-        : 'Save the collect link now. Its # fragment is your private key. Send only the upload link.';
+      banner.textContent = collectLinkNote(linkCount, anyPassword, anyKey);
       const copyUpload = h('button', { class: 'btn primary', type: 'button' }, 'Copy upload link');
       const copyCollect = h('button', { class: 'btn primary', type: 'button' }, 'Copy collect link');
       const download = h('button', { class: 'btn', type: 'button' }, 'Download .txt');

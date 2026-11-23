@@ -104,11 +104,27 @@ public static class ShareEndpoints
         return Results.Json(new { items });
     }
 
-    private static async Task<IResult> CreateSend(SendBody body, HttpContext http, ShareStore store, IClientIpCapability ipCap, IHostAuditLog audit)
+    internal static int ExpiryMinutes(int hours, int minutes)
+    {
+        if (minutes > 0)
+        {
+            return minutes;
+        }
+
+        if (hours <= 0)
+        {
+            return 0;
+        }
+
+        var scaled = (long)hours * 60L;
+        return scaled > int.MaxValue ? int.MaxValue : (int)scaled;
+    }
+
+    private static async Task<IResult> CreateSend(SendBody body, HttpContext http, ShareStore store, IClientIpCapability ipCap, IUserEmail accounts, IHostAuditLog audit)
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
-        var minutes = body.ExpiresInMinutes > 0 ? body.ExpiresInMinutes : body.ExpiresInHours > 0 ? body.ExpiresInHours * 60 : 0;
+        var minutes = ExpiryMinutes(body.ExpiresInHours, body.ExpiresInMinutes);
         if (minutes is < 1 or > 64800)
         {
             return Results.BadRequest(new { error = "validation", message = "Choose an expiry between 1 minute and 45 days." });
@@ -146,7 +162,7 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = OpenCapMessage });
         }
 
-        RememberEmail(http, store, user);
+        await RememberLiveEmail(store, accounts, user);
         var id = store.CreateSend(user, new SendInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), TrimOrNull(body.Filename), body.OneTime, minutes, TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), maxAccess, body.PasswordProtected, body.HideTextByDefault, allowedCidr, TrimOrNull(body.RecipientLabel)));
         await audit.RecordAsync("secret.send.created", id, $"oneTime={body.OneTime} passwordProtected={body.PasswordProtected}", cancellationToken: http.RequestAborted);
         return Results.Json(new { id });
@@ -161,11 +177,11 @@ public static class ShareEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> CreateCollect(CollectBody body, HttpContext http, ShareStore store, IHostAuditLog audit)
+    private static async Task<IResult> CreateCollect(CollectBody body, HttpContext http, ShareStore store, IUserEmail accounts, IHostAuditLog audit)
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
-        var minutes = body.ExpiresInMinutes ?? (body.ExpiresInHours > 0 ? body.ExpiresInHours * 60 : 0);
+        var minutes = body.ExpiresInMinutes ?? ExpiryMinutes(body.ExpiresInHours, 0);
         if (!Base64Url.IsExact(body.PublicKey, 32) || minutes is < 1 or > 64800)
         {
             return Results.BadRequest(new { error = "validation", message = "Choose an expiry between 1 minute and 45 days." });
@@ -202,7 +218,7 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = "The collect name could not be stored." });
         }
 
-        RememberEmail(http, store, user);
+        await RememberLiveEmail(store, accounts, user);
         var id = store.CreateCollect(user, new CollectInput(body.PublicKey, TrimOrNull(body.OwnerPrivateKeyProtected), TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), body.OneTime, minutes, maxAccess, body.PasswordProtected, body.HideTextByDefault, publicLabel));
         await audit.RecordAsync("secret.collect.created", id, $"oneTime={body.OneTime} passwordProtected={body.PasswordProtected}", cancellationToken: http.RequestAborted);
         return Results.Json(new { id });
@@ -429,25 +445,38 @@ public static class ShareEndpoints
         return null;
     }
 
-    private static async Task<IResult> GetNotifications(HttpContext http, ShareStore store, IHostEmail mail)
+    private static async Task<IResult> GetNotifications(HttpContext http, ShareStore store, IHostEmail mail, IUserEmail accounts)
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
-        var email = Email(http);
-        if (email is not null) store.RememberEmail(user, email);
+        var live = await LiveAccountEmail(accounts, user);
         var prefs = store.GetNotifications(user);
+        if (live is null)
+        {
+            if (!string.IsNullOrEmpty(prefs.Email) || prefs.NotifyCollectReady || prefs.NotifySendOpened)
+            {
+                store.SaveNotifications(user, "", false, false);
+                prefs = store.GetNotifications(user);
+            }
+        }
+        else if (!string.Equals(prefs.Email, live, StringComparison.Ordinal))
+        {
+            store.RememberEmail(user, live);
+            prefs = store.GetNotifications(user);
+        }
+
         var canCollect = ShareAccess.CanCollect(http.User);
         var collect = canCollect && prefs.NotifyCollectReady;
         if (prefs.NotifyCollectReady && !canCollect)
         {
-            store.SaveNotifications(user, prefs.Email, false, prefs.NotifySendOpened);
+            store.SaveNotifications(user, live ?? "", false, prefs.NotifySendOpened);
         }
 
         var configured = await mail.IsConfiguredAsync(http.RequestAborted);
-        return NotificationJson(email ?? (string.IsNullOrEmpty(prefs.Email) ? null : prefs.Email), collect, prefs.NotifySendOpened, canCollect, configured);
+        return NotificationJson(live, collect, prefs.NotifySendOpened, canCollect, configured);
     }
 
-    private static async Task<IResult> PutNotifications(NotificationBody body, HttpContext http, ShareStore store, IHostEmail mail, IHostAuditLog audit)
+    private static async Task<IResult> PutNotifications(NotificationBody body, HttpContext http, ShareStore store, IHostEmail mail, IUserEmail accounts, IHostAuditLog audit)
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
@@ -460,15 +489,15 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = "Email is not configured on this server." });
         }
 
-        var email = Email(http) ?? "";
-        if ((collect || send) && email.Length == 0)
+        var live = await LiveAccountEmail(accounts, user);
+        if ((collect || send) && live is null)
         {
             return Results.BadRequest(new { error = "validation", message = "Add an email address to this account before turning on these emails." });
         }
 
-        store.SaveNotifications(user, email, collect, send);
+        store.SaveNotifications(user, live ?? "", collect, send);
         await audit.RecordAsync("secret.notify.changed", user, $"collectReady={collect} sendOpened={send}", cancellationToken: http.RequestAborted);
-        return NotificationJson(email.Length == 0 ? null : email, collect, send, canCollect, configured);
+        return NotificationJson(live, collect, send, canCollect, configured);
     }
 
     private static IResult NotificationJson(string? email, bool collect, bool send, bool canCollect, bool mailConfigured) =>
@@ -496,10 +525,27 @@ public static class ShareEndpoints
 
     private sealed record CollectRetrieveIpsBody(string? AllowedIps);
 
-    private static void RememberEmail(HttpContext http, ShareStore store, string userId)
+    private static async Task RememberLiveEmail(ShareStore store, IUserEmail accounts, string userId)
     {
-        var email = Email(http);
-        if (email is not null) store.RememberEmail(userId, email);
+        var live = await LiveAccountEmail(accounts, userId);
+        if (live is null)
+        {
+            var prefs = store.GetNotifications(userId);
+            if (!string.IsNullOrEmpty(prefs.Email) || prefs.NotifyCollectReady || prefs.NotifySendOpened)
+            {
+                store.SaveNotifications(userId, "", false, false);
+            }
+
+            return;
+        }
+
+        store.RememberEmail(userId, live);
+    }
+
+    private static async Task<string?> LiveAccountEmail(IUserEmail accounts, string userId)
+    {
+        var live = (await accounts.GetEmailAsync(userId))?.Trim();
+        return string.IsNullOrEmpty(live) ? null : live;
     }
 
     private static IResult Gone() =>
@@ -560,12 +606,6 @@ public static class ShareEndpoints
         IpRestriction.AllowsClient(store.AllowedCidr(id), http.Connection.RemoteIpAddress, ipCap.IpRestrictionsEnabled);
 
     private static string? UserId(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-    private static string? Email(HttpContext http)
-    {
-        var value = http.User.FindFirstValue(ClaimTypes.Email);
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
 
     private static string Clip(string? value, string fallback, int max)
     {

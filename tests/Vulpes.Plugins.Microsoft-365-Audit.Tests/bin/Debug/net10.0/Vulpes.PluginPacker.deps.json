@@ -9,7 +9,7 @@
       "Vulpes.PluginPacker/1.0.0": {
         "dependencies": {
           "SharpCompress": "0.50.7",
-          "Vulpes.Sdk": "1.0.1"
+          "Vulpes.Sdk": "1.0.3"
         },
         "runtime": {
           "Vulpes.PluginPacker.dll": {}
@@ -24,11 +24,11 @@
           }
         }
       },
-      "Vulpes.Sdk/1.0.1": {
+      "Vulpes.Sdk/1.0.3": {
         "runtime": {
           "Vulpes.Sdk.dll": {
-            "assemblyVersion": "1.0.1.0",
-            "fileVersion": "1.0.1.0"
+            "assemblyVersion": "1.0.3.0",
+            "fileVersion": "1.0.3.0"
           }
         }
       }
@@ -47,7 +47,7 @@
       "path": "sharpcompress/0.50.7",
       "hashPath": "sharpcompress.0.50.7.nupkg.sha512"
     },
-    "Vulpes.Sdk/1.0.1": {
+    "Vulpes.Sdk/1.0.3": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

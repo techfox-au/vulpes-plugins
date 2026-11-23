@@ -117,4 +117,53 @@ public sealed class NormalizerEdgeCaseTests
         Assert.Equal("success", e.Outcome);
         Assert.Equal("purview.exchange", e.Dataset);
     }
+
+    [Fact]
+    public void Exchange_admin_false_is_a_failure_and_a_sts_logon_error_is_not_a_success()
+    {
+        var failedCmdlet = Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"e2","createdDateTime":"2026-10-29T10:03:11Z","auditLogRecordType":"exchangeAdmin","operation":"New-InboxRule","userPrincipalName":"bob@contoso.com","auditData":{"Workload":"Exchange","ResultStatus":"False"}}"""), "t", null);
+        Assert.Equal("failure", failedCmdlet!.Outcome);
+
+        var failedLogon = Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"e3","createdDateTime":"2026-10-29T10:04:11Z","auditLogRecordType":"azureActiveDirectoryStsLogon","operation":"UserLoginFailed","userPrincipalName":"bob@contoso.com","auditData":{"Workload":"AzureActiveDirectory","ResultStatus":"Succeeded","LogonError":"InvalidPassword"}}"""), "t", null);
+        Assert.Equal("failure", failedLogon!.Outcome);
+
+        var signedIn = Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"e4","createdDateTime":"2026-10-29T10:05:11Z","auditLogRecordType":"azureActiveDirectoryStsLogon","operation":"UserLoggedIn","userPrincipalName":"bob@contoso.com","auditData":{"Workload":"AzureActiveDirectory","ResultStatus":"Succeeded"}}"""), "t", null);
+        Assert.Equal("success", signedIn!.Outcome);
+    }
+
+    [Fact]
+    public void Mailbox_access_uses_the_client_description_instead_of_the_app_id()
+    {
+        var e = Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"e5","createdDateTime":"2026-10-29T10:06:11Z","auditLogRecordType":"exchangeItem","operation":"MailItemsAccessed","userPrincipalName":"bob@contoso.com","auditData":{"Workload":"Exchange","ResultStatus":"Success","ClientAppId":"00000002-0000-0ff1-ce00-000000000000","ClientInfoString":"Client=ActiveSync;Apple-iPhone/1309.63"}}"""), "t", null);
+        Assert.Equal("Client=ActiveSync;Apple-iPhone/1309.63", e!.ClientAppName);
+    }
+
+    [Fact]
+    public void Directory_timeout_is_a_failure()
+    {
+        var timedOut = Directory("timeout");
+        Assert.Equal("failure", timedOut.Outcome);
+        Assert.Contains("(timeout)", timedOut.Message, StringComparison.Ordinal);
+
+        Assert.Equal("success", Directory("success").Outcome);
+        Assert.Equal("failure", Directory("failure").Outcome);
+        Assert.Equal("unknown", Directory("unknownFutureValue").Outcome);
+    }
+
+    private static SecurityEvent Directory(string result)
+    {
+        var parsed = Normalizers.DirectoryAudit(JsonSerializer.SerializeToElement(new JsonObject
+        {
+            ["id"] = "d1",
+            ["activityDateTime"] = "2026-10-28T23:44:01Z",
+            ["result"] = result,
+            ["activityDisplayName"] = "Update user",
+            ["initiatedBy"] = new JsonObject
+            {
+                ["user"] = new JsonObject { ["userPrincipalName"] = "admin@contoso.com" },
+            },
+        }), "t", null);
+        Assert.NotNull(parsed);
+        return parsed;
+    }
 }

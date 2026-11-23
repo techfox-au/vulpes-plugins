@@ -81,12 +81,16 @@ public sealed class CollectorTests
     public async Task Non_interactive_sign_ins_can_be_disabled_per_tenant()
     {
         var handler = new RoutedGraphHandler()
-            .Get(p => p.Contains("/beta/", StringComparison.Ordinal), _ => throw new InvalidOperationException("beta must not be called"))
+            .Get(p => p.Contains("/beta/", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([]))
             .Get(p => p.Contains("/v1.0/auditLogs/signIns", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([]));
         var context = TestContext.Context(TestContext.Client(handler), new FakePipeline(), settings: new SourceSettings { IncludeNonInteractive = false });
         var result = await new SignInsCollector().CollectAsync(context, CancellationToken.None);
         Assert.True(result.Complete);
-        Assert.Single(handler.Requests);
+        var beta = Assert.Single(handler.Requests, r => r.RequestUri!.AbsolutePath.Contains("/beta/", StringComparison.Ordinal));
+        var filter = Uri.UnescapeDataString(beta.RequestUri!.Query);
+        Assert.Contains("servicePrincipal", filter, StringComparison.Ordinal);
+        Assert.Contains("managedIdentity", filter, StringComparison.Ordinal);
+        Assert.DoesNotContain("nonInteractiveUser", filter, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -146,7 +150,7 @@ public sealed class CollectorTests
                     error = new
                     {
                         code = "UnknownError",
-                        message = "Specified argument was out of the range of valid values. (Parameter 'Minimum allowed time for activityDateTime is 10/9/2026 12:00:00\u202fAM')",
+                        message = "Specified argument was out of the range of valid values. (Parameter 'Minimum allowed time for activityDateTime is 10/15/2026 12:00:00\u202fAM')",
                     },
                 }, HttpStatusCode.BadRequest);
             }
@@ -160,6 +164,7 @@ public sealed class CollectorTests
             var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "directory" };
             var result = await new DirectoryAuditsCollector().CollectAsync(TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, time: time), CancellationToken.None);
             Assert.True(result.Complete);
+            Assert.Equal(accepted, calls[1]);
             Assert.Contains(calls, sent => sent >= accepted);
             Assert.NotNull(checkpoint.Watermark);
             var again = checkpoint.Watermark.Value - TimeSpan.FromMinutes(new AuditOptions().LogOverlapMinutes);
@@ -187,6 +192,53 @@ public sealed class CollectorTests
         Assert.Equal("Add member to role", e.Action);
         Assert.Equal("medium", e.Severity);
         Assert.Equal("x@contoso.com", e.Labels!["targetName"]);
+    }
+
+    [Fact]
+    public async Task A_partial_directory_run_inside_the_overlap_continues_from_the_saved_page()
+    {
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("skiptoken=next", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+            [
+                new { id = "d2", activityDateTime = Now.AddMinutes(5).ToString("O", CultureInfo.InvariantCulture), activityDisplayName = "later" },
+            ]))
+            .Get(p => p.Contains("directoryAudits", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+            [
+                new { id = "d1", activityDateTime = Now.AddMinutes(-20).ToString("O", CultureInfo.InvariantCulture), activityDisplayName = "earlier" },
+            ], "https://graph.microsoft.com/v1.0/auditLogs/directoryAudits?$skiptoken=next"));
+        var pipeline = new FakePipeline();
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "directory", Watermark = Now };
+        var options = new AuditOptions { MaxPagesPerRun = 1 };
+
+        var first = await new DirectoryAuditsCollector().CollectAsync(TestContext.Context(TestContext.Client(handler), pipeline, checkpoint, options), CancellationToken.None);
+        Assert.False(first.Complete);
+        Assert.Equal(Now, checkpoint.Watermark);
+        Assert.Contains("skiptoken=next", checkpoint.StateJson, StringComparison.Ordinal);
+
+        var second = await new DirectoryAuditsCollector().CollectAsync(TestContext.Context(TestContext.Client(handler), pipeline, checkpoint, options), CancellationToken.None);
+        Assert.True(second.Complete);
+        Assert.Equal(Now.AddMinutes(5), checkpoint.Watermark);
+        Assert.Contains(pipeline.Events, e => e.RecordId == "d2");
+        Assert.DoesNotContain("skiptoken", checkpoint.StateJson ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Purview_window_still_moves_when_the_overlap_covers_the_window()
+    {
+        string? createdBody = null;
+        var handler = new RoutedGraphHandler()
+            .Post(p => p.EndsWith("security/auditLog/queries", StringComparison.Ordinal), r =>
+            {
+                createdBody = r.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return FakeGraphHandler.Json(new { id = "q-short", status = "notStarted" }, HttpStatusCode.Created);
+            });
+        var time = new FakeTimeProvider(Now);
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "activity", Watermark = Now.AddHours(-6) };
+        var options = new AuditOptions { PurviewLagMinutes = 15, PurviewOverlapMinutes = 60, PurviewMaxWindowHours = 1 };
+        await new PurviewAuditCollector().CollectAsync(TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, options, time: time), CancellationToken.None);
+        using var body = JsonDocument.Parse(createdBody!);
+        Assert.Equal(Now.AddHours(-6).UtcDateTime, body.RootElement.GetProperty("filterStartDateTime").GetDateTime());
+        Assert.Equal(Now.AddHours(-5).UtcDateTime, body.RootElement.GetProperty("filterEndDateTime").GetDateTime());
     }
 
     [Fact]
@@ -276,6 +328,35 @@ public sealed class CollectorTests
         Assert.Equal(["detection", "user", "servicePrincipal"], pipeline.Events.Select(e => e.Labels!["riskType"]).ToArray());
         Assert.All(pipeline.Events, e => Assert.Equal("risk", e.Source));
         Assert.StartsWith("detection:rd1:", pipeline.Events[0].RecordId, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_partial_risky_user_run_continues_from_its_own_saved_page()
+    {
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("skiptoken=users", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+            [
+                new { id = "u2", riskLevel = "high", riskState = "atRisk", riskLastUpdatedDateTime = Now.AddMinutes(5).ToString("O", CultureInfo.InvariantCulture), userPrincipalName = "later@contoso.com" },
+            ]))
+            .Get(p => p.Contains("riskyUsers", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+            [
+                new { id = "u1", riskLevel = "low", riskState = "atRisk", riskLastUpdatedDateTime = Now.AddMinutes(-20).ToString("O", CultureInfo.InvariantCulture), userPrincipalName = "earlier@contoso.com" },
+            ], "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?$skiptoken=users"))
+            .Get(p => p.Contains("riskDetections", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([]))
+            .Get(p => p.Contains("riskyServicePrincipals", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([]));
+        var pipeline = new FakePipeline();
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "risk", StateJson = """{"riskyUsersWatermark":"2026-10-30T12:00:00.0000000+00:00"}""" };
+        var options = new AuditOptions { MaxPagesPerRun = 1 };
+
+        var first = await new RiskCollector().CollectAsync(TestContext.Context(TestContext.Client(handler), pipeline, checkpoint, options), CancellationToken.None);
+        Assert.False(first.Complete);
+        Assert.Contains("riskyUsersResumeUrl", checkpoint.StateJson, StringComparison.Ordinal);
+        Assert.Contains("skiptoken=users", checkpoint.StateJson, StringComparison.Ordinal);
+
+        var second = await new RiskCollector().CollectAsync(TestContext.Context(TestContext.Client(handler), pipeline, checkpoint, options), CancellationToken.None);
+        Assert.True(second.Complete);
+        Assert.Contains(pipeline.Events, e => e.RecordId.StartsWith("user:u2:", StringComparison.Ordinal));
+        Assert.DoesNotContain("skiptoken=users", checkpoint.StateJson ?? string.Empty, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -11,7 +11,7 @@ public sealed class SourceSettings
     /// <summary>Overrides the plugin default interval.</summary>
     public int? IntervalMinutes { get; set; }
 
-    /// <summary>Sign-ins only: also pull non-interactive, service-principal and managed-identity sign-ins (beta endpoint).</summary>
+    /// <summary>Sign-ins only: also pull non-interactive user sign-ins. Service principals and managed identities stay on.</summary>
     public bool IncludeNonInteractive { get; set; } = true;
 
     /// <summary>Purview only: record types to query; null uses the plugin default.</summary>

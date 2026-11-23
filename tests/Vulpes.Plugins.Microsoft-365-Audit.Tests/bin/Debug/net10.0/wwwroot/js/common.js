@@ -27,8 +27,114 @@ function customDayBounds(start, end) {
     return { error: 'Choose a real start date and end date.' };
   }
   if (to < from) return { error: 'The end date is before the start date.' };
-  if ((to - from) / 86400000 > 730) return { error: 'A custom range can cover at most 730 days.' };
+  // Calendar dates, so a daylight-saving hour does not push a 730-day span over the cap.
+  const span = Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / 86400000);
+  if (span > 729) return { error: 'A custom range can cover at most 730 days.' };
   return { from: from.toISOString(), to: to.toISOString() };
+}
+
+export { customDayBounds };
+
+const MONTHS = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4, may: 5,
+  june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sep: 9, sept: 9,
+  october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
+};
+
+// Date.UTC treats years 0–99 as 1900–1999. Compare against that so year 0001 still counts.
+function calendarDay(year, month, day) {
+  if (month < 1 || month > 12 || day < 1) return false;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  const mappedYear = year >= 0 && year <= 99 ? year + 1900 : year;
+  return probe.getUTCFullYear() === mappedYear && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day;
+}
+
+function zoneFits(zone) {
+  if (zone.toUpperCase() === 'Z') return true;
+  const digits = zone.slice(1).replace(':', '');
+  if (!/^\d{4}$/.test(digits)) return false;
+  const zoneHour = Number(digits.slice(0, 2));
+  const zoneMinute = Number(digits.slice(2, 4));
+  // DateTimeOffset accepts an offset of at most 14 hours, and only :00 at that edge.
+  return zoneHour <= 14 && zoneMinute <= 59 && !(zoneHour === 14 && zoneMinute !== 0);
+}
+
+function clockFits(rest) {
+  const match = /^(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?([zZ]|[+-]\d{2}:?\d{2})?$/.exec(rest);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = match[3] === undefined ? 0 : Number(match[3]);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  return !match[4] || zoneFits(match[4]);
+}
+
+function namedDay(value) {
+  const ahead = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/.exec(value);
+  if (ahead && MONTHS[ahead[1].toLowerCase()]) return calendarDay(Number(ahead[3]), MONTHS[ahead[1].toLowerCase()], Number(ahead[2]));
+  const behind = /^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/.exec(value);
+  if (behind && MONTHS[behind[2].toLowerCase()]) return calendarDay(Number(behind[3]), MONTHS[behind[2].toLowerCase()], Number(behind[1]));
+  return null;
+}
+
+function dateFits(value) {
+  if (Number.isNaN(Date.parse(value))) return false;
+  // A bare year parses as 1 January in the browser and is rejected by the host.
+  if (/^\d{4}$/.test(value)) return false;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:$|[Tt\s](.*)$)/.exec(value);
+  if (iso) return calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3])) && (iso[4] === undefined || clockFits(iso[4]));
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+  if (slash) return calendarDay(Number(slash[3]), Number(slash[1]), Number(slash[2]));
+  const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(value);
+  if (yearSlash) return calendarDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3]));
+  const named = namedDay(value.trim());
+  if (named !== null) return named;
+  return true;
+}
+
+// A leading zero is octal, matching the host IP parser, so 010 is an address and 008 is not.
+function ipv4Octet(part, embedded) {
+  if (embedded) return /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255;
+  if (!/^\d{1,3}$/.test(part)) return false;
+  if (/^0\d/.test(part)) return /^[0-7]+$/.test(part) && Number.parseInt(part, 8) <= 255;
+  return Number(part) <= 255;
+}
+
+function ipv4Fits(value, embedded) {
+  const parts = value.split('.');
+  return parts.length === 4 && parts.every((part) => ipv4Octet(part, embedded));
+}
+
+function ipv6Fits(value) {
+  if (!value.includes(':') || value.includes('%')) return false;
+  const halves = value.split('::');
+  if (halves.length > 2) return false;
+  let count = 0;
+  for (let side = 0; side < halves.length; side++) {
+    if (halves[side] === '') continue;
+    const groups = halves[side].split(':');
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      const end = side === halves.length - 1 && i === groups.length - 1;
+      if (end && group.includes('.')) {
+        if (!ipv4Fits(group, true)) return false;
+        count += 2;
+      } else if (!/^[0-9a-fA-F]{1,4}$/.test(group)) {
+        return false;
+      } else {
+        count += 1;
+      }
+    }
+  }
+  return halves.length === 2 ? count < 8 : count === 8;
+}
+
+export function valueFits(type, value) {
+  if (type === 'date') return dateFits(value);
+  if (type === 'number' || type === 'wholenumber') return value !== '' && !Number.isNaN(Number(value));
+  if (type === 'boolean') return value === 'true' || value === 'false';
+  if (type === 'ip') return ipv4Fits(value, false) || ipv6Fits(value);
+  return true;
 }
 
 export function get(doc, path) {
@@ -223,14 +329,6 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     return text;
   }
 
-  function valueFits(type, value) {
-    if (type === 'date') return !Number.isNaN(Date.parse(value));
-    if (type === 'number' || type === 'wholenumber') return value !== '' && !Number.isNaN(Number(value));
-    if (type === 'boolean') return value === 'true' || value === 'false';
-    if (type === 'ip') return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(':');
-    return true;
-  }
-
   async function addFilterDialog(preset) {
     const fieldSel = ctx.ui.dropdown(state.fields.filter((f) => !selectField(f.path)).map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: preset?.field || '', ariaLabel: 'Field' });
     const opSel = ctx.ui.dropdown(operatorsFor(fieldType(fieldSel.value)), { value: 'equals', ariaLabel: 'Operator' });
@@ -354,6 +452,12 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
   async function load(more) {
     const token = ++loadToken;
     const bounds = currentBounds();
+    if ((state.text || '').length > 256) {
+      state.loading = false;
+      clear(results).append(h('div', { class: 'alert danger' }, 'Search text is limited to 256 characters.'));
+      clear(pager);
+      return;
+    }
     if (bounds?.error) {
       state.loading = false;
       clear(results).append(h('div', { class: 'alert danger' }, bounds.error));

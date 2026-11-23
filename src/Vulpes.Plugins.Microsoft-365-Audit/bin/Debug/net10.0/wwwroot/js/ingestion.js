@@ -1,15 +1,24 @@
-import { statusBadge } from './common.js?v=shell368';
+import { statusBadge } from './common.js?v=shell373';
 
 let timer;
+let mountGeneration = 0;
 // Collector health per tenant and source. Refreshes every 15 seconds (docs/audit-plugin.md).
 export async function mount(el, ctx) {
+  const generation = ++mountGeneration;
+  clearInterval(timer);
+  timer = null;
   const { h } = ctx.ui;
   el.querySelector('[data-role="actions"]').append(h('button', { class: 'btn ghost', 'aria-label': 'Refresh', onClick: () => render(el, ctx) }, ctx.ui.icon('refresh')));
   await render(el, ctx);
-  timer = setInterval(() => render(el, ctx), 15000);
+  if (generation !== mountGeneration) return;
+  timer = setInterval(() => { if (generation === mountGeneration) render(el, ctx); }, 15000);
 }
 
-export function unmount() { clearInterval(timer); timer = null; }
+export function unmount() {
+  mountGeneration += 1;
+  clearInterval(timer);
+  timer = null;
+}
 
 let renderToken = 0;
 async function render(el, ctx) {

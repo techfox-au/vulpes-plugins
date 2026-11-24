@@ -1,28 +1,51 @@
-import { confirmIdentity } from '../reauth.js?v=shell407';
+import { confirmIdentity } from '../reauth.js?v=shell446';
 import { h, icon, table, modal, errorMessage, clear, dropdown, filePicker, panelNote, pageNote, badge } from '../ui.js?v=shell426';
 
 let root;
+let generation = 0;
+let renderToken = 0;
 const plugin = '/api/plugins/microsoft-365-audit';
 
-export async function mount(el, ctx) { root = el; root.classList.add('page-scroll'); ctx.setTitle(['Tenants']); await render(ctx); }
-export function unmount() { root = null; }
+export async function mount(el, ctx) {
+  const gen = ++generation;
+  root = el;
+  root.classList.add('page-scroll');
+  ctx.setTitle(['Tenants']);
+  await render(ctx);
+  return gen;
+}
+export function unmount(gen) {
+  if (gen !== generation) return;
+  generation += 1;
+  root = null;
+}
 
 async function render(ctx) {
-  clear(root);
+  const token = ++renderToken;
+  const gen = generation;
+  const host = root;
+  if (!host || gen !== generation || token !== renderToken) return;
+  clear(host);
   let data;
   try { data = await ctx.api.get('/api/admin/tenants'); }
-  catch (err) { root.append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
+  catch (err) {
+    if (gen !== generation || token !== renderToken || root !== host) return;
+    host.append(h('div', { class: 'alert danger' }, errorMessage(err)));
+    return;
+  }
+  if (gen !== generation || token !== renderToken || root !== host) return;
   const app = data.application || {};
   let pluginReady = false;
   try { await ctx.api.get(plugin + '/sources'); pluginReady = true; } catch { /* collection controls stay hidden */ }
+  if (gen !== generation || token !== renderToken || root !== host) return;
 
-  root.append(h('div', { class: 'page-header' }, h('h1', null, 'Tenants')));
-  root.append(applicationCard(ctx, app, data.permissions || [], data.tenants || []));
+  host.append(h('div', { class: 'page-header' }, h('h1', null, 'Tenants')));
+  host.append(applicationCard(ctx, app, data.permissions || [], data.tenants || []));
   const applicationReady = !!(app.clientId && (app.credentialType === 'certificate' ? app.hasCertificate : app.hasSecret));
-  root.append(h('div', { class: 'page-header' },
+  host.append(h('div', { class: 'page-header' },
     h('h2', null, 'Clients'),
     h('button', { class: 'btn primary', disabled: !applicationReady, title: applicationReady ? undefined : 'Save the application first.', onClick: () => editTenant(ctx, null) }, 'Add client')));
-  root.append(table({
+  host.append(table({
     columns: [
       { title: 'Name', render: (t) => h('div', null, h('strong', null, t.displayName), t.shortName ? h('span', { class: 'small muted' }, ' ' + t.shortName) : null, t.discoveredName && t.discoveredName !== t.displayName ? h('div', { class: 'small muted' }, t.discoveredName) : null) },
       { title: 'Directory id', render: (t) => h('span', { class: 'mono small' }, t.directoryId) },
@@ -30,7 +53,7 @@ async function render(ctx) {
       { title: '', class: 'right', render: (t) => h('div', { class: 'flex' },
         h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); editTenant(ctx, t); } }, 'Edit'),
         pluginReady && !t.disabled ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); collection(ctx, t); } }, 'Collection') : null,
-        pluginReady && !t.disabled ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t, e.currentTarget); } }, 'Test') : null,
+        pluginReady && !t.disabled && t.directoryId ? h('button', { class: 'btn sm', onClick: (e) => { e.stopPropagation(); testTenant(ctx, t, e.currentTarget); } }, 'Test') : null,
         h('button', { class: t.disabled ? 'btn sm' : 'btn sm danger', onClick: (e) => { e.stopPropagation(); setTenantEnabled(ctx, t); } }, t.disabled ? 'Enable' : 'Disable')) },
     ],
     rows: (data.tenants || []).slice().sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' })),

@@ -1,8 +1,8 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
-import * as webauthn from '../webauthn.js?v=shell407';
-import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, replaceAfterTemporaryPassword, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell407';
-import { confirmIdentity as reauth } from '../reauth.js?v=shell407';
+import * as webauthn from '../webauthn.js?v=shell446';
+import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell446';
+import { confirmIdentity as reauth } from '../reauth.js?v=shell446';
 
 let root;
 let flash;
@@ -215,14 +215,15 @@ async function render(ctx) {
         // A passkey wrap is the key to keep. Replacing the temporary password must not mint a second one.
         const pack = me.mustChangePassword ? await ctx.api.get('/api/account/data-key') : null;
         const passkeyWrapped = Array.isArray(pack?.wraps) && pack.wraps.some((wrap) => wrap.kind === 'passkey');
-        const replaceKey = me.mustChangePassword && !passkeyWrapped;
-        if (passkeyWrapped) await preparePasswordWrap(null);
-        else if (!replaceKey) await preparePasswordWrap(v.currentPassword || null, { createIfMissing: true });
+        // A restored key that cannot be re-wrapped stays until this password change is accepted.
+        const staged = passkeyWrapped
+          ? await preparePasswordWrap(null)
+          : await preparePasswordWrap(v.currentPassword || null, { createIfMissing: true });
         if (!appliedPassword) {
           await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
           appliedPassword = v.newPassword;
         }
-        if (replaceKey) await replaceAfterTemporaryPassword(appliedPassword);
+        if (staged && staged.deferMint) await mintPasswordKey(appliedPassword);
         else await commitPasswordWrap(appliedPassword);
         if (me.mustChangePassword) { location.assign('/'); return; }
         flash = { panel: 'password', message: 'Password updated.', kind: 'success' };

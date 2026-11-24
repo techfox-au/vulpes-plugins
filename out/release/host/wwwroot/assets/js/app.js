@@ -1,5 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
+import { navLinkActive } from './nav-active.js?v=shell443';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
 import './pwa.js?v=shell388';
 
@@ -9,14 +10,14 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell442'),
-  '/account': () => import('./pages/account.js?v=shell407'),
-  '/alerts': () => import('./pages/alerts.js?v=shell370'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell408'),
+  '/': () => import('./pages/home.js?v=shell446'),
+  '/account': () => import('./pages/account.js?v=shell446'),
+  '/alerts': () => import('./pages/alerts.js?v=shell443'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell446'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell408'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell426'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell426'),
-  '/admin/audit': () => import('./pages/admin-audit.js?v=shell219'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell446'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell446'),
+  '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
 };
 
@@ -24,10 +25,6 @@ function parseLocation() {
   const path = location.pathname && location.pathname.startsWith('/') ? location.pathname : '/';
   const query = Object.fromEntries(new URLSearchParams(location.search));
   return { path, query };
-}
-
-function isHomeLink(href, path) {
-  return path === '/' && href === '/';
 }
 
 function isShellPath(path) {
@@ -121,10 +118,7 @@ function renderNav() {
     for (const item of section.items) {
       if (item.hidden) continue;
       const disabled = item.disabled === true;
-      const secretsHome = path === '/' && new URLSearchParams(location.search).get('panel') === 'secrets';
-      const active = !disabled && (secretsHome
-        ? item.href === '/p/secret-sharing/secrets'
-        : (isHomeLink(item.href, path) || item.href === path));
+      const active = !disabled && navLinkActive(item.href, path, location.search);
       const label = [icon(item.icon || 'dot'), h('span', { class: 'truncate' }, item.title)];
       items.append(disabled
         ? h('span', { class: 'nav-link disabled', 'aria-disabled': 'true', title: 'Disabled in Microsoft 365 Business Premium mode' }, ...label)
@@ -234,7 +228,7 @@ function setActiveNav(path) {
   let activePlugin = '';
   for (const link of navEl.querySelectorAll('.nav-link')) {
     const href = link.getAttribute('href');
-    const active = isHomeLink(href, path) || href === path;
+    const active = navLinkActive(href, path, location.search);
     link.classList.toggle('active', active);
     if (active) activePlugin = link.closest('.nav-section')?.dataset.plugin || '';
   }

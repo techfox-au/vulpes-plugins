@@ -1,8 +1,9 @@
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell409';
-import { confirmIdentity } from '../reauth.js?v=shell408';
+import { confirmIdentity } from '../reauth.js?v=shell446';
 
 let root;
 let generation = 0;
+let renderToken = 0;
 export async function mount(el, ctx) {
   const gen = ++generation;
   root = el;
@@ -30,13 +31,14 @@ async function withReauth(ctx, action) {
   }
 }
 
-async function render(ctx) {
+export async function render(ctx) {
+  const token = ++renderToken;
   const gen = generation;
   const host = root;
-  if (!host || gen !== generation) return;
+  if (!host || gen !== generation || token !== renderToken) return;
   clear(host);
   const users = await ctx.api.get('/api/admin/users');
-  if (gen !== generation || root !== host) return;
+  if (gen !== generation || token !== renderToken || root !== host) return;
   // Accounts are created here and enrolled with a single-use link (docs/security.md).
   host.append(h('div', { class: 'page-header' },
     h('h1', null, 'Users'),

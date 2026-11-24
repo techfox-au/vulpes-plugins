@@ -98,6 +98,24 @@ public sealed class TenantServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_disabled_client_syncs_with_collection_off()
+    {
+        var service = Service();
+        var id = Guid.NewGuid();
+        var directory = Guid.NewGuid().ToString();
+        var application = new EntraApplicationCredential(Guid.NewGuid().ToString(), "secret", "Global", "secret", null, null);
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null)], application, CancellationToken.None);
+        Assert.True(Assert.Single(_db.Tenants).Enabled);
+
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null, "", false, true)], application, CancellationToken.None);
+        var tenant = Assert.Single(_db.Tenants);
+        Assert.False(tenant.Enabled);
+
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null, "", false, true)], application, CancellationToken.None);
+        Assert.False(Assert.Single(_db.Tenants).Enabled);
+    }
+
+    [Fact]
     public async Task Collection_settings_reject_an_unknown_source_and_a_bad_lookback()
     {
         var service = Service();

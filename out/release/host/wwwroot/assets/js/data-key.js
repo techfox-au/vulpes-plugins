@@ -177,7 +177,7 @@ export async function requireUserDataKey() {
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', 'Use your passkey to unlock encryption in this browser tab.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to unlock encryption.');
-  const webauthn = await import('./webauthn.js?v=shell407');
+  const webauthn = await import('./webauthn.js?v=shell446');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
   const udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk) throw new Error('This passkey could not unlock encryption.');
@@ -195,20 +195,6 @@ export async function unlockWithPassword(password) {
   }
   const found = await passwordMaterial(wraps, password, userId);
   if (found.udk) await window.SecretUdk.storeUserDataKey(found.udk, userId);
-}
-
-/** After a temporary password is replaced. The previous key was destroyed, so this always creates a new one. */
-export async function replaceAfterTemporaryPassword(newPassword) {
-  if (!newPassword) return;
-  await loadScript();
-  const userId = await accountId();
-  let udk = window.SecretUdk.loadUserDataKey(userId);
-  if (!udk) {
-    udk = await window.SecretUdk.generateUserDataKey();
-    await window.SecretUdk.storeUserDataKey(udk, userId);
-  }
-  await save('password', await window.SecretUdk.wrapUserDataKey(udk, newPassword));
-  await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
 export async function unlockWithPasskey(credential) {
@@ -259,7 +245,11 @@ export async function preparePasswordWrap(currentPassword, options = {}) {
   const userId = await accountId();
   const wraps = wrapsOf(await api.get(BASE));
   let udk = window.SecretUdk.loadUserDataKey(userId);
-  if (udk && !(await window.SecretUdk.canRewrap())) udk = null;
+  // A restored key can decrypt but cannot be wrapped. Leave it in place until the new password is accepted.
+  if (udk && !(await window.SecretUdk.canRewrap())) {
+    if (wraps.length === 0 && options.createIfMissing) return { deferMint: true };
+    udk = null;
+  }
   if (!udk && currentPassword) {
     const passwordWrap = wraps.find((wrap) => wrap.kind === 'password' || wrap.kind === 'legacy');
     if (passwordWrap) {
@@ -271,6 +261,17 @@ export async function preparePasswordWrap(currentPassword, options = {}) {
   if (!udk) throw new Error(wraps.length === 0
     ? 'Could not wrap encryption. This account has no wrapped key, so a new one would leave any existing secrets unreadable.'
     : 'Could not unlock encryption to wrap it with this password.');
+  await window.SecretUdk.storeUserDataKey(udk, userId);
+  return { deferMint: false };
+}
+
+/** Replaces a key that cannot be re-wrapped. Call only after the new password has been accepted. */
+export async function mintPasswordKey(newPassword) {
+  if (!newPassword) return;
+  await loadScript();
+  const userId = await accountId();
+  const udk = await window.SecretUdk.generateUserDataKey();
+  await save('password', await window.SecretUdk.wrapUserDataKey(udk, newPassword));
   await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
@@ -312,7 +313,7 @@ async function unlockWithPasskeyPrompt(message) {
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', message || 'Use your passkey so this password wraps the same encryption key.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to wrap encryption for this password.');
-  const webauthn = await import('./webauthn.js?v=shell407');
+  const webauthn = await import('./webauthn.js?v=shell446');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
   return window.SecretUdk.loadUserDataKey(await accountId());
 }

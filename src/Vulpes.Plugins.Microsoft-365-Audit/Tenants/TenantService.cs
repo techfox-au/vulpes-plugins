@@ -62,7 +62,7 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             }
 
             row.DisplayName = remote.DisplayName;
-            row.Enabled = remote.Enabled;
+            row.Enabled = remote.Enabled && !remote.Disabled;
             if (!string.IsNullOrWhiteSpace(remote.DiscoveredName))
             {
                 row.DiscoveredName = remote.DiscoveredName;

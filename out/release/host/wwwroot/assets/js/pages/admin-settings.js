@@ -1,11 +1,12 @@
-import { confirmIdentity } from '../reauth.js?v=shell408';
+import { confirmIdentity } from '../reauth.js?v=shell446';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
-import { appendApplication } from './entra-application.js?v=shell426';
+import { appendApplication } from './entra-application.js?v=shell446';
 
 let root;
 let pageCtx;
 let emailNotice = null;
 let generation = 0;
+let renderToken = 0;
 export async function mount(el, ctx) {
   const gen = ++generation;
   root = el;
@@ -74,11 +75,12 @@ function showEmailError(card, form, message) {
   field?.focus();
 }
 
-async function render(ctx) {
+export async function render(ctx) {
+  const token = ++renderToken;
   const gen = generation;
   const host = root;
-  if (!host || gen !== generation) return;
-  const still = () => gen === generation && root === host;
+  if (!host || gen !== generation || token !== renderToken) return;
+  const still = () => gen === generation && token === renderToken && root === host;
   const notice = emailNotice;
   emailNotice = null;
   clear(host);
@@ -363,10 +365,10 @@ async function render(ctx) {
   }
 
   if (!still()) return;
-  await appendMcp(ctx, host);
+  await appendMcp(ctx, host, still);
 }
 
-async function appendMcp(ctx, parent) {
+async function appendMcp(ctx, parent, still) {
   const card = h('div', { class: 'card' });
   const list = h('div', { class: 'mt' });
   const revealed = h('div');
@@ -381,10 +383,12 @@ async function appendMcp(ctx, parent) {
     const settings = await ctx.api.get('/api/mcp/settings');
     enabledBox = h('input', { type: 'checkbox', checked: settings.enabled === true, 'aria-label': 'MCP server enabled' });
   } catch (err) {
+    if (!still()) return;
     card.append(h('div', { class: 'card-header' }, h('h2', null, 'MCP')), h('div', { class: 'alert danger' }, errorMessage(err)));
     parent.append(card);
     return;
   }
+  if (!still()) return;
   enabledBox.addEventListener('change', () => setMcpEnabled(ctx, enabledBox, card));
   card.append(
     h('div', { class: 'card-header' }, h('h2', null, 'MCP')),
@@ -397,12 +401,18 @@ async function appendMcp(ctx, parent) {
   await loadMcpTokens(ctx, list);
 }
 
+export function tokenExpiryDays(expiresAt, now = Date.now()) {
+  const when = new Date(expiresAt).getTime();
+  if (Number.isNaN(when)) return null;
+  if (when <= now) return -1;
+  return Math.ceil((when - now) / 86400000);
+}
+
 function mcpExpiry(row) {
   if (!row.expiresAt) return '—';
-  const when = new Date(row.expiresAt);
   const label = fmt.date(row.expiresAt);
-  if (Number.isNaN(when.getTime())) return label;
-  const days = Math.ceil((when.getTime() - Date.now()) / 86400000);
+  const days = tokenExpiryDays(row.expiresAt);
+  if (days === null) return label;
   if (days < 0) return h('span', null, label, ' ', badge('Expired', 'danger'));
   if (days <= 10) return h('span', null, label, ' ', badge(days === 1 ? 'Expires in 1 day' : `Expires in ${days} days`, 'warning'));
   return label;

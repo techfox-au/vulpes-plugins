@@ -43,13 +43,15 @@ public sealed class AuditDisabledClient(IServiceScopeFactory scopes) : IDisabled
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+        var directory = scope.ServiceProvider.GetRequiredService<ITenantDirectory>();
         var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == clientId, cancellationToken);
         if (tenant is null)
         {
             return;
         }
 
-        tenant.Enabled = true;
+        var remote = (await directory.ListAsync(cancellationToken)).FirstOrDefault(client => client.Id == clientId);
+        tenant.Enabled = remote is { Disabled: false, Enabled: true };
         await db.SaveChangesAsync(cancellationToken);
     }
 }

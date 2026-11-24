@@ -3,8 +3,23 @@ import { severityKind } from './home.js';
 
 let root;
 let catalog = null;
-export async function mount(el, ctx) { root = el; ctx.setTitle(['Alerts']); catalog = await ctx.api.get('/api/alerts/catalog'); await render(ctx, { tab: ctx.query.tab || 'history' }); }
-export function unmount() { root = null; catalog = null; }
+let generation = 0;
+let renderToken = 0;
+export async function mount(el, ctx) {
+  const gen = ++generation;
+  root = el;
+  ctx.setTitle(['Alerts']);
+  catalog = await ctx.api.get('/api/alerts/catalog');
+  if (gen !== generation || root !== el) return gen;
+  await render(ctx, { tab: ctx.query.tab || 'history' });
+  return gen;
+}
+export function unmount(gen) {
+  if (gen !== generation) return;
+  generation += 1;
+  root = null;
+  catalog = null;
+}
 
 const OPERATORS = [
   ['equals', 'equals'], ['notEquals', 'does not equal'], ['contains', 'contains'], ['startsWith', 'starts with'], ['in', 'is one of'], ['notIn', 'is not one of'],
@@ -12,24 +27,35 @@ const OPERATORS = [
 ];
 const SEVERITIES = ['informational', 'low', 'medium', 'high', 'critical'];
 
+function still(gen, token, host) {
+  return !!host && gen === generation && token === renderToken && root === host;
+}
+
 async function render(ctx, state) {
-  clear(root);
+  const token = ++renderToken;
+  const gen = generation;
+  const host = root;
+  if (!still(gen, token, host)) return;
+  clear(host);
   const isAdmin = ctx.hasRole('Admin');
   // Rules run on ingested events. Matches are stored and emailed (docs/audit-plugin.md, Notifications.cs).
-  root.append(h('div', { class: 'page-header' },
+  host.append(h('div', { class: 'page-header' },
     h('h1', null, 'Alerts'),
     isAdmin ? h('button', { class: 'btn primary', onClick: () => editRule(ctx, null) }, 'New rule') : null));
 
   const tabs = h('div', { class: 'tabs', role: 'tablist' },
     h('button', { class: 'tab' + (state.tab === 'history' ? ' active' : ''), onClick: () => render(ctx, { tab: 'history' }) }, 'History'),
     h('button', { class: 'tab' + (state.tab === 'rules' ? ' active' : ''), onClick: () => render(ctx, { tab: 'rules' }) }, 'Rules'));
-  root.append(tabs);
-  if (state.tab === 'rules') await renderRules(ctx, isAdmin); else await renderHistory(ctx, state);
+  host.append(tabs);
+  if (state.tab === 'rules') await renderRules(ctx, isAdmin, gen, token); else await renderHistory(ctx, state, gen, token);
 }
 
-async function renderRules(ctx, isAdmin) {
+async function renderRules(ctx, isAdmin, gen, token) {
+  const host = root;
+  if (!still(gen, token, host)) return;
   const rules = await ctx.api.get('/api/alerts/rules');
-  root.append(table({
+  if (!still(gen, token, host)) return;
+  host.append(table({
     columns: [
       { title: 'Rule', render: (r) => h('div', null, h('div', null, h('strong', null, r.name), ' ', r.enabled ? null : badge('disabled', 'warning')), h('div', { class: 'small muted' }, r.description || '')) },
       { title: 'Scope', render: (r) => h('div', null, h('div', null, `${pluginName(r.pluginId)} · ${r.sources.join(', ')}`), h('div', { class: 'small muted' }, describeConditions(r))) },
@@ -50,12 +76,15 @@ async function renderRules(ctx, isAdmin) {
   }));
 }
 
-async function renderHistory(ctx, state) {
+async function renderHistory(ctx, state, gen, token) {
+  const host = root;
+  if (!still(gen, token, host)) return;
   const statusSel = dropdown([['', 'All statuses'], ['new', 'New'], ['acknowledged', 'Acknowledged']], { value: state.status || '', ariaLabel: 'Status' });
   statusSel.addEventListener('change', () => render(ctx, { ...state, status: statusSel.value, page: 1 }));
-  root.append(h('div', { class: 'toolbar' }, statusSel, h('button', { class: 'btn sm', onClick: () => render(ctx, state) }, 'Refresh')));
+  host.append(h('div', { class: 'toolbar' }, statusSel, h('button', { class: 'btn sm', onClick: () => render(ctx, state) }, 'Refresh')));
   const data = await ctx.api.get('/api/alerts/instances' + ctx.api.qs({ page: state.page || 1, pageSize: 50, status: state.status }));
-  root.append(table({
+  if (!still(gen, token, host)) return;
+  host.append(table({
     columns: [
       { title: 'When', render: (a) => h('span', { class: 'nowrap' }, fmt.dateTime(a.createdAt)) },
       { title: 'Severity', render: (a) => badge(a.severity, severityKind(a.severity)) },
@@ -69,7 +98,7 @@ async function renderHistory(ctx, state) {
     emptyText: 'No alerts recorded.',
   }));
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
-  root.append(h('div', { class: 'pager' }, h('span', null, `${fmt.number(data.total)} alerts · page ${data.page} of ${pages}`), h('div', { class: 'btn-group' },
+  host.append(h('div', { class: 'pager' }, h('span', null, `${fmt.number(data.total)} alerts · page ${data.page} of ${pages}`), h('div', { class: 'btn-group' },
     h('button', { class: 'btn sm', disabled: data.page <= 1, onClick: () => render(ctx, { ...state, page: data.page - 1 }) }, 'Previous'),
     h('button', { class: 'btn sm', disabled: data.page >= pages, onClick: () => render(ctx, { ...state, page: data.page + 1 }) }, 'Next'))));
 }

@@ -93,14 +93,15 @@ function rfc1123(value) {
   if (!calendarDay(year, month, day) || (match[5] && !clockFits(match[5]))) return false;
   if (!match[1]) return true;
   const probe = new Date(Date.UTC(year, month - 1, day));
-  const names = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-  return names[probe.getUTCDay()] === match[1].toLowerCase();
+  const names = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
+  return names[match[1].toLowerCase()] === probe.getUTCDay();
 }
 
 function dateFits(value) {
   value = String(value || '').trim();
   if (!value || /^\d{4}$/.test(value)) return false;
-  if (/^\d{4}-\d{2}$/.test(value) || /^\d{4}-\d{1}$/.test(value)) return true;
+  const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(value);
+  if (yearMonth) return Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12;
   if (/^\d{1,2}:\d{2}/.test(value) && clockFits(value)) return true;
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[Tt\s](.*)$)/.exec(value);
   if (iso) {

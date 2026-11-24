@@ -21,6 +21,26 @@ export function unmount(gen) {
   catalog = null;
 }
 
+const MULTI_VALUE = new Set(['in', 'notIn', 'cidr', 'notCidr']);
+
+/** One value stays one value. Commas separate only the operators that accept a list. */
+export function conditionValues(operator, text) {
+  if (operator === 'exists' || operator === 'notExists') return [];
+  const raw = text ?? '';
+  if (!MULTI_VALUE.has(operator)) {
+    const trimmed = raw.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  return raw.split(',').map((part) => part.trim()).filter(Boolean);
+}
+
+/** Blank count means every match. A count of 1 is not a threshold the server will store. */
+export function thresholdError(count, windowMinutes) {
+  if (!Number.isInteger(count) || count < 2 || count > 100000) return 'Threshold count must be between 2 and 100000.';
+  if (!Number.isInteger(windowMinutes) || windowMinutes < 1 || windowMinutes > 60 * 24 * 7) return 'Threshold window must be between 1 minute and 7 days.';
+  return null;
+}
+
 const OPERATORS = [
   ['equals', 'equals'], ['notEquals', 'does not equal'], ['contains', 'contains'], ['startsWith', 'starts with'], ['in', 'is one of'], ['notIn', 'is not one of'],
   ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than'], ['cidr', 'in CIDR range'], ['notCidr', 'is not in CIDR range'], ['regex', 'matches regex'], ['notRegex', 'does not match regex'],
@@ -143,9 +163,10 @@ async function editRule(ctx, rule) {
   const conditionRow = (c) => {
     const fieldSel = dropdown(fieldsForSources().map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: c.field || '', ariaLabel: 'Field' });
     const opSel = dropdown(OPERATORS.map(([value, label]) => ({ value, label })), { value: c.operator || 'equals', ariaLabel: 'Operator' });
-    const valueInput = h('input', { class: 'input', value: (c.values || []).join(', '), placeholder: 'value(s), comma separated' });
+    const shown = MULTI_VALUE.has(c.operator) ? (c.values || []).join(', ') : ((c.values || [])[0] || '');
+    const valueInput = h('input', { class: 'input', value: shown, placeholder: MULTI_VALUE.has(c.operator || 'equals') ? 'value(s), comma separated' : 'value' });
     const row = h('div', { class: 'form-row' }, fieldSel, opSel, valueInput, h('button', { class: 'btn ghost sm', type: 'button', onClick: () => row.remove() }, 'Remove'));
-    row.read = () => ({ field: fieldSel.value, operator: opSel.value, values: opSel.value.endsWith('xists') ? [] : valueInput.value.split(',').map((s) => s.trim()).filter(Boolean) });
+    row.read = () => ({ field: fieldSel.value, operator: opSel.value, values: conditionValues(opSel.value, valueInput.value) });
     return row;
   };
   const renderConditions = () => { const existing = [...conditionsBox.children].map((row) => row.read?.()).filter(Boolean); clear(conditionsBox); for (const c of (existing.length ? existing : r.conditions)) conditionsBox.append(conditionRow(c)); };
@@ -158,7 +179,7 @@ async function editRule(ctx, rule) {
   const [descF, descI] = input('Description', r.description);
   const sevSel = dropdown(SEVERITIES.map((s) => ({ value: s, label: s })), { value: r.severity, ariaLabel: 'Severity' });
   const enabledCb = h('input', { type: 'checkbox', checked: r.enabled });
-  const [thCountF, thCountI] = input('Threshold: count (blank = alert on every match)', r.threshold?.count ?? '', { type: 'number', min: 1 });
+  const [thCountF, thCountI] = input('Threshold: count (blank = alert on every match)', r.threshold?.count ?? '', { type: 'number', min: 2 });
   const [thWinF, thWinI] = input('Threshold: window (minutes)', r.threshold?.windowMinutes ?? 10, { type: 'number', min: 1 });
   const [thGroupF, thGroupI] = input('Threshold: group by field', r.threshold?.groupBy ?? '', { placeholder: 'e.g. user.name' });
   const [recF, recI] = input('Email recipients (comma separated; blank = default recipients)', (r.actions?.email?.recipients || []).join(', '));
@@ -185,7 +206,7 @@ async function editRule(ctx, rule) {
       name: nameI.value.trim(), description: descI.value.trim() || null, enabled: enabledCb.checked, pluginId: pluginSel.value,
       sources: [...sourcesBox.querySelectorAll('input:checked')].map((i) => i.value), severity: sevSel.value,
       conditions: [...conditionsBox.children].map((row) => row.read()),
-      threshold: thCountI.value ? { count: Number(thCountI.value), windowMinutes: Number(thWinI.value || 10), groupBy: thGroupI.value.trim() || null } : null,
+      threshold: null,
       actions: { email: { recipients: recI.value.split(',').map((s) => s.trim()).filter(Boolean), subject: subjI.value.trim() || null, body: bodyI.value.trim() || null } },
       throttle: throtWinI.value ? { windowMinutes: Number(throtWinI.value), groupBy: throtGroupI.value.trim() || null } : null,
       ignoreOlderThanMinutes: Number(ignoreI.value),
@@ -200,6 +221,13 @@ async function editRule(ctx, rule) {
       panelNote(form, 'Throttle window must be at least 1 minute.');
       throtWinI.classList.add('invalid');
       return false;
+    }
+    if (thCountI.value) {
+      const count = Number(thCountI.value);
+      const windowMinutes = Number(thWinI.value || 10);
+      const problem = thresholdError(count, windowMinutes);
+      if (problem) { panelNote(form, problem); thCountI.classList.add('invalid'); return false; }
+      payload.threshold = { count, windowMinutes, groupBy: thGroupI.value.trim() || null };
     }
     if (payload.sources.length === 0) { panelNote(form, 'Select at least one source.'); return false; }
     try { if (rule) await ctx.api.put(`/api/alerts/rules/${rule.id}`, payload); else await ctx.api.post('/api/alerts/rules', payload); return true; }

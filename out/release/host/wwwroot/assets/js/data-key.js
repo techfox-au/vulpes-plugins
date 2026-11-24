@@ -177,7 +177,7 @@ export async function requireUserDataKey() {
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', 'Use your passkey to unlock encryption in this browser tab.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to unlock encryption.');
-  const webauthn = await import('./webauthn.js?v=shell446');
+  const webauthn = await import('./webauthn.js?v=shell447');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
   const udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk) throw new Error('This passkey could not unlock encryption.');
@@ -222,20 +222,38 @@ export async function preparePasskeyWrap() {
   await loadScript();
   const userId = await accountId();
   let udk = window.SecretUdk.loadUserDataKey(userId);
-  if (udk && await window.SecretUdk.canRewrap()) return;
+  if (udk && await window.SecretUdk.canRewrap()) return { deferMint: false };
   const wraps = wrapsOf(await api.get(BASE));
-  udk = null;
+  // A restored key can decrypt but cannot be wrapped. Leave it until the passkey is stored.
+  if (udk && !(await window.SecretUdk.canRewrap())) {
+    if (wraps.length === 0) return { deferMint: true };
+    udk = null;
+  }
   const passwordWrap = wraps.find((wrap) => wrap.kind === 'password' || wrap.kind === 'legacy');
   if (passwordWrap) udk = await unlockWithPasswordPrompt(passwordWrap);
   if (!udk && wraps.some((wrap) => wrap.kind === 'passkey')) {
     udk = await unlockWithPasskeyPrompt('Use a passkey you already have so this one wraps the same encryption key.');
   }
-  if (!udk && wraps.length === 0) udk = await window.SecretUdk.generateUserDataKey();
+  if (!udk && wraps.length === 0) return { deferMint: true };
   if (!udk || !(await window.SecretUdk.canRewrap())) {
     throw new Error(passwordWrap && !wraps.some((wrap) => wrap.kind === 'passkey')
       ? 'Password required to unlock encryption.'
       : 'Could not unlock encryption to wrap it with this passkey.');
   }
+  await window.SecretUdk.storeUserDataKey(udk, userId);
+  return { deferMint: false };
+}
+
+/** Creates a key for a passkey that is already stored. Call only after that passkey has been accepted. */
+export async function mintPasskeyKey(credential) {
+  if (!credential) return;
+  await loadScript();
+  const prf = prfBytes(credential);
+  if (!prf) throw new Error('This passkey cannot protect encryption. Use one that supports the PRF extension.');
+  const userId = await accountId();
+  const udk = await window.SecretUdk.generateUserDataKey();
+  await save('passkey', await window.SecretUdk.wrapUserDataKeyWithPrf(udk, prf), credential.id);
+  rememberEnrollmentWrap();
   await window.SecretUdk.storeUserDataKey(udk, userId);
 }
 
@@ -313,7 +331,7 @@ async function unlockWithPasskeyPrompt(message) {
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', message || 'Use your passkey so this password wraps the same encryption key.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to wrap encryption for this password.');
-  const webauthn = await import('./webauthn.js?v=shell446');
+  const webauthn = await import('./webauthn.js?v=shell447');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
   return window.SecretUdk.loadUserDataKey(await accountId());
 }

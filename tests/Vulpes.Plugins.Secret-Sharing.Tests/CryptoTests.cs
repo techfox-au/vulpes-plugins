@@ -349,6 +349,7 @@ public sealed class ShareBurnTests : IDisposable
         var id = _store.CreateSend("owner", Sample(oneTime: true, max: null));
         var first = _store.TakeSend(id);
         Assert.Equal("ciphertext", first!.Ciphertext);
+        Assert.True(first.Burned);
         var again = _store.TakeSend(id);
         Assert.Equal("consumed", again!.Status);
         Assert.Equal("", again.Ciphertext);
@@ -359,8 +360,12 @@ public sealed class ShareBurnTests : IDisposable
     public void Capped_send_burns_on_the_last_allowed_open()
     {
         var id = _store.CreateSend("owner", Sample(oneTime: false, max: 2));
-        Assert.Equal("ciphertext", _store.TakeSend(id)!.Ciphertext);
-        Assert.Equal("ciphertext", _store.TakeSend(id)!.Ciphertext);
+        var first = _store.TakeSend(id);
+        var second = _store.TakeSend(id);
+        Assert.Equal("ciphertext", first!.Ciphertext);
+        Assert.False(first.Burned);
+        Assert.Equal("ciphertext", second!.Ciphertext);
+        Assert.True(second.Burned);
         Assert.Equal("consumed", _store.TakeSend(id)!.Status);
         Assert.Equal("", SendCiphertext(id));
     }
@@ -370,7 +375,9 @@ public sealed class ShareBurnTests : IDisposable
     {
         var id = _store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
         Assert.True(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
-        Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
+        var once = _store.TakeCollect(id);
+        Assert.Equal("ciphertext", once!.Ciphertext);
+        Assert.True(once.Burned);
         Assert.Null(_store.TakeCollect(id));
         Assert.Null(CollectCiphertext(id));
     }
@@ -380,8 +387,12 @@ public sealed class ShareBurnTests : IDisposable
     {
         var id = _store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, false, 60, 2, false, false, null));
         Assert.True(_store.SaveUpload(id, new UploadInput("ciphertext", "iv", "wk", "eph", "text/plain", null)));
-        Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
-        Assert.Equal("ciphertext", _store.TakeCollect(id)!.Ciphertext);
+        var first = _store.TakeCollect(id);
+        var second = _store.TakeCollect(id);
+        Assert.Equal("ciphertext", first!.Ciphertext);
+        Assert.False(first.Burned);
+        Assert.Equal("ciphertext", second!.Ciphertext);
+        Assert.True(second.Burned);
         Assert.Null(_store.TakeCollect(id));
         Assert.Null(CollectCiphertext(id));
     }

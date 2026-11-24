@@ -260,7 +260,7 @@ public static class ShareEndpoints
         if (row is null) return Miss(scan, http);
         var actor = UserId(http) ?? "anonymous";
         await audit.RecordAsync("secret.collect.retrieved", id, "Collect retrieved.", actor: actor, cancellationToken: http.RequestAborted);
-        return Results.Json(new { row.Ciphertext, row.Iv, row.WrappedKey, row.EphemeralPublicKey, row.ContentType, row.Filename, row.HideTextByDefault });
+        return Results.Json(new { row.Ciphertext, row.Iv, row.WrappedKey, row.EphemeralPublicKey, row.ContentType, row.Filename, row.HideTextByDefault, burned = row.Burned });
     }
 
     private static IResult OwnerKey(string id, HttpContext http, ShareStore store)
@@ -340,7 +340,7 @@ public static class ShareEndpoints
         if (row is null || row.Status != "active" || row.Ciphertext.Length == 0) return Miss(scan, http);
         await audit.RecordAsync("secret.send.decrypted", id, "Payload released.", actor: "anonymous", cancellationToken: http.RequestAborted);
         http.RequestServices.GetRequiredService<NotificationMail>().TrySendOpened(id);
-        return Results.Json(new { row.Ciphertext, row.Iv, row.WrappedKey, row.EphemeralPublicKey, row.ContentType, row.Filename, row.HideTextByDefault });
+        return Results.Json(new { row.Ciphertext, row.Iv, row.WrappedKey, row.EphemeralPublicKey, row.ContentType, row.Filename, row.HideTextByDefault, burned = row.Burned });
     }
 
     private static IResult CollectPow(string id, PowService pow, ShareScanGuard scan, HttpContext http)

@@ -109,6 +109,49 @@ public sealed class CollectUploadGateTests : IDisposable
     }
 
     [Fact]
+    public async Task Two_trusted_proxies_use_the_single_forwarded_hop_for_the_lockout()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "two-proxy.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var edge = IPAddress.Parse("10.0.0.2");
+        var inner = IPAddress.Parse("10.0.0.1");
+        var visitor = IPAddress.Parse("203.0.113.8");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(inner.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: edge, scan: scan, forwardedFor: visitor + ", " + inner, knownProxies: [edge, inner]);
+        Assert.False(locked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, PowClock.Stamp(DateTimeOffset.UtcNow)));
+    }
+
+    [Fact]
+    public async Task A_lockout_of_the_original_visitor_does_not_count_as_the_one_hop_address()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "two-proxy-visitor.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var edge = IPAddress.Parse("10.0.0.2");
+        var inner = IPAddress.Parse("10.0.0.1");
+        var visitor = IPAddress.Parse("203.0.113.8");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(visitor.ToString());
+
+        var allowed = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: edge, scan: scan, forwardedFor: visitor + ", " + inner, knownProxies: [edge, inner]);
+        Assert.True(allowed.Consumed);
+        Assert.Equal(PowService.LargeBodyBytes, allowed.MaxRequestBodySize);
+    }
+
+    [Fact]
     public async Task A_trailing_slash_does_not_burn_the_upload_proof()
     {
         var database = new ShareDatabase(Path.Combine(_dir, "slash.db"));
@@ -142,16 +185,35 @@ public sealed class CollectUploadGateTests : IDisposable
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
-    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null, IPAddress? remote = null, ShareScanGuard? scan = null, string? forwardedFor = null, IPAddress? knownProxy = null)
+    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null, IPAddress? remote = null, ShareScanGuard? scan = null, string? forwardedFor = null, IPAddress? knownProxy = null, IReadOnlyList<IPAddress>? knownProxies = null, int? forwardLimit = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(database);
         services.AddSingleton(pow);
         services.AddSingleton(store);
         services.AddSingleton(scan ?? new ShareScanGuard(database, new GatePowPolicy()));
-        if (knownProxy is not null)
+        if (knownProxy is not null || knownProxies is not null || forwardLimit is not null)
         {
-            services.Configure<ForwardedHeadersOptions>(options => options.KnownProxies.Add(knownProxy));
+            services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                if (knownProxy is not null)
+                {
+                    options.KnownProxies.Add(knownProxy);
+                }
+
+                if (knownProxies is not null)
+                {
+                    foreach (var proxy in knownProxies)
+                    {
+                        options.KnownProxies.Add(proxy);
+                    }
+                }
+
+                if (forwardLimit is not null)
+                {
+                    options.ForwardLimit = forwardLimit;
+                }
+            });
         }
 
         var provider = services.BuildServiceProvider();

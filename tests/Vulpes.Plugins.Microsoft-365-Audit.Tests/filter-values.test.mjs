@@ -6,6 +6,10 @@ const { valueFits, customDayBounds } = await import('../../src/Vulpes.Plugins.Mi
 test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '2026'), false);
   assert.equal(valueFits('date', '2026-11'), true);
+  assert.equal(valueFits('date', '2026-1'), true);
+  assert.equal(valueFits('date', '2026-13'), false);
+  assert.equal(valueFits('date', '2026-00'), false);
+  assert.equal(valueFits('date', '2026-99'), false);
   assert.equal(valueFits('date', '2026-02-31'), false);
   assert.equal(valueFits('date', '2026-02-31T00:00:00Z'), false);
   assert.equal(valueFits('date', '2026-02-29'), false);
@@ -42,6 +46,10 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '2026-11-13 15:00:00 -5:00'), true);
   assert.equal(valueFits('date', '2026-11-13 00:00:00 GMT'), true);
   assert.equal(valueFits('date', 'Fri, 13 Nov 2026 00:00:00 GMT'), true);
+  assert.equal(valueFits('date', 'Friday, 13 November 2026'), true);
+  assert.equal(valueFits('date', 'Friday, 13 Nov 2026'), true);
+  assert.equal(valueFits('date', 'Sunday, 15 November 2026'), true);
+  assert.equal(valueFits('date', 'Monday, 13 November 2026'), false);
   assert.equal(valueFits('date', '2026-11-13 GMT'), true);
   assert.equal(valueFits('date', '2026-2-3T00:00:00Z'), true);
   assert.equal(valueFits('date', '2026-11-13 3:45PM'), true);

@@ -154,7 +154,7 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
       confirmBox.classList.add('hidden');
       title.textContent = 'Secret';
       document.title = 'Secret';
-      const burned = meta.oneTime || (meta.maxAccessCount != null && (meta.accessCount || 0) + 1 >= meta.maxAccessCount);
+      const burned = payload.burned === true;
       if (burned) setAlert('warning', 'This secret has been destroyed on the server.');
       else setAlert(null);
       const filename = payload.filename || meta.filename;

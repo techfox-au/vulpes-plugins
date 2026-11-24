@@ -22,6 +22,6 @@ export function collectLinkNote(count, passwordLinks, keyLinks) {
       : 'Save the collect link now. Share the password separately. The # fragment is not the private key. Send only the upload link.';
   }
   return count > 1
-    ? 'Save the collect links now. Each collect link’s # fragment is your private key. Send only the upload link.'
+    ? 'Save the collect links now. Each collect link’s # fragment is your private key. Send only the upload links.'
     : 'Save the collect link now. Its # fragment is your private key. Send only the upload link.';
 }

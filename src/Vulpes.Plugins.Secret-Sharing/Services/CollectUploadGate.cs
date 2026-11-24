@@ -54,8 +54,9 @@ public sealed class CollectUploadGate : IStartupFilter
         };
 
     /// <summary>
-    /// The gate runs before forwarded headers. A known proxy still has the proxy as RemoteIpAddress,
-    /// while failure counts are stored under the visitor. Use that visitor for the lockout check.
+    /// The gate runs before forwarded headers, so RemoteIpAddress is still the proxy.
+    /// Failure counts are stored under the address the middleware will keep. That walk
+    /// stops after ForwardLimit hops (the default is 1) and does not skip every trusted proxy.
     /// </summary>
     private static string BudgetClientKey(HttpContext http)
     {
@@ -66,27 +67,42 @@ public sealed class CollectUploadGate : IStartupFilter
             return ShareScanGuard.ClientKey(http);
         }
 
-        var forwarded = http.Request.Headers["X-Forwarded-For"].ToString();
-        if (string.IsNullOrWhiteSpace(forwarded))
+        var parts = http.Request.Headers.GetCommaSeparatedValues(options.ForwardedForHeaderName);
+        if (parts.Length == 0)
         {
             return ShareScanGuard.ClientKey(http);
         }
 
-        var parts = forwarded.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        for (var i = parts.Length - 1; i >= 0; i--)
+        var entryCount = parts.Length;
+        if (options.ForwardLimit is int limit && entryCount > limit)
         {
-            if (!TryParseForwarded(parts[i], out var address))
+            entryCount = limit;
+        }
+
+        var current = remote;
+        var checkKnown = options.KnownProxies.Count > 0 || options.KnownIPNetworks.Count > 0;
+        for (var i = 0; i < entryCount; i++)
+        {
+            if (checkKnown && !IsTrustedProxy(current, options))
             {
                 break;
             }
 
-            if (!IsTrustedProxy(address, options))
+            var text = parts[parts.Length - 1 - i];
+            if (!TryParseForwarded(text, out var address))
             {
-                return address.ToString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    break;
+                }
+
+                continue;
             }
+
+            current = address;
         }
 
-        return ShareScanGuard.ClientKey(http);
+        return current.ToString();
     }
 
     private static bool IsTrustedProxy(IPAddress address, ForwardedHeadersOptions options)

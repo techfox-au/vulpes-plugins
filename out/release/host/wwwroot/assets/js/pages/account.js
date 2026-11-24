@@ -1,8 +1,8 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
-import * as webauthn from '../webauthn.js?v=shell446';
-import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell446';
-import { confirmIdentity as reauth } from '../reauth.js?v=shell446';
+import * as webauthn from '../webauthn.js?v=shell447';
+import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, mintPasskeyKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell447';
+import { confirmIdentity as reauth } from '../reauth.js?v=shell447';
 
 let root;
 let flash;
@@ -201,12 +201,12 @@ async function render(ctx) {
     form.append(field('New password', 'newPassword', 'new-password'), field('Repeat new password', 'repeat', 'new-password'));
     const submit = h('button', { class: 'btn primary', type: 'submit' }, me.passwordSet ? 'Change password' : 'Set password');
     form.append(h('div', { class: 'form-actions' }, submit));
-    let appliedPassword = null;
+        const passwordState = { appliedPassword: null, wrapStored: false };
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const v = formValues(form);
       panelNote(passwordCard, '');
-      if (!appliedPassword) {
+      if (!passwordState.appliedPassword) {
         if (v.newPassword.length < 12) { panelNote(passwordCard, 'Use at least 12 characters.'); return; }
         if (v.newPassword !== v.repeat) { panelNote(passwordCard, 'The passwords do not match.'); return; }
       }
@@ -219,12 +219,13 @@ async function render(ctx) {
         const staged = passkeyWrapped
           ? await preparePasswordWrap(null)
           : await preparePasswordWrap(v.currentPassword || null, { createIfMissing: true });
-        if (!appliedPassword) {
-          await ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword });
-          appliedPassword = v.newPassword;
-        }
-        if (staged && staged.deferMint) await mintPasswordKey(appliedPassword);
-        else await commitPasswordWrap(appliedPassword);
+        await finishPasswordChange(passwordState, staged, v.newPassword, {
+          // The wrap travels with the password. A failed wrap does not leave the new password in place.
+          wrap: (password) => window.SecretUdk.wrapUserDataKey(window.SecretUdk.loadUserDataKey(me.id), password),
+          post: (wrapped) => ctx.api.post('/api/account/password', { currentPassword: v.currentPassword || null, newPassword: v.newPassword, wrapped }),
+          mint: mintPasswordKey,
+          commit: commitPasswordWrap,
+        });
         if (me.mustChangePassword) { location.assign('/'); return; }
         flash = { panel: 'password', message: 'Password updated.', kind: 'success' };
         await render(ctx);
@@ -239,6 +240,21 @@ async function render(ctx) {
 
   if (pending?.panel === 'password') panelNote(passwordCard, pending.message, pending.kind);
   if (pending?.panel === 'passkeys') panelNote(passkeyCard, pending.message, pending.kind);
+}
+
+/** Stores the password, then the wrap. A later click finishes the wrap without sending the password again. */
+export async function finishPasswordChange(state, staged, newPassword, actions) {
+  if (!state.appliedPassword) {
+    const wrapped = staged && staged.deferMint ? null : await actions.wrap(newPassword);
+    await actions.post(wrapped);
+    state.appliedPassword = newPassword;
+    state.wrapStored = !(staged && staged.deferMint);
+  }
+  if (!state.wrapStored) {
+    if (staged && staged.deferMint) await actions.mint(state.appliedPassword);
+    else await actions.commit(state.appliedPassword);
+    state.wrapStored = true;
+  }
 }
 
 function field(label, name, autocomplete) {
@@ -285,10 +301,10 @@ async function addPasskey(ctx, btn) {
 async function registerPasskey(ctx, btn, name) {
   setBusy(btn, true, 'Unlocking encryption…');
   try {
-    await preparePasskeyWrap();
-    if (!(await window.SecretUdk.canRewrap())) throw new Error('Could not unlock encryption to wrap it with this passkey.');
+    const staged = await preparePasskeyWrap();
+    if (!(staged && staged.deferMint) && !(await window.SecretUdk.canRewrap())) throw new Error('Could not unlock encryption to wrap it with this passkey.');
     setBusy(btn, true, 'Waiting for your passkey…');
-    await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name }, onCredential: (credential) => unlockWithPasskey(credential) });
+    await webauthn.register({ optionsUrl: '/api/account/passkeys/options', finishUrl: '/api/account/passkeys', extra: { name }, onCredential: (credential) => staged && staged.deferMint ? mintPasskeyKey(credential) : unlockWithPasskey(credential) });
     flash = { panel: 'passkeys', message: 'Passkey added.', kind: 'success' };
     await render(ctx);
   } catch (err) {

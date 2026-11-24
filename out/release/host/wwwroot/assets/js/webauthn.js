@@ -95,7 +95,7 @@ export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra 
   }
   let dataKey = null;
   if (finishUrl === '/auth/enroll/passkey') {
-    dataKey = await import('./data-key.js?v=shell446');
+    dataKey = await import('./data-key.js?v=shell447');
     dataKey.armEnrollment(extra?.token || null);
   }
   try {

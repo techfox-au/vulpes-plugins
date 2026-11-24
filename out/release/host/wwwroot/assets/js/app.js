@@ -10,15 +10,15 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell446'),
-  '/account': () => import('./pages/account.js?v=shell446'),
-  '/alerts': () => import('./pages/alerts.js?v=shell443'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell446'),
+  '/': () => import('./pages/home.js?v=shell447'),
+  '/account': () => import('./pages/account.js?v=shell448'),
+  '/alerts': () => import('./pages/alerts.js?v=shell447'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell447'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell408'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell446'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell446'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell447'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell447'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
-  '/admin/console': () => import('./pages/admin-console.js?v=shell303'),
+  '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
 
 function parseLocation() {

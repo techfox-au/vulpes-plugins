@@ -1,4 +1,4 @@
-import { h } from '../ui.js?v=shell166';
+import { h, clear } from '../ui.js?v=shell447';
 
 let source;
 
@@ -14,6 +14,11 @@ export async function mount(el, ctx) {
     stick = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
   });
   source = new EventSource('/api/admin/console/stream');
+  source.onopen = () => {
+    clear(log);
+    status.className = 'badge success';
+    status.textContent = 'Live';
+  };
   source.onmessage = (ev) => {
     let row;
     try { row = JSON.parse(ev.data); } catch { return; }

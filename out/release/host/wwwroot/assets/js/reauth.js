@@ -1,6 +1,6 @@
 import { h, modal, setBusy, errorMessage } from './ui.js?v=shell231';
-import * as webauthn from './webauthn.js?v=shell446';
-import { unlockWithPasskey } from './data-key.js?v=shell446';
+import * as webauthn from './webauthn.js?v=shell447';
+import { unlockWithPasskey } from './data-key.js?v=shell447';
 
 /** Password or passkey confirmation. Returns true only after the server accepts it. */
 export async function confirmIdentity(ctx, me, { passkeyOnly = false } = {}) {

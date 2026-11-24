@@ -491,9 +491,16 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
             cmd.CommandText = "UPDATE secrets SET AccessCount = AccessCount + 1, ConsumedAt = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN @now ELSE ConsumedAt END, Ciphertext = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE Ciphertext END, Iv = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE Iv END, WrappedKey = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE WrappedKey END, EphemeralPublicKey = CASE WHEN MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount THEN '' ELSE EphemeralPublicKey END WHERE Id = @id AND ConsumedAt IS NULL AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)";
         }
 
+        cmd.CommandText += " RETURNING ConsumedAt IS NOT NULL";
         cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@id", id);
-        return cmd.ExecuteNonQuery() == 1 ? row : null;
+        using var updated = cmd.ExecuteReader();
+        if (!updated.Read())
+        {
+            return null;
+        }
+
+        return row with { Burned = updated.GetInt64(0) != 0 };
     }
 
     public CollectPublic? CollectMeta(string id)
@@ -591,11 +598,18 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
                 WrappedKey = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN NULL ELSE WrappedKey END,
                 EphemeralPublicKey = CASE WHEN OneTime = 1 OR (MaxAccessCount IS NOT NULL AND AccessCount + 1 >= MaxAccessCount) THEN NULL ELSE EphemeralPublicKey END
             WHERE Id = @id AND ConsumedAt IS NULL AND Uploaded = 1 AND ExpiresAt >= @now AND (MaxAccessCount IS NULL OR AccessCount < MaxAccessCount)
+            RETURNING ConsumedAt IS NOT NULL
             """;
 
         upd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
         upd.Parameters.AddWithValue("@id", id);
-        return upd.ExecuteNonQuery() == 1 ? row : null;
+        using var updated = upd.ExecuteReader();
+        if (!updated.Read())
+        {
+            return null;
+        }
+
+        return row with { Burned = updated.GetInt64(0) != 0 };
     }
 
     public string? OwnerKey(string ownerId, string id)
@@ -767,6 +781,6 @@ public sealed record UploadInput(string Ciphertext, string Iv, string WrappedKey
 
 public sealed record HomeItem(string Id, string Kind, string? EncryptedLabel, string Status, bool OneTime, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int AccessCount, int? MaxAccessCount, bool PasswordProtected, bool HasOwnerKey, string? PrivateNoteCiphertext = null, bool IpRestricted = false, bool HideText = false, string? PublicKey = null);
 
-public sealed record SendPublic(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename, bool OneTime, bool PasswordProtected, bool HideTextByDefault, string Status, DateTimeOffset ExpiresAt, int AccessCount = 0, int? MaxAccessCount = null, string? RecipientLabel = null);
+public sealed record SendPublic(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string ContentType, string? Filename, bool OneTime, bool PasswordProtected, bool HideTextByDefault, string Status, DateTimeOffset ExpiresAt, int AccessCount = 0, int? MaxAccessCount = null, string? RecipientLabel = null, bool Burned = false);
 
 public sealed record CollectPublic(string PublicKey, DateTimeOffset ExpiresAt, string Status, bool OneTime, bool PasswordProtected, string? Filename, string? ContentType, string? PublicLabel, int AccessCount = 0, int? MaxAccessCount = null, bool HideTextByDefault = false);

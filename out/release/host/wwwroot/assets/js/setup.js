@@ -1,7 +1,7 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js';
-import * as webauthn from './webauthn.js?v=shell446';
-import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell446';
+import * as webauthn from './webauthn.js?v=shell447';
+import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell447';
 import './pwa.js?v=shell388';
 
 setRedirectOnUnauthorized(false);
@@ -41,6 +41,7 @@ async function init() {
   if (!webauthn.isSupported()) $('tab-passkey').disabled = true;
 }
 
+let created = false;
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   showError('');
@@ -50,7 +51,10 @@ $('form').addEventListener('submit', async (e) => {
   const btn = $('submit-password');
   setBusy(btn, true, 'Creating…');
   try {
-    await api.post('/auth/setup', values);
+    if (!created) {
+      await api.post('/auth/setup', values);
+      created = true;
+    }
     await establishWithPassword(values.password);
     invalidateSession();
     try { localStorage.removeItem('vc.nav.openPlugin'); } catch { /* storage can be blocked */ }

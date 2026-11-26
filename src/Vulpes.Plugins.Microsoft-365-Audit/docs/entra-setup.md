@@ -1,6 +1,6 @@
 # Audit collection app registration
 
-One Entra application for the whole dashboard. Add each customer directory under **Manage → Tenants** and consent
+One Entra application for the whole dashboard. Add each customer directory under **Microsoft 365 Audit → Clients** and consent
 this same application in that directory. The client secret or certificate is stored once, encrypted with the dashboard
 master key. Plugins share the application, so a new plugin adds its permissions to this registration instead of a
 second application.
@@ -51,8 +51,8 @@ Get-OrganizationConfig | Format-List AuditDisabled
 
 5. In each customer directory, grant admin consent for this application
    (`https://login.microsoftonline.com/{directory-id}/adminconsent?client_id={application-id}`).
-6. In the dashboard open **Manage → Tenants**. Save the application client id, cloud, and secret or PFX once.
-   Add each directory id, then run **Test connection**. Each log source shows `ok`, `forbidden` (permission missing),
+6. In the dashboard open **Microsoft 365 Audit → Settings**. Save the application client id, cloud, and secret or PFX once.
+   Add each directory id under **Microsoft 365 Audit → Clients**, then run **Test**. Each log source shows `ok`, `forbidden` (permission missing),
    `skipped`, or `error`.
 7. Open the plugin's **Permissions diagnostic**. It lists any required application permission that is not granted
    in that directory. Grant the missing permission on the shared application and consent again.

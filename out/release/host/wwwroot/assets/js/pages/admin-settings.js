@@ -1,6 +1,5 @@
 import { confirmIdentity } from '../reauth.js?v=shell454';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
-import { appendApplication } from './entra-application.js?v=shell454';
 
 let root;
 let pageCtx;
@@ -86,8 +85,6 @@ export async function render(ctx) {
   clear(host);
   // Graph, then SMTP, then Mailgun. See Notifications.cs.
   host.append(h('div', { class: 'page-header' }, h('h1', null, 'Settings')));
-  await appendApplication(ctx, host, () => render(ctx));
-  if (!still()) return;
   const grid = h('div', { class: 'grid cols-2' });
   host.append(grid);
 

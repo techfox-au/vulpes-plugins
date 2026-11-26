@@ -1,7 +1,7 @@
 # Microsoft 365 Audit (`microsoft-365-audit.7z`)
 
 Collects Microsoft 365 / Entra security logs from any number of tenants into Elasticsearch and exposes them in the
-dashboard. The plugin id is `microsoft-365-audit`. Its API is `/api/plugins/microsoft-365-audit`. Clients are added under **Manage → Tenants**. Per-source collection for a client is edited there too. Plugin-wide intervals live in `Plugins:Settings:microsoft-365-audit`.
+dashboard. The plugin id is `microsoft-365-audit`. Its API is `/api/plugins/microsoft-365-audit`. Clients are added under **Microsoft 365 Audit → Clients**. Per-source collection for a client is edited there too. The shared Entra application is under **Microsoft 365 Audit → Settings**. Plugin-wide intervals live in `Plugins:Settings:microsoft-365-audit`.
 
 ## Screens
 
@@ -15,7 +15,7 @@ The pages show a title only. What each one is:
 - **Identity Protection risk.** Risk detections and the risk state of users and service principals from Entra ID Protection.
 - **Ingestion.** Collector health per tenant and source. The page refreshes on its own.
 
-Clients, the shared Entra application, and the connection test are under **Manage → Tenants**. The registration steps and the PowerShell to turn auditing on are in [entra-setup.md](entra-setup.md).
+Clients and the connection test are under **Microsoft 365 Audit → Clients**. The shared Entra application is under **Microsoft 365 Audit → Settings**. The registration steps and the PowerShell to turn auditing on are in [entra-setup.md](entra-setup.md).
 
 ## Sources
 

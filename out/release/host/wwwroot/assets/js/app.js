@@ -1,6 +1,7 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
 import { navLinkActive, secretsEntry } from './nav-active.js?v=shell454';
+import { confirmIdentity } from './reauth.js?v=shell454';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
 import './pwa.js?v=shell388';
 
@@ -14,9 +15,8 @@ const corePages = {
   '/account': () => import('./pages/account.js?v=shell454'),
   '/alerts': () => import('./pages/alerts.js?v=shell447'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell454'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell455'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell454'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell454'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell456'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell457'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
@@ -265,7 +265,7 @@ async function applyBusinessPremiumNav() {
 
 function pageContext(params, query, pluginId) {
   return {
-    api, ui, user: state.user, app: state.app, navigate, params, query,
+    api, ui, confirmIdentity, user: state.user, app: state.app, navigate, params, query,
     refreshNav: async () => { await applyBusinessPremiumNav(); renderNav(); },
     refreshChrome: async () => {
       const s = await session(true);
@@ -324,7 +324,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   if (stale()) return;
 
   if (page === 'permissions') {
-    const mod = await import(`./pages/permissions.js?v=shell410`);
+    const mod = await import(`./pages/permissions.js?v=shell457`);
     if (stale()) return;
     await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
     return;
@@ -344,7 +344,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell455`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell457`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
@@ -357,6 +357,12 @@ async function route() {
     history.replaceState(null, '', location.hash.slice(1));
   }
   let { path, query } = parseLocation();
+  if (path === '/admin/tenants') {
+    const clients = (state.nav?.sections || []).flatMap((section) => section.items).find((item) => item.pluginId === 'microsoft-365-audit' && item.page === 'clients');
+    history.replaceState(null, '', clients?.href || '/');
+    path = clients?.href || '/';
+    query = {};
+  }
   if (state.nav?.sections?.some((section) => section.items.some((item) => item.disabled && item.href === path))) {
     history.replaceState(null, '', '/p/microsoft-365-audit/overview');
     path = '/p/microsoft-365-audit/overview';

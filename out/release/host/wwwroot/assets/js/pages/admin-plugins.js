@@ -48,14 +48,26 @@ function versionCore(value) {
   const text = String(value || '');
   const dash = text.indexOf('-');
   const core = (dash < 0 ? text : text.slice(0, dash)).split('.');
-  const nums = [0, 1, 2].map((index) => (/^\d+$/.test(core[index] || '') ? Number(core[index]) : 0));
-  return { nums, label: dash < 0 ? null : text.slice(dash + 1) };
+  const label = dash < 0 ? null : text.slice(dash + 1);
+  // Version.TryParse rejects the whole core when any component is not a number. A missing component is -1.
+  if (core.some((part) => !/^\d+$/.test(part))) return { nums: [0, 0, 0, -1], label };
+  const nums = [0, 1, 2, 3].map((index) => (core[index] === undefined ? -1 : Number(core[index])));
+  return { nums, label };
+}
+
+function compareNumericText(left, right) {
+  const a = String(left).replace(/^0+/, '') || '0';
+  const b = String(right).replace(/^0+/, '') || '0';
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1;
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 function compareIdentifier(left, right) {
   const leftNumber = /^\d+$/.test(left);
   const rightNumber = /^\d+$/.test(right);
-  if (leftNumber && rightNumber) return Math.sign(Number(left) - Number(right));
+  if (leftNumber && rightNumber) return compareNumericText(left, right);
   if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
   if (left < right) return -1;
   if (left > right) return 1;
@@ -76,7 +88,7 @@ function comparePrerelease(left, right) {
 function versionNewer(candidate, installed) {
   const left = versionCore(candidate);
   const right = versionCore(installed);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     if (left.nums[i] !== right.nums[i]) return left.nums[i] > right.nums[i];
   }
   if (left.label === null && right.label !== null) return true;

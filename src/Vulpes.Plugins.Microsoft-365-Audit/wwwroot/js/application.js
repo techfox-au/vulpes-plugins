@@ -1,7 +1,9 @@
-import { confirmIdentity } from '../reauth.js?v=shell454';
-import { h, icon, errorMessage, setBusy, formValues, dropdown, filePicker, panelNote, pageNote } from '../ui.js?v=shell370';
+function noteRoot(node) {
+  return node.closest('.stack') || node;
+}
 
 export async function appendApplication(ctx, host, rerender) {
+  const { h, errorMessage } = ctx.ui;
   let data;
   try { data = await ctx.api.get('/api/admin/tenants'); }
   catch (err) { host.append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }
@@ -9,6 +11,7 @@ export async function appendApplication(ctx, host, rerender) {
 }
 
 function applicationCard(ctx, app, permissions, tenants, host, rerender) {
+  const { h, icon, errorMessage, setBusy, formValues, dropdown, filePicker, panelNote, pageNote } = ctx.ui;
   const card = h('div', { class: 'card' });
   const form = h('form', { class: 'stack' });
   const credential = dropdown([['secret', 'Client secret'], ['certificate', 'Certificate (PFX)']], { value: app.credentialType || 'secret', name: 'credentialType', ariaLabel: 'Credential' });
@@ -28,11 +31,11 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
       if (!revealed) {
         if (!revealedSecrets) {
           const me = await ctx.api.get('/api/account');
-          if (!(await confirmIdentity(ctx, me))) return;
+          if (!(await ctx.confirmIdentity(ctx, me))) return;
           try { revealedSecrets = await ctx.api.get('/api/admin/tenants/application/secrets'); }
           catch (err) {
             if (err.code !== 'reauth_required') { panelNote(card, errorMessage(err)); return; }
-            if (!(await confirmIdentity(ctx, me))) return;
+            if (!(await ctx.confirmIdentity(ctx, me))) return;
             revealedSecrets = await ctx.api.get('/api/admin/tenants/application/secrets');
           }
         }
@@ -104,7 +107,7 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
   cloud.addEventListener('change', paintConsent);
   copyConsent.addEventListener('click', async () => {
     if (!consentUrl.value) return;
-    try { await navigator.clipboard.writeText(consentUrl.value); pageNote(host, 'Consent link copied.', 'success'); }
+    try { await navigator.clipboard.writeText(consentUrl.value); pageNote(noteRoot(host), 'Consent link copied.', 'success'); }
     catch (err) { panelNote(card, errorMessage(err)); }
   });
   paintConsent();
@@ -158,7 +161,7 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
         removeCertificatePassword: certificate && pfxPassword.remove,
       });
       await rerender();
-      pageNote(host, 'Application saved.', 'success');
+      pageNote(noteRoot(host), 'Application saved.', 'success');
     } catch (err) { panelNote(card, errorMessage(err)); }
     finally { setBusy(button, false); }
   });

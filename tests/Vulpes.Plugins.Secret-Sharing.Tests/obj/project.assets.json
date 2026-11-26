@@ -821,7 +821,7 @@
           "build/net8.0/xunit.runner.visualstudio.props": {}
         }
       },
-      "Vulpes.Host/1.0.116": {
+      "Vulpes.Host/1.0.120": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
@@ -857,7 +857,7 @@
           "bin/placeholder/Vulpes.PluginPacker.dll": {}
         }
       },
-      "Vulpes.Plugins.Secret-Sharing/1.0.42": {
+      "Vulpes.Plugins.Secret-Sharing/1.0.43": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
@@ -1843,7 +1843,7 @@
         "xunit.runner.visualstudio.nuspec"
       ]
     },
-    "Vulpes.Host/1.0.116": {
+    "Vulpes.Host/1.0.120": {
       "type": "project",
       "path": "../../../vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
       "msbuildProject": "../../../vulpes/src/Vulpes.Host/Vulpes.Host.csproj"
@@ -1853,7 +1853,7 @@
       "path": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj",
       "msbuildProject": "../../../vulpes/tools/Vulpes.PluginPacker/Vulpes.PluginPacker.csproj"
     },
-    "Vulpes.Plugins.Secret-Sharing/1.0.42": {
+    "Vulpes.Plugins.Secret-Sharing/1.0.43": {
       "type": "project",
       "path": "../../src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj",
       "msbuildProject": "../../src/Vulpes.Plugins.Secret-Sharing/Vulpes.Plugins.Secret-Sharing.csproj"
@@ -1868,9 +1868,9 @@
     "net10.0": [
       "Microsoft.AspNetCore.Mvc.Testing >= 10.0.14",
       "Microsoft.NET.Test.Sdk >= 18.11.0",
-      "Vulpes.Host >= 1.0.116",
+      "Vulpes.Host >= 1.0.120",
       "Vulpes.PluginPacker >= 1.0.0",
-      "Vulpes.Plugins.Secret-Sharing >= 1.0.42",
+      "Vulpes.Plugins.Secret-Sharing >= 1.0.43",
       "xunit >= 2.9.3",
       "xunit.runner.visualstudio >= 4.0.1"
     ]
@@ -1925,7 +1925,7 @@
         "auditLevel": "low",
         "auditMode": "all"
       },
-      "SdkAnalysisLevel": "11.0.100"
+      "SdkAnalysisLevel": "10.0.400"
     },
     "frameworks": {
       "net10.0": {
@@ -1990,7 +1990,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/11.0.100/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.404/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.AspNetCore": "(,10.0.32767]",
           "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",

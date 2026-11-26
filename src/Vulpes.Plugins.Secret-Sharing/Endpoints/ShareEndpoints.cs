@@ -483,14 +483,16 @@ public static class ShareEndpoints
         var canCollect = ShareAccess.CanCollect(http.User);
         var collect = canCollect && body.NotifyCollectReady;
         var send = body.NotifySendOpened;
+        var stored = store.GetNotifications(user);
+        var turningOn = (collect && !stored.NotifyCollectReady) || (send && !stored.NotifySendOpened);
         var configured = await mail.IsConfiguredAsync(http.RequestAborted);
-        if ((collect || send) && !configured)
+        if (turningOn && !configured)
         {
             return Results.BadRequest(new { error = "validation", message = "Email is not configured on this server." });
         }
 
         var live = await LiveAccountEmail(accounts, user);
-        if ((collect || send) && live is null)
+        if (turningOn && live is null)
         {
             return Results.BadRequest(new { error = "validation", message = "Add an email address to this account before turning on these emails." });
         }

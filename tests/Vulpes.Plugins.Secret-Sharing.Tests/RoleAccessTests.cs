@@ -68,6 +68,46 @@ public sealed class RoleAccessTests : IDisposable
     }
 
     [Fact]
+    public async Task An_enabled_notification_can_be_turned_off_when_mail_is_not_configured()
+    {
+        var admin = await AdminAsync();
+        Assert.Equal(HttpStatusCode.OK, (await admin.SendAsync(HttpMethod.Put, "/api/admin/settings/smtp", Smtp(true))).StatusCode);
+        var (analyst, userId, _) = await UserWithRoleAsync(admin, "Analyst", "notifyoff");
+        var turnedOn = await analyst.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
+        Assert.True(turnedOn.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.True(turnedOn.GetProperty("notifySendOpened").GetBoolean());
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.SendAsync(HttpMethod.Put, "/api/admin/settings/smtp", Smtp(false))).StatusCode);
+        var oneOff = await analyst.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = false });
+        Assert.True(oneOff.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.False(oneOff.GetProperty("notifySendOpened").GetBoolean());
+        Assert.False(oneOff.GetProperty("mailConfigured").GetBoolean());
+
+        var turnBackOn = await analyst.SendAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
+        Assert.Equal(HttpStatusCode.BadRequest, turnBackOn.StatusCode);
+        var kept = await analyst.JsonAsync(HttpMethod.Get, "/api/plugins/secret-sharing/notifications");
+        Assert.True(kept.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.False(kept.GetProperty("notifySendOpened").GetBoolean());
+
+        var bothOff = await analyst.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = false, notifySendOpened = false });
+        Assert.False(bothOff.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.False(bothOff.GetProperty("notifySendOpened").GetBoolean());
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.SendAsync(HttpMethod.Put, "/api/admin/settings/smtp", Smtp(true))).StatusCode);
+        var restored = await analyst.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
+        Assert.True(restored.GetProperty("notifySendOpened").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, (await admin.SendAsync(HttpMethod.Patch, $"/api/admin/users/{userId}", new { email = "" })).StatusCode);
+
+        var stillOn = await analyst.JsonAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = false });
+        Assert.True(stillOn.GetProperty("notifyCollectReady").GetBoolean());
+        Assert.False(stillOn.GetProperty("notifySendOpened").GetBoolean());
+        var needsEmail = await analyst.SendAsync(HttpMethod.Put, "/api/plugins/secret-sharing/notifications", new { notifyCollectReady = true, notifySendOpened = true });
+        Assert.Equal(HttpStatusCode.BadRequest, needsEmail.StatusCode);
+    }
+
+    private static object Smtp(bool enabled) => new { host = "smtp.contoso.com", port = 587, security = "StartTls", username = "mailer", password = "s3cret-password", fromAddress = "alerts@contoso.com", fromName = "Alerts", defaultRecipients = new[] { "soc@contoso.com" }, enabled };
+
+    [Fact]
     public async Task Account_email_changes_are_what_secret_mail_uses()
     {
         var admin = await AdminAsync();

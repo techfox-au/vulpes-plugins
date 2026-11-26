@@ -10,7 +10,7 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell447'),
+  '/': () => import('./pages/home.js?v=shell453'),
   '/account': () => import('./pages/account.js?v=shell448'),
   '/alerts': () => import('./pages/alerts.js?v=shell447'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell447'),
@@ -342,7 +342,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell451`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell452`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }

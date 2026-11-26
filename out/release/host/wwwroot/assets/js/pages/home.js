@@ -88,10 +88,16 @@ export function unmount(gen) {
   keyPrompted = false;
 }
 
+function offerPackageKey(offerName) {
+  let name = String(offerName || '').toLowerCase();
+  if (name.endsWith('.7z')) name = name.slice(0, -3);
+  const tokens = name.replaceAll('.', '-').replaceAll('_', '-').split('-').filter(Boolean);
+  if (tokens[0] === 'vulpes' && tokens[1] === 'plugins') tokens.splice(0, 2);
+  return tokens.join('-');
+}
+
 function offerMatches(pluginId, offerName) {
-  const stem = String(offerName || '').replace(/\.7z$/i, '').toLowerCase().replace(/[._]/g, '-');
-  const id = String(pluginId || '').toLowerCase();
-  return stem === id || stem.endsWith('-' + id);
+  return offerPackageKey(offerName) === String(pluginId || '').toLowerCase();
 }
 
 function applyFocus(card) {

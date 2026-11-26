@@ -98,8 +98,8 @@ function instantFits(year, month, day, rest) {
   if (year === 1 && month === 1 && day === 1 && utcMinutes < 0) return false;
   if (year === 9999 && month === 12 && day === 31) {
     if (utcMinutes > 23 * 60 + 59) return false;
-    // DateTimeOffset.MaxValue is 23:59:59.9999999. A longer fraction does not parse.
-    if (utcMinutes === 23 * 60 + 59 && second === 59 && fraction.length > 7) return false;
+    // The host keeps 7 digits and rounds. An 8th digit of 5 or more at the maximum tick overflows.
+    if (utcMinutes === 23 * 60 + 59 && second === 59 && fractionRoundsPastMax(fraction)) return false;
   }
   return true;
 }
@@ -112,26 +112,43 @@ function clockFits(rest) {
   const second = match[3] === undefined ? 0 : Number(match[3]);
   const ampm = match[4] ? match[4].toLowerCase() : '';
   if (ampm) {
-    if (!(hour === 0 && ampm === 'am') && (hour < 1 || hour > 12)) return false;
+    // 00 PM stays rejected. 13 PM is 13:00, the same value the host accepts.
+    if (hour === 0 && ampm === 'pm') return false;
+    if (!(hour === 0 && ampm === 'am') && (hour < 1 || hour > 23)) return false;
     if (ampm === 'pm' && hour < 12) hour += 12;
     if (ampm === 'am' && hour === 12) hour = 0;
+    if (ampm === 'am' && hour > 12) return false;
   }
   if (hour > 23 || minute > 59 || second > 59) return false;
   return !match[5] || zoneFits(match[5]);
 }
 
+function fractionRoundsPastMax(fraction) {
+  if (fraction.length <= 7) return false;
+  const head = Number(fraction.slice(0, 7));
+  const roundUp = fraction[7] >= '5';
+  return roundUp && head === 9999999;
+}
+
+// .NET maps a two-digit year through 2049. 00 is 2000 and 50 is 1950.
+function expandYear(text) {
+  const year = Number(text);
+  if (String(text).length !== 2) return year;
+  return year <= 49 ? 2000 + year : 1900 + year;
+}
+
 function namedDay(value) {
   const ahead = /^([A-Za-z]+)\s*(\d{1,2}),?\s*(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (ahead && MONTHS[ahead[1].toLowerCase()]) return calendarDay(Number(ahead[3]), MONTHS[ahead[1].toLowerCase()], Number(ahead[2])) && (!ahead[4] || clockFits(ahead[4]));
+  if (ahead && MONTHS[ahead[1].toLowerCase()]) return calendarDay(expandYear(ahead[3]), MONTHS[ahead[1].toLowerCase()], Number(ahead[2])) && (!ahead[4] || clockFits(ahead[4]));
   const behind = /^(\d{1,2})\s+([A-Za-z]+),?\s+(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (behind && MONTHS[behind[2].toLowerCase()]) return calendarDay(Number(behind[3]), MONTHS[behind[2].toLowerCase()], Number(behind[1])) && (!behind[4] || clockFits(behind[4]));
+  if (behind && MONTHS[behind[2].toLowerCase()]) return calendarDay(expandYear(behind[3]), MONTHS[behind[2].toLowerCase()], Number(behind[1])) && (!behind[4] || clockFits(behind[4]));
   return null;
 }
 
 function rfc1123(value) {
   const match = /^(?:(Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?)(?:,\s*|\s+))?(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{2,4})(?:\s+(.*))?$/i.exec(value);
   if (!match || !MONTHS[match[3].toLowerCase()]) return null;
-  const year = Number(match[4]);
+  const year = expandYear(match[4]);
   const month = MONTHS[match[3].toLowerCase()];
   const day = Number(match[2]);
   if (!calendarDay(year, month, day) || (match[5] && !clockFits(match[5]))) return false;
@@ -161,20 +178,20 @@ function dateFits(value) {
     return dayOk && clockFits(rest) && instantFits(year, month, day, rest);
   }
   const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (slash) return calendarDay(Number(slash[3]), Number(slash[1]), Number(slash[2])) && (!slash[4] || clockFits(slash[4]));
+  if (slash) return calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2])) && (!slash[4] || clockFits(slash[4]));
   const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(.*))?$/.exec(value);
   if (yearSlash) return calendarDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3])) && (!yearSlash[4] || clockFits(yearSlash[4]));
   const monthFirst = /^([A-Za-z]+)-(\d{1,2})-(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return calendarDay(Number(monthFirst[3]), MONTHS[monthFirst[1].toLowerCase()], Number(monthFirst[2])) && (!monthFirst[4] || clockFits(monthFirst[4]));
+  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return calendarDay(expandYear(monthFirst[3]), MONTHS[monthFirst[1].toLowerCase()], Number(monthFirst[2])) && (!monthFirst[4] || clockFits(monthFirst[4]));
   const dashedName = /^(\d{1,2})-([A-Za-z]+)-(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (dashedName && MONTHS[dashedName[2].toLowerCase()]) return calendarDay(Number(dashedName[3]), MONTHS[dashedName[2].toLowerCase()], Number(dashedName[1])) && (!dashedName[4] || clockFits(dashedName[4]));
+  if (dashedName && MONTHS[dashedName[2].toLowerCase()]) return calendarDay(expandYear(dashedName[3]), MONTHS[dashedName[2].toLowerCase()], Number(dashedName[1])) && (!dashedName[4] || clockFits(dashedName[4]));
   const dashed = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(value);
   if (dashed) return calendarDay(Number(dashed[3]), Number(dashed[1]), Number(dashed[2]));
   const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(value);
   if (dots) return calendarDay(Number(dots[1]), Number(dots[2]), Number(dots[3]));
   const isoZone = /^(\d{4})-(\d{1,2})-(\d{1,2})\s*(Z|GMT)$/i.exec(value);
   if (isoZone) return calendarDay(Number(isoZone[1]), Number(isoZone[2]), Number(isoZone[3]));
-  const monthYear = /^([A-Za-z]+)\s+(\d{4})$/.exec(value);
+  const monthYear = /^([A-Za-z]+),?\s+(\d{4})$/.exec(value);
   if (monthYear && MONTHS[monthYear[1].toLowerCase()]) return true;
   const yearMonthName = /^(\d{4})\s+([A-Za-z]+)$/.exec(value);
   if (yearMonthName && MONTHS[yearMonthName[2].toLowerCase()]) return true;
@@ -191,14 +208,7 @@ function dateFits(value) {
     const isoDate = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(rest);
     if (isoDate) return weekdayOf(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3])) === wanted;
     const isoWhen = /^(\d{4})-(\d{1,2})-(\d{1,2})[Tt\s].+$/.exec(rest);
-    if (isoWhen) {
-      // A clock with no zone is UTC, the same way the host parses it. Date.parse would use the local zone.
-      const zoned = /(?:GMT|[zZ]|[+-]\d{1,2}(?::?\d{2})?)\s*$/.test(rest);
-      if (!zoned) return weekdayOf(Number(isoWhen[1]), Number(isoWhen[2]), Number(isoWhen[3])) === wanted;
-      const stamp = Date.parse(rest);
-      if (!Number.isNaN(stamp)) return new Date(stamp).getUTCDay() === wanted;
-      return weekdayOf(Number(isoWhen[1]), Number(isoWhen[2]), Number(isoWhen[3])) === wanted;
-    }
+    if (isoWhen) return weekdayOf(Number(isoWhen[1]), Number(isoWhen[2]), Number(isoWhen[3])) === wanted;
     const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(rest);
     if (yearMonth && Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12) return weekdayOf(Number(yearMonth[1]), Number(yearMonth[2]), 1) === wanted;
     const stamp = Date.parse(rest);

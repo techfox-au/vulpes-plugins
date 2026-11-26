@@ -14,7 +14,7 @@ const corePages = {
   '/account': () => import('./pages/account.js?v=shell454'),
   '/alerts': () => import('./pages/alerts.js?v=shell447'),
   '/admin/users': () => import('./pages/admin-users.js?v=shell454'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell454'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell455'),
   '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell454'),
   '/admin/settings': () => import('./pages/admin-settings.js?v=shell454'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
@@ -344,7 +344,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell454`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell455`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }

@@ -125,7 +125,8 @@ export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra 
     const request = {
       challenge: publicKey.challenge,
       allowCredentials: [{ type: 'public-key', id: credential.rawId }],
-      userVerification: publicKey.userVerification,
+      // Creation options carry this on authenticatorSelection, not at the top level. The sign-in request needs the top-level field, and it must stay "required" so the wrap uses the verified secret.
+      userVerification: publicKey.authenticatorSelection?.userVerification || publicKey.userVerification || 'required',
       timeout: publicKey.timeout,
     };
     if (publicKey.rp?.id) request.rpId = publicKey.rp.id;

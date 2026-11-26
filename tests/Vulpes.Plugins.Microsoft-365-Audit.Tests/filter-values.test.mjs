@@ -112,6 +112,20 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '9999-12-31T23:59:59.9999999Z'), true);
   assert.equal(valueFits('date', '9999-12-31T23:59:59.99999999Z'), false);
   assert.equal(valueFits('date', '9999-12-31T23:59:58.99999999Z'), true);
+  assert.equal(valueFits('date', '9999-12-31T23:59:59.99999994Z'), true);
+  assert.equal(valueFits('date', '9999-12-31T23:59:59.99999995Z'), false);
+  assert.equal(valueFits('date', '9999-12-31T23:59:59.00000000Z'), true);
+  assert.equal(valueFits('date', 'Thursday, 2026-11-13 1:00 +10:00'), false);
+  assert.equal(valueFits('date', 'Friday, 2026-11-13 1:00 +10:00'), true);
+  assert.equal(valueFits('date', 'Thursday, 2026-11-13T00:30:00Z'), false);
+  assert.equal(valueFits('date', '11/13/00'), true);
+  assert.equal(valueFits('date', 'Nov 13, 00'), true);
+  assert.equal(valueFits('date', '11/13/50'), true);
+  assert.equal(valueFits('date', 'November, 2026'), true);
+  assert.equal(valueFits('date', '2026-11-13 13 PM'), true);
+  assert.equal(valueFits('date', '2026-11-13 13 AM'), false);
+  assert.equal(valueFits('date', '00:00 PM'), false);
+  assert.equal(valueFits('date', '2026-11-13 00 PM'), false);
 });
 
 test('a 730-day custom range survives a daylight-saving hour', () => {

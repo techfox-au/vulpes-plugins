@@ -52,6 +52,27 @@ function versionCore(value) {
   return { nums, label: dash < 0 ? null : text.slice(dash + 1) };
 }
 
+function compareIdentifier(left, right) {
+  const leftNumber = /^\d+$/.test(left);
+  const rightNumber = /^\d+$/.test(right);
+  if (leftNumber && rightNumber) return Math.sign(Number(left) - Number(right));
+  if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function comparePrerelease(left, right) {
+  const a = String(left).split('.');
+  const b = String(right).split('.');
+  const count = Math.min(a.length, b.length);
+  for (let i = 0; i < count; i++) {
+    const cmp = compareIdentifier(a[i], b[i]);
+    if (cmp !== 0) return cmp;
+  }
+  return Math.sign(a.length - b.length);
+}
+
 function versionNewer(candidate, installed) {
   const left = versionCore(candidate);
   const right = versionCore(installed);
@@ -60,7 +81,8 @@ function versionNewer(candidate, installed) {
   }
   if (left.label === null && right.label !== null) return true;
   if (left.label !== null && right.label === null) return false;
-  return false;
+  if (left.label === null || right.label === null) return false;
+  return comparePrerelease(left.label, right.label) > 0;
 }
 
 async function render(ctx) {

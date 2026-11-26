@@ -18,7 +18,7 @@ export function unmount(gen) {
   root = null;
 }
 
-function dedupeReleases(offers) {
+export function dedupeReleases(offers) {
   const chosen = new Map();
   for (const offer of offers || []) {
     const key = releaseKey(offer);
@@ -41,6 +41,25 @@ function preferRelease(offer, existing) {
   const offerPrivate = offer.source === 'private';
   const existingPrivate = existing.source === 'private';
   if (offerPrivate !== existingPrivate) return offerPrivate;
+  return versionNewer(offer.version, existing.version);
+}
+
+function versionCore(value) {
+  const text = String(value || '');
+  const dash = text.indexOf('-');
+  const core = (dash < 0 ? text : text.slice(0, dash)).split('.');
+  const nums = [0, 1, 2].map((index) => (/^\d+$/.test(core[index] || '') ? Number(core[index]) : 0));
+  return { nums, label: dash < 0 ? null : text.slice(dash + 1) };
+}
+
+function versionNewer(candidate, installed) {
+  const left = versionCore(candidate);
+  const right = versionCore(installed);
+  for (let i = 0; i < 3; i++) {
+    if (left.nums[i] !== right.nums[i]) return left.nums[i] > right.nums[i];
+  }
+  if (left.label === null && right.label !== null) return true;
+  if (left.label !== null && right.label === null) return false;
   return false;
 }
 

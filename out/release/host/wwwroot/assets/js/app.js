@@ -1,6 +1,6 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
-import { navLinkActive } from './nav-active.js?v=shell443';
+import { navLinkActive, secretsEntry } from './nav-active.js?v=shell454';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
 import './pwa.js?v=shell388';
 
@@ -10,13 +10,13 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell453'),
-  '/account': () => import('./pages/account.js?v=shell448'),
+  '/': () => import('./pages/home.js?v=shell454'),
+  '/account': () => import('./pages/account.js?v=shell454'),
   '/alerts': () => import('./pages/alerts.js?v=shell447'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell447'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell408'),
-  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell447'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell447'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell454'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell454'),
+  '/admin/tenants': () => import('./pages/admin-tenants.js?v=shell454'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell454'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
@@ -32,7 +32,7 @@ function isShellPath(path) {
     || path.startsWith('/admin/') || path.startsWith('/p/');
 }
 
-export function navigate(path) {
+export function navigate(path, options = {}) {
   let target = path.startsWith('#') ? path.slice(1) : path;
   if (target === '' || target === '/') target = '/';
   else if (!target.startsWith('/')) target = '/' + target;
@@ -40,7 +40,8 @@ export function navigate(path) {
   if (next.origin !== location.origin) return;
   const dest = next.pathname + next.search;
   if (dest === location.pathname + location.search) { route(); return; }
-  history.pushState(null, '', dest);
+  if (options.replace) history.replaceState(null, '', dest);
+  else history.pushState(null, '', dest);
   route();
 }
 
@@ -309,8 +310,9 @@ async function mountCore(path, query, stale) {
 
 async function mountPluginPage(pluginId, page, query, stale) {
   if (!/^[a-z][a-z0-9-]{1,31}$/.test(pluginId) || !/^[a-z][a-z0-9-]{0,63}$/.test(page)) throw new Error('Invalid page');
-  if (pluginId === 'secret-sharing' && page === 'secrets') {
-    navigate('/?panel=secrets');
+  const shortcut = secretsEntry(pluginId, page);
+  if (shortcut) {
+    navigate(shortcut.path, { replace: shortcut.replace });
     return;
   }
   const navItem = state.nav.sections.flatMap((s) => s.items).find((i) => i.pluginId === pluginId && i.page === page);
@@ -342,7 +344,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell452`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell454`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }

@@ -82,6 +82,25 @@ public sealed class NotificationRoleTests : IDisposable
         Assert.False(prefs.NotifySendOpened);
     }
 
+    [Fact]
+    public async Task A_failed_notification_does_not_block_the_next_one()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "retry.db"));
+        var store = new ShareStore(database);
+        var first = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var second = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        store.SaveNotifications("owner", "owner@example.com", true, false);
+        var email = new FakeEmail { FailuresRemaining = 1 };
+        var mail = new NotificationMail(store, email, new FakeAudit(), new FakeRoles(DashboardRoles.Analyst), new FakeAccountEmail("owner@example.com"), NullLogger<NotificationMail>.Instance);
+
+        await mail.DeliverCollectReadyAsync(first);
+        await mail.DeliverCollectReadyAsync(second);
+
+        Assert.Equal(2, email.Attempts);
+        Assert.True(email.Sent);
+        Assert.Equal("owner@example.com", email.To);
+    }
+
     public void Dispose()
     {
         try
@@ -111,10 +130,21 @@ public sealed class NotificationRoleTests : IDisposable
 
         public bool Sent { get; private set; }
 
+        public int Attempts { get; private set; }
+
+        public int FailuresRemaining { get; set; }
+
         public string? To { get; private set; }
 
         public Task<bool> TrySendAsync(string to, string subject, string text, string html, CancellationToken cancellationToken = default)
         {
+            Attempts++;
+            if (FailuresRemaining > 0)
+            {
+                FailuresRemaining--;
+                return Task.FromResult(false);
+            }
+
             Sent = true;
             To = to;
             return Task.FromResult(true);

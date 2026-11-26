@@ -152,6 +152,27 @@ public sealed class CollectUploadGateTests : IDisposable
     }
 
     [Fact]
+    public async Task A_mapped_known_proxy_does_not_burn_a_proof_for_a_locked_plain_peer()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "mapped-proxy.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var peer = IPAddress.Parse("192.0.2.10");
+        var mapped = IPAddress.Parse("::ffff:192.0.2.10");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(peer.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: peer, scan: scan, forwardedFor: "203.0.113.50", knownProxy: mapped);
+        Assert.False(locked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, PowClock.Stamp(DateTimeOffset.UtcNow)));
+    }
+
+    [Fact]
     public async Task A_trailing_slash_does_not_burn_the_upload_proof()
     {
         var database = new ShareDatabase(Path.Combine(_dir, "slash.db"));

@@ -1,7 +1,7 @@
 import { api, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage, fmt } from './ui.js';
-import * as webauthn from './webauthn.js?v=shell447';
-import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell447';
+import * as webauthn from './webauthn.js?v=shell454';
+import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell454';
 import './pwa.js?v=shell388';
 
 setRedirectOnUnauthorized(false);

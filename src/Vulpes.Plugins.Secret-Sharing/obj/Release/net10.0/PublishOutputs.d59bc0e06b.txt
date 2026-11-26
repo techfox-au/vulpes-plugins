@@ -8,6 +8,7 @@
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/pages/settings.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/cidr.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open-boot.js
+/Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open-kind.js
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open.css
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open.html
 /Users/lappy/vulpes-plugins/out/release/publish/Vulpes.Plugins.Secret-Sharing/wwwroot/public/open.js

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Vulpes contributors")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+d8a24498e10ce3573b42c9ed44606e8424a01f60")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+397956cebc199a691c2212d69c92c42c80a97007")]
 [assembly: System.Reflection.AssemblyProductAttribute("Vulpes")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Vulpes.Plugins.Secret-Sharing.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

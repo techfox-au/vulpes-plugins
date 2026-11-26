@@ -79,6 +79,36 @@ function extensionResults(credential) {
   return results;
 }
 
+function copyPrf(credential) {
+  const first = credential?.getClientExtensionResults?.().prf?.results?.first;
+  if (!first) return null;
+  const bytes = new Uint8Array(first);
+  if (bytes.byteLength !== 32) return null;
+  return new Uint8Array(bytes);
+}
+
+function withReportedPrf(credential, bytes) {
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const read = typeof credential.getClientExtensionResults === 'function'
+    ? credential.getClientExtensionResults.bind(credential)
+    : () => ({});
+  return {
+    id: credential.id,
+    rawId: credential.rawId,
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response: credential.response,
+    toJSON: typeof credential.toJSON === 'function' ? () => credential.toJSON() : undefined,
+    getClientExtensionResults() {
+      const results = { ...read() };
+      const prf = { ...(results.prf || {}) };
+      prf.results = { ...(prf.results || {}), first: buffer };
+      results.prf = prf;
+      return results;
+    },
+  };
+}
+
 /**
  * Runs a registration ceremony.
  * optionsUrl: POST endpoint returning creation options JSON; finishUrl: POST endpoint receiving { credential, ...extra }.
@@ -89,23 +119,41 @@ export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra 
   const publicKey = withPrf(parseCreationOptions(options));
   const credential = await navigator.credentials.create({ publicKey, signal });
   if (!credential) throw new Error('No credential was created.');
-  const prf = credential.getClientExtensionResults?.().prf?.results?.first;
-  if (!prf || new Uint8Array(prf).byteLength !== 32) {
+  let prf = copyPrf(credential);
+  if (!prf) {
+    // Firmware 5.7.4 creates the passkey without hmac-secret-mc, then evaluates the same salt on get.
+    const request = {
+      challenge: publicKey.challenge,
+      allowCredentials: [{ type: 'public-key', id: credential.rawId }],
+      userVerification: publicKey.userVerification,
+      timeout: publicKey.timeout,
+    };
+    if (publicKey.rp?.id) request.rpId = publicKey.rp.id;
+    let assertion = null;
+    try {
+      assertion = await navigator.credentials.get({ publicKey: withPrf(request), signal });
+    } catch {
+      assertion = null;
+    }
+    prf = copyPrf(assertion);
+  }
+  if (!prf) {
     throw new Error('This passkey cannot protect encryption. Use one that supports the PRF extension.');
   }
+  const presented = withReportedPrf(credential, prf);
   let dataKey = null;
   if (finishUrl === '/auth/enroll/passkey') {
-    dataKey = await import('./data-key.js?v=shell447');
+    dataKey = await import('./data-key.js?v=shell454');
     dataKey.armEnrollment(extra?.token || null);
   }
   try {
     const result = await api.post(finishUrl, { credential: credentialToJSON(credential), ...extra }, { signal });
     if (onCredential) {
       try {
-        await onCredential(credential);
+        await onCredential(presented);
       } catch (err) {
-        if (dataKey) await dataKey.abandonEnrollment(credential);
-        else await dropStoredPasskey(finishUrl, credential);
+        if (dataKey) await dataKey.abandonEnrollment(presented);
+        else await dropStoredPasskey(finishUrl, presented);
         throw err;
       }
     }

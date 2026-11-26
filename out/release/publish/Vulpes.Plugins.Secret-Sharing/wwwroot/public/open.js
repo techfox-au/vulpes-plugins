@@ -1,9 +1,10 @@
 import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
+import { openKind } from './open-kind.js?v=key6';
 
 (async function () {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
-  const kind = location.pathname.replace(/\/+$/, '') === '/collect' || params.get('kind') === 'collect' ? 'collect' : 'send';
+  const kind = openKind(location.pathname, params.get('kind'));
   const alertEl = document.getElementById('alert');
   const metaBox = document.getElementById('meta');
   const confirmBox = document.getElementById('confirm-box');

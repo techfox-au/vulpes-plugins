@@ -97,14 +97,17 @@ public sealed class NotificationMail(ShareStore store, IHostEmail email, IHostAu
 
     private async Task SendAsync(string userId, string address, string id, string kind, string subject, string intro, string idLabel)
     {
+        var held = false;
+        long reservedAt = 0;
         try
         {
-            if (!store.TryReserveNotifyEmail(address))
+            if (!store.TryReserveNotifyEmail(address, out reservedAt))
             {
                 logger.LogWarning("Notification {Kind} throttled for {UserId}.", kind, userId);
                 return;
             }
 
+            held = true;
             var home = email.PublicOrigin + "/";
             var footer = "If you did not expect this, you can ignore this email or turn these emails off in Secret Sharing settings.";
             var text = intro + "\n\n" + idLabel + " " + id + "\n\nDashboard\n" + home + "\n\n" + footer;
@@ -114,12 +117,27 @@ public sealed class NotificationMail(ShareStore store, IHostEmail email, IHostAu
                 return;
             }
 
+            held = false;
             await audit.RecordAsync("secret.notify.sent", id, "kind=" + kind, actor: userId);
             logger.LogInformation("Notification {Kind} sent for user {UserId}", kind, userId);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Notification {Kind} failed for user {UserId}", kind, userId);
+        }
+        finally
+        {
+            if (held)
+            {
+                try
+                {
+                    store.ReleaseNotifyEmail(address, reservedAt);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Notification {Kind} could not release the send slot for {UserId}", kind, userId);
+                }
+            }
         }
     }
 }

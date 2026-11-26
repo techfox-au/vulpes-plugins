@@ -105,13 +105,21 @@ public sealed class CollectUploadGate : IStartupFilter
         return current.ToString();
     }
 
+    /// <summary>
+    /// Same trust check as <see cref="Microsoft.AspNetCore.HttpOverrides.ForwardedHeadersMiddleware"/>.
+    /// A mapped known-proxy entry does not match a plain IPv4 peer, so the gate does not walk
+    /// X-Forwarded-For when the middleware will leave the peer in place.
+    /// </summary>
     private static bool IsTrustedProxy(IPAddress address, ForwardedHeadersOptions options)
     {
-        var normalized = address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+        if (address.IsIPv4MappedToIPv6 && IsTrustedProxy(address.MapToIPv4(), options))
+        {
+            return true;
+        }
+
         foreach (var proxy in options.KnownProxies)
         {
-            var known = proxy.IsIPv4MappedToIPv6 ? proxy.MapToIPv4() : proxy;
-            if (known.Equals(normalized))
+            if (proxy.Equals(address))
             {
                 return true;
             }
@@ -119,7 +127,7 @@ public sealed class CollectUploadGate : IStartupFilter
 
         foreach (var network in options.KnownIPNetworks)
         {
-            if (network.Contains(normalized))
+            if (network.Contains(address))
             {
                 return true;
             }

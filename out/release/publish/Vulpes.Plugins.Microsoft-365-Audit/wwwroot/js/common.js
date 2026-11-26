@@ -81,10 +81,12 @@ function offsetMinutes(zone) {
 // Date.UTC maps years 0–99 onto 1900–1999, so the edges are checked from the clock instead.
 function instantFits(year, month, day, rest) {
   if (!rest || (year > 1 && year < 9999)) return true;
-  const clock = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(rest).trim());
+  const clock = /^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?/.exec(String(rest).trim());
   if (!clock) return true;
   let hour = Number(clock[1]);
   const minute = Number(clock[2]);
+  const second = clock[3] === undefined ? 0 : Number(clock[3]);
+  const fraction = clock[4] || '';
   const ampm = /\s*([ap]m)/i.exec(rest);
   if (ampm) {
     const mark = ampm[1].toLowerCase();
@@ -94,15 +96,19 @@ function instantFits(year, month, day, rest) {
   const zone = /(GMT|[zZ]|[+-]\d{1,2}(?::?\d{2})?)\s*$/.exec(String(rest).trim());
   const utcMinutes = hour * 60 + minute - (zone ? offsetMinutes(zone[1]) : 0);
   if (year === 1 && month === 1 && day === 1 && utcMinutes < 0) return false;
-  if (year === 9999 && month === 12 && day === 31 && utcMinutes > 23 * 60 + 59) return false;
+  if (year === 9999 && month === 12 && day === 31) {
+    if (utcMinutes > 23 * 60 + 59) return false;
+    // DateTimeOffset.MaxValue is 23:59:59.9999999. A longer fraction does not parse.
+    if (utcMinutes === 23 * 60 + 59 && second === 59 && fraction.length > 7) return false;
+  }
   return true;
 }
 
 function clockFits(rest) {
-  const match = /^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:\s*([ap]m))?(?:\s*([zZ]|GMT|[+-]\d{1,2}(?::?\d{2})?))?$/i.exec(rest.trim());
-  if (!match) return false;
+  const match = /^(\d{1,2})(?::(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:\s*([ap]m))?(?:\s*([zZ]|GMT|[+-]\d{1,2}(?::?\d{2})?))?$/i.exec(rest.trim());
+  if (!match || (match[2] === undefined && !match[4])) return false;
   let hour = Number(match[1]);
-  const minute = Number(match[2]);
+  const minute = match[2] === undefined ? 0 : Number(match[2]);
   const second = match[3] === undefined ? 0 : Number(match[3]);
   const ampm = match[4] ? match[4].toLowerCase() : '';
   if (ampm) {
@@ -158,8 +164,8 @@ function dateFits(value) {
   if (slash) return calendarDay(Number(slash[3]), Number(slash[1]), Number(slash[2])) && (!slash[4] || clockFits(slash[4]));
   const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(.*))?$/.exec(value);
   if (yearSlash) return calendarDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3])) && (!yearSlash[4] || clockFits(yearSlash[4]));
-  const monthFirst = /^([A-Za-z]+)-(\d{1,2})-(\d{2,4})$/.exec(value);
-  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return calendarDay(Number(monthFirst[3]), MONTHS[monthFirst[1].toLowerCase()], Number(monthFirst[2]));
+  const monthFirst = /^([A-Za-z]+)-(\d{1,2})-(\d{2,4})(?:\s+(.*))?$/.exec(value);
+  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return calendarDay(Number(monthFirst[3]), MONTHS[monthFirst[1].toLowerCase()], Number(monthFirst[2])) && (!monthFirst[4] || clockFits(monthFirst[4]));
   const dashedName = /^(\d{1,2})-([A-Za-z]+)-(\d{2,4})(?:\s+(.*))?$/.exec(value);
   if (dashedName && MONTHS[dashedName[2].toLowerCase()]) return calendarDay(Number(dashedName[3]), MONTHS[dashedName[2].toLowerCase()], Number(dashedName[1])) && (!dashedName[4] || clockFits(dashedName[4]));
   const dashed = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(value);
@@ -186,10 +192,15 @@ function dateFits(value) {
     if (isoDate) return weekdayOf(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3])) === wanted;
     const isoWhen = /^(\d{4})-(\d{1,2})-(\d{1,2})[Tt\s].+$/.exec(rest);
     if (isoWhen) {
+      // A clock with no zone is UTC, the same way the host parses it. Date.parse would use the local zone.
+      const zoned = /(?:GMT|[zZ]|[+-]\d{1,2}(?::?\d{2})?)\s*$/.test(rest);
+      if (!zoned) return weekdayOf(Number(isoWhen[1]), Number(isoWhen[2]), Number(isoWhen[3])) === wanted;
       const stamp = Date.parse(rest);
       if (!Number.isNaN(stamp)) return new Date(stamp).getUTCDay() === wanted;
       return weekdayOf(Number(isoWhen[1]), Number(isoWhen[2]), Number(isoWhen[3])) === wanted;
     }
+    const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(rest);
+    if (yearMonth && Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12) return weekdayOf(Number(yearMonth[1]), Number(yearMonth[2]), 1) === wanted;
     const stamp = Date.parse(rest);
     if (Number.isNaN(stamp)) return false;
     return new Date(stamp).getDay() === wanted;

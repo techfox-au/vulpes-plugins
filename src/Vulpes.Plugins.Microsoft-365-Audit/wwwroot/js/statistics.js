@@ -1,4 +1,4 @@
-import { kpiCard } from './common.js?v=shell377';
+import { kpiCard } from './common.js?v=shell378';
 
 let timer;
 let mountGeneration = 0;

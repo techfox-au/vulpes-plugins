@@ -136,8 +136,9 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
     public NotifyTarget? SendOpenedTarget(string sendId) => Target(collect: false, sendId);
 
     /// <summary>Claims the next notification slot before the message is sent. Parallel callers cannot all pass.</summary>
-    public bool TryReserveNotifyEmail(string email)
+    public bool TryReserveNotifyEmail(string email, out long reservedAt)
     {
+        reservedAt = 0;
         email = email.Trim().ToLowerInvariant();
         using var conn = database.Open();
         using var transaction = conn.BeginTransaction(deferred: false);
@@ -170,11 +171,29 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
                 SendCount = notify_email_budget.SendCount + 1,
                 LastSendMs = excluded.LastSendMs
             """;
+        reservedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         write.Parameters.AddWithValue("@email", email);
-        write.Parameters.AddWithValue("@at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        write.Parameters.AddWithValue("@at", reservedAt);
         write.ExecuteNonQuery();
         transaction.Commit();
         return true;
+    }
+
+    /// <summary>Gives back a slot when the message was not sent. A later reservation keeps its own clock.</summary>
+    public void ReleaseNotifyEmail(string email, long reservedAt)
+    {
+        email = email.Trim().ToLowerInvariant();
+        using var conn = database.Open();
+        using var write = conn.CreateCommand();
+        write.CommandText = """
+            UPDATE notify_email_budget
+            SET SendCount = SendCount - 1,
+                LastSendMs = CASE WHEN LastSendMs = @at THEN 0 ELSE LastSendMs END
+            WHERE Email = @email AND SendCount > 0
+            """;
+        write.Parameters.AddWithValue("@email", email);
+        write.Parameters.AddWithValue("@at", reservedAt);
+        write.ExecuteNonQuery();
     }
 
     private NotifyTarget? Target(bool collect, string id)

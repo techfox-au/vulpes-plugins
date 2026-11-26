@@ -1,4 +1,4 @@
-import { confirmIdentity } from '../reauth.js?v=shell447';
+import { confirmIdentity } from '../reauth.js?v=shell454';
 import { h, icon, errorMessage, setBusy, formValues, dropdown, filePicker, panelNote, pageNote } from '../ui.js?v=shell370';
 
 export async function appendApplication(ctx, host, rerender) {

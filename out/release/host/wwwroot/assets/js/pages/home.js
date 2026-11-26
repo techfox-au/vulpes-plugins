@@ -1,5 +1,5 @@
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell447';
+import { requireUserDataKey } from '../data-key.js?v=shell454';
 
 let status = null;
 let shareTimer = null;

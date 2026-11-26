@@ -102,6 +102,16 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('ip', '2001:db8::1'), true);
   assert.equal(valueFits('ip', '::1'), true);
   assert.equal(valueFits('ip', '::ffff:192.0.2.1'), true);
+  assert.equal(valueFits('date', 'Friday, 2026-11-13 9:30'), true);
+  assert.equal(valueFits('date', 'Thursday, 2026-11-13 9:30'), false);
+  assert.equal(valueFits('date', 'Sunday, 2026-11'), true);
+  assert.equal(valueFits('date', 'Monday, 2026-11'), false);
+  assert.equal(valueFits('date', 'Nov-13-2026 9:30'), true);
+  assert.equal(valueFits('date', '2026-11-13 3 PM'), true);
+  assert.equal(valueFits('date', '2026-11-13 3'), false);
+  assert.equal(valueFits('date', '9999-12-31T23:59:59.9999999Z'), true);
+  assert.equal(valueFits('date', '9999-12-31T23:59:59.99999999Z'), false);
+  assert.equal(valueFits('date', '9999-12-31T23:59:58.99999999Z'), true);
 });
 
 test('a 730-day custom range survives a daylight-saving hour', () => {

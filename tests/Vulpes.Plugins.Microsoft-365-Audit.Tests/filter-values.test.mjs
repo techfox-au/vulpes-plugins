@@ -67,7 +67,10 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('ip', '008.0.0.1'), false);
   assert.equal(valueFits('ip', '::ffff:999.1.1.1'), false);
   assert.equal(valueFits('ip', '203.0.113.10'), true);
-  assert.equal(valueFits('ip', '010.0.0.1'), true);
+  assert.equal(valueFits('ip', '0.0.0.0'), true);
+  assert.equal(valueFits('ip', '010.0.0.1'), false);
+  assert.equal(valueFits('ip', '192.168.001.010'), false);
+  assert.equal(valueFits('ip', '::ffff:010.0.0.1'), false);
   assert.equal(valueFits('ip', '2001:db8::1'), true);
   assert.equal(valueFits('ip', '::1'), true);
   assert.equal(valueFits('ip', '::ffff:192.0.2.1'), true);

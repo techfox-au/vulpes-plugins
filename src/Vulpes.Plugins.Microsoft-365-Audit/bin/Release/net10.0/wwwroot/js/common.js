@@ -141,17 +141,14 @@ function dateFits(value) {
   return false;
 }
 
-// A leading zero is octal, matching the host IP parser, so 010 is an address and 008 is not.
-function ipv4Octet(part, embedded) {
-  if (embedded) return /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255;
-  if (!/^\d{1,3}$/.test(part)) return false;
-  if (/^0\d/.test(part)) return /^[0-7]+$/.test(part) && Number.parseInt(part, 8) <= 255;
-  return Number(part) <= 255;
+// Leading zeros are rejected, matching the host IP parser. 010.0.0.1 is not an address.
+function ipv4Octet(part) {
+  return /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255;
 }
 
-function ipv4Fits(value, embedded) {
+function ipv4Fits(value) {
   const parts = value.split('.');
-  return parts.length === 4 && parts.every((part) => ipv4Octet(part, embedded));
+  return parts.length === 4 && parts.every((part) => ipv4Octet(part));
 }
 
 function ipv6Fits(value) {
@@ -166,7 +163,7 @@ function ipv6Fits(value) {
       const group = groups[i];
       const end = side === halves.length - 1 && i === groups.length - 1;
       if (end && group.includes('.')) {
-        if (!ipv4Fits(group, true)) return false;
+        if (!ipv4Fits(group)) return false;
         count += 2;
       } else if (!/^[0-9a-fA-F]{1,4}$/.test(group)) {
         return false;
@@ -182,7 +179,7 @@ export function valueFits(type, value) {
   if (type === 'date') return dateFits(value);
   if (type === 'number' || type === 'wholenumber') return value !== '' && !Number.isNaN(Number(value));
   if (type === 'boolean') return value === 'true' || value === 'false';
-  if (type === 'ip') return ipv4Fits(value, false) || ipv6Fits(value);
+  if (type === 'ip') return ipv4Fits(value) || ipv6Fits(value);
   return true;
 }
 

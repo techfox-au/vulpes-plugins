@@ -270,6 +270,9 @@ function numericDashParts(monthText, dayText, yearText) {
 
 function normalizeDateText(value) {
   let text = String(value || '').trim().replace(/[.,]+$/g, '').trim();
+  // The host drops spaces around / and around hyphens in a month name. The offset space is restored below.
+  text = text.replace(/\s*\/\s*/g, '/');
+  if (text.split(/[^A-Za-z.]+/).some((token) => monthIndex(token))) text = text.replace(/\s*-\s*/g, '-');
   // A leading hyphen is a date separator (2026-11). Only a plus, Z, or GMT is glued on.
   // 1/1/06+10:00 has no month word or four-digit year, so the host allows that plus only after whitespace.
   const glued = new RegExp(String.raw`^(.*\d)\s*([zZ]|GMT|\+\d{1,2}(?::\d{1,2}(?::\d{1,2})?|\d{2,4})?)$`, 'i').exec(text);

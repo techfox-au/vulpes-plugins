@@ -328,6 +328,7 @@ test('filter values match dates and addresses the search will accept', () => {
     'Nov/13/2026', 'Nov.13.2026', '13/Nov/2026', '13.Nov.2026',
     '2026/11', '11-2026', 'Nov/2026', '2026-11',
     '2026-11-13 3:45 PM.', 'November 13, 2026,', '13, November, 2026', 'Fri. 13 Nov 2026', '2026 - 11 - 13',
+    '11 / 13 / 2026', '13 - Nov - 2026',
     '2026-11-13 15:00 +00:00:01',
   ]) assert.equal(valueFits('date', value), true, value);
   for (const value of [

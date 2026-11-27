@@ -174,30 +174,38 @@ public sealed class PurviewAuditCollector : ICollector
         DateTimeOffset? max = null;
         string? resume = null;
 
-        await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun * 5, cancellationToken, false, c => complete &= c, url => resume = url))
+        try
         {
-            var mapped = Normalizers.AuditLogRecord(record, context.Tenant.TenantId, context.Tenant.DiscoveredName ?? context.Tenant.DisplayName);
-            if (mapped is null)
+            await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun * 5, cancellationToken, false, c => complete &= c, url => resume = url))
             {
-                continue;
-            }
+                var mapped = Normalizers.AuditLogRecord(record, context.Tenant.TenantId, context.Tenant.DiscoveredName ?? context.Tenant.DisplayName);
+                if (mapped is null)
+                {
+                    continue;
+                }
 
-            buffer.Add(mapped);
-            max = max is null || mapped.Timestamp > max ? mapped.Timestamp : max;
-            if (buffer.Count >= 500)
-            {
-                var r = await context.PublishAsync(buffer, cancellationToken);
-                totals = (totals.Indexed + r.Indexed, totals.Duplicates + r.Duplicates, totals.Failed + r.Failed, totals.Alerts + r.Alerts);
-            }
+                buffer.Add(mapped);
+                max = max is null || mapped.Timestamp > max ? mapped.Timestamp : max;
+                if (buffer.Count >= 500)
+                {
+                    var r = await context.PublishAsync(buffer, cancellationToken);
+                    totals = (totals.Indexed + r.Indexed, totals.Duplicates + r.Duplicates, totals.Failed + r.Failed, totals.Alerts + r.Alerts);
+                }
 
-            if (context.OutOfTime)
-            {
-                complete = false;
-                break;
+                if (context.OutOfTime)
+                {
+                    complete = false;
+                    break;
+                }
             }
         }
+        catch (OperationCanceledException)
+        {
+            // The run budget cancelled the page read. Keep the resume URL the pager already stored.
+            complete = false;
+        }
 
-        var last = await context.PublishAsync(buffer, cancellationToken);
+        var last = await context.PublishAsync(buffer, cancellationToken.IsCancellationRequested ? CancellationToken.None : cancellationToken);
         totals = (totals.Indexed + last.Indexed, totals.Duplicates + last.Duplicates, totals.Failed + last.Failed, totals.Alerts + last.Alerts);
 
         if (totals.Failed > 0)

@@ -101,7 +101,7 @@ public static class AuditEndpoints
         }
     }
 
-    private static async Task<IResult> AggregateAsync(AggregateRequest request, IEventSearch search, CancellationToken ct)
+    internal static async Task<IResult> AggregateAsync(AggregateRequest request, IEventSearch search, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrEmpty(request.Source))
@@ -119,7 +119,7 @@ public static class AuditEndpoints
                 To = request.To,
                 Filters = MapFilters(request.Filters),
                 FreeText = request.Text,
-                Aggregations = (request.Aggregations ?? []).Select(a => new AggregationSpec(a.Name, ParseKind(a.Kind), a.Field ?? "@timestamp", a.Size ?? 10, a.Interval)).ToList(),
+                Aggregations = (request.Aggregations ?? []).Select(a => new AggregationSpec(a.Name, ParseKind(a.Kind), AggregationField(a.Kind, a.Field), a.Size ?? 10, a.Interval)).ToList(),
             }, ct);
             return Results.Json(result, Json);
         }
@@ -133,7 +133,7 @@ public static class AuditEndpoints
         }
     }
 
-    private static async Task<IResult> GetEventAsync(string source, string id, IEventSearch search, CancellationToken ct)
+    internal static async Task<IResult> GetEventAsync(string source, string id, IEventSearch search, CancellationToken ct)
     {
         try
         {
@@ -143,6 +143,10 @@ public static class AuditEndpoints
         catch (ArgumentException ex)
         {
             return Error(400, "validation", ex.Message);
+        }
+        catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
+        {
+            return Error(503, "search_unavailable", ex.Message);
         }
     }
 
@@ -257,7 +261,7 @@ public static class AuditEndpoints
         return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
     }
 
-    private static async Task<IResult> StatisticsAsync(IEventSearch search, IAlertFieldCatalog catalog, ISharedClientDirectory clients, CancellationToken ct)
+    internal static async Task<IResult> StatisticsAsync(IEventSearch search, IAlertFieldCatalog catalog, ISharedClientDirectory clients, CancellationToken ct)
     {
         if (!search.IsAvailable)
         {
@@ -287,11 +291,13 @@ public static class AuditEndpoints
                 var newest = await search.SearchAsync(new EventQuery { PluginId = Normalizers.PluginId, Source = source.Source, Size = 1, Sort = SortDirection.Descending }, ct);
                 spans[source.Source] = (Timestamp(oldest), Timestamp(newest));
 
+                // More than 100 values is rejected by search. Skip the filter; TenantBreakdown still drops disabled directory ids.
+                var hideDisabled = hidden.Count > 0 && hidden.Count <= 100;
                 var agg = await search.AggregateAsync(new EventAggregationQuery
                 {
                     PluginId = Normalizers.PluginId,
                     Source = source.Source,
-                    Filters = hidden.Count == 0 ? [] : [new FieldFilter("vc.tenantId", FilterOperator.NotIn, hidden)],
+                    Filters = hideDisabled ? [new FieldFilter("vc.tenantId", FilterOperator.NotIn, hidden)] : [],
                     Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", 50)],
                 }, ct);
                 if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
@@ -299,7 +305,10 @@ public static class AuditEndpoints
                     continue;
                 }
 
-                var denominator = agg.Total > 0 ? agg.Total : source.Documents;
+                // StoredBytes is the whole index. NotIn shrinks agg.Total, which would paint hidden bytes onto the rows that remain, including Other clients.
+                var denominator = hidden.Count > 0 && source.Documents > 0
+                    ? source.Documents
+                    : (agg.Total > 0 ? agg.Total : source.Documents);
                 foreach (var bucket in buckets)
                 {
                     var share = denominator == 0 ? 0 : (double)bucket.Count / denominator * source.StoredBytes;
@@ -516,8 +525,14 @@ public static class AuditEndpoints
         }
 
         var error = await tenants.UpdateCollectionAsync(id, request.LookbackDays, request.Settings, ct);
-        return error is null ? Results.NoContent() : Error(400, "validation", error);
+        return error is null ? Results.NoContent() : CollectionError(error);
     }
+
+    /// <summary>A missing tenant is 404. Lookback, settings, and a disabled client stay 400 validation.</summary>
+    internal static IResult CollectionError(string error) =>
+        error is "Tenant not found."
+            ? Error(404, "not_found", error)
+            : Error(400, "validation", error);
 
     private static void AddUsage(List<(string Key, long Count, double Bytes)> rows, string key, long count, double bytes)
     {
@@ -608,6 +623,22 @@ public static class AuditEndpoints
         }
 
         return result;
+    }
+
+    /// <summary>A terms bucket needs a field. A date histogram with no field counts <c>@timestamp</c>.</summary>
+    internal static string AggregationField(string? kind, string? field)
+    {
+        if (!string.IsNullOrWhiteSpace(field))
+        {
+            return field;
+        }
+
+        if (kind?.ToLowerInvariant() is "datehistogram" or "date_histogram" or "histogram")
+        {
+            return "@timestamp";
+        }
+
+        throw new ArgumentException("Each aggregation needs a name, kind, and field.");
     }
 
     private static AggregationKind ParseKind(string kind) => kind?.ToLowerInvariant() switch

@@ -17,7 +17,7 @@ const expiryChoices = [
 
 export async function mount(el, ctx) {
   const root = el.querySelector('#collect-root');
-  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk6`)).then(() => window.SecretUdk.ready());
+  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk8`)).then(() => window.SecretUdk.ready());
   const { h, dropdown, copyToClipboard } = ctx.ui;
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. Give me credentials', autocomplete: 'off' });
   const mode = dropdown([['true', 'One-time'], ['false', 'Multi-view until expiry']], { value: 'true', ariaLabel: 'Collect mode' });

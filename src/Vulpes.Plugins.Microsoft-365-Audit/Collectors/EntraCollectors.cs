@@ -364,9 +364,18 @@ public sealed class SecureScoreCollector : ICollector
             return new CollectorResult(indexed, duplicates, failed, alerts, false, "Elasticsearch rejected records; the watermark was not moved");
         }
 
-        if (newest is { } n && (context.Checkpoint.Watermark is null || n > context.Checkpoint.Watermark))
+        if (newest is { } n)
         {
-            context.Checkpoint.Watermark = n;
+            // A clock-skewed createdDateTime must not move the watermark past now. Cap only the new value.
+            if (n > context.Now)
+            {
+                n = context.Now;
+            }
+
+            if (context.Checkpoint.Watermark is null || n > context.Checkpoint.Watermark)
+            {
+                context.Checkpoint.Watermark = n;
+            }
         }
 
         return new CollectorResult(indexed, duplicates, failed, alerts, true);

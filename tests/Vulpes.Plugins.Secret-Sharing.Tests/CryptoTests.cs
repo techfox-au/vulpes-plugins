@@ -256,6 +256,15 @@ public sealed class IpRestrictionTests
         Assert.Equal("*", canonical);
         Assert.True(IpRestriction.IsClientAllowed(canonical, System.Net.IPAddress.Parse("198.51.100.9")));
     }
+
+    [Fact]
+    public void A_non_canonical_prefix_is_rejected_and_a_zero_prefix_is_every_ipv4_address()
+    {
+        Assert.False(IpRestriction.TryNormalize("203.0.113.10/00", out _, out _));
+        Assert.True(IpRestriction.TryNormalize("203.0.113.10/0", out var canonical, out var error));
+        Assert.Null(error);
+        Assert.Equal("0.0.0.0/0", canonical);
+    }
 }
 
 public sealed class WrapPackageTests

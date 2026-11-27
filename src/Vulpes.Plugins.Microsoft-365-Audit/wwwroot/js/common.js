@@ -55,52 +55,55 @@ function weekdayOf(year, month, day) {
   return new Date(Date.UTC(probeYear, month - 1, day)).getUTCDay();
 }
 
+// +05:3 is five hours and three minutes. +00:00:01 keeps :01 on the clock. Compact +1000 is not a colon form.
+const ZONE_BODY = String.raw`[+-]\d{1,2}(?::\d{1,2}(?::\d{1,2})?|\d{2})?`;
+const ZONE_TOKEN = String.raw`(?:[zZ]|GMT|${ZONE_BODY})`;
+
 function zoneParts(zone) {
-  if (!zone || /^(z|gmt)$/i.test(zone)) return { ok: true, minutes: 0 };
+  if (!zone || /^(z|gmt)$/i.test(zone)) return { ok: true, minutes: 0, seconds: 0 };
   const sign = zone[0] === '-' ? -1 : 1;
   const body = zone.slice(1);
   let hour;
-  let minute;
-  const colon = body.indexOf(':');
-  if (/^\d{1,2}$/.test(body)) {
-    hour = Number(body);
-    minute = 0;
-  } else if (colon >= 0) {
-    // +05:3 is five hours and three minutes. Padding the compact form would make it 53 minutes.
-    const hourText = body.slice(0, colon);
-    const minuteText = body.slice(colon + 1);
-    if (!/^\d{1,2}$/.test(hourText) || !/^\d{1,2}$/.test(minuteText)) return { ok: false, minutes: 0 };
-    hour = Number(hourText);
-    minute = Number(minuteText);
+  let minute = 0;
+  let second = 0;
+  const pieces = body.split(':');
+  if (pieces.length === 1) {
+    if (/^\d{1,2}$/.test(body)) {
+      hour = Number(body);
+    } else {
+      const digits = body.length === 3 ? `0${body}` : body;
+      if (!/^\d{4}$/.test(digits)) return { ok: false, minutes: 0, seconds: 0 };
+      hour = Number(digits.slice(0, 2));
+      minute = Number(digits.slice(2, 4));
+    }
+  } else if (pieces.length === 2 || pieces.length === 3) {
+    if (!pieces.every((part) => /^\d{1,2}$/.test(part))) return { ok: false, minutes: 0, seconds: 0 };
+    hour = Number(pieces[0]);
+    minute = Number(pieces[1]);
+    if (pieces.length === 3) second = Number(pieces[2]);
   } else {
-    const digits = body.length === 3 ? `0${body}` : body;
-    if (!/^\d{4}$/.test(digits)) return { ok: false, minutes: 0 };
-    hour = Number(digits.slice(0, 2));
-    minute = Number(digits.slice(2, 4));
+    return { ok: false, minutes: 0, seconds: 0 };
   }
-  // DateTimeOffset accepts an offset of at most 14 hours, and only :00 at that edge.
-  if (hour > 14 || minute > 59 || (hour === 14 && minute !== 0)) return { ok: false, minutes: 0 };
-  return { ok: true, minutes: sign * (hour * 60 + minute) };
+  // The offset is at most 14 hours, and only :00 past that edge. :ss is a clock second, not more offset.
+  if (hour > 14 || minute > 59 || second > 59 || (hour === 14 && minute !== 0)) return { ok: false, minutes: 0, seconds: 0 };
+  return { ok: true, minutes: sign * (hour * 60 + minute), seconds: second };
 }
 
 function zoneFits(zone) {
   return zoneParts(zone).ok;
 }
 
-function offsetMinutes(zone) {
-  return zoneParts(zone).minutes;
-}
-
 // Date.UTC maps years 0–99 onto 1900–1999, so the edges are checked from the clock instead.
 function instantFits(year, month, day, rest) {
   if (!rest || (year > 1 && year < 9999)) return true;
-  const clock = /^(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?/.exec(String(rest).trim());
+  const text = String(rest).trim().replace(/(\d),(\d+)/g, '$1.$2');
+  const clock = /^(\d{1,2})\s*:\s*(\d{1,2})(?:\s*:\s*(\d{1,2})(?:\.(\d+))?)?/.exec(text);
   if (!clock) return true;
   let hour = Number(clock[1]);
   const minute = Number(clock[2]);
   const second = clock[3] === undefined ? 0 : Number(clock[3]);
   const fraction = clock[4] || '';
-  const ampm = /\s*([ap]m)/i.exec(rest);
+  const ampm = /\s*([ap]m)/i.exec(text);
   if (ampm) {
     const mark = ampm[1].toLowerCase();
     if (mark === 'pm' && hour < 12) hour += 12;
@@ -108,13 +111,18 @@ function instantFits(year, month, day, rest) {
   }
   // The host rejects a fraction that overflows the wall clock before it applies the offset.
   if (year === 9999 && month === 12 && day === 31 && hour === 23 && minute === 59 && second === 59 && fractionRoundsPastMax(fraction)) return false;
-  const zone = /(GMT|[zZ]|[+-]\d{1,2}(?::\d{1,2}|\d{2})?)\s*$/.exec(String(rest).trim());
-  const utcMinutes = hour * 60 + minute - (zone ? offsetMinutes(zone[1]) : 0);
-  if (year === 1 && month === 1 && day === 1 && utcMinutes < 0) return false;
+  const zone = new RegExp(`(${ZONE_TOKEN})\\s*$`, 'i').exec(text);
+  const shift = zone ? zoneParts(zone[1]) : { ok: true, minutes: 0, seconds: 0 };
+  if (zone && !shift.ok) return false;
+  // ±hh:mm:ss keeps the offset at ±hh:mm and stores :ss on a clock that had no seconds.
+  const wallSecond = clock[3] === undefined ? second + shift.seconds : second;
+  const utcSeconds = (hour * 60 + minute) * 60 + wallSecond - shift.minutes * 60;
+  if (year === 1 && month === 1 && day === 1 && utcSeconds < 0) return false;
   if (year === 9999 && month === 12 && day === 31) {
-    if (utcMinutes > 23 * 60 + 59) return false;
+    const maxSecond = (23 * 60 + 59) * 60 + 59;
+    if (utcSeconds > maxSecond) return false;
     // The host keeps 7 digits and rounds. An 8th digit of 5 or more at the maximum tick overflows.
-    if (utcMinutes === 23 * 60 + 59 && second === 59 && fractionRoundsPastMax(fraction)) return false;
+    if (utcSeconds === maxSecond && fractionRoundsPastMax(fraction)) return false;
   }
   return true;
 }
@@ -125,9 +133,9 @@ function zoneOnly(rest) {
 }
 
 function clockFits(rest) {
-  // 23:59:59,999 is the same fraction as 23:59:59.999. 3.45 PM is 3:45 PM.
+  // 23:59:59,999 is the same fraction as 23:59:59.999. 3.45 PM is 3:45 PM. 10 :30 is 10:30.
   const text = String(rest).trim().replace(/(\d),(\d+)/g, '$1.$2').replace(/^(\d{1,2})\.(\d{1,2})(?=\s*[ap]m\b)/i, '$1:$2');
-  const match = /^(\d{1,2})(?::(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?)?(?:\s*([ap]m))?(?:\s*([zZ]|GMT|[+-]\d{1,2}(?::\d{1,2}|\d{2})?))?$/i.exec(text);
+  const match = new RegExp(`^(\\d{1,2})(?:\\s*:\\s*(\\d{1,2})(?:\\s*:\\s*(\\d{1,2})(?:\\.\\d+)?)?)?(?:\\s*([ap]m))?(?:\\s*(${ZONE_TOKEN}))?$`, 'i').exec(text);
   if (!match || (match[2] === undefined && !match[4])) return false;
   let hour = Number(match[1]);
   const minute = match[2] === undefined ? 0 : Number(match[2]);
@@ -142,13 +150,16 @@ function clockFits(rest) {
     if (ampm === 'am' && hour > 12) return false;
   }
   if (hour > 23 || minute > 59 || second > 59) return false;
+  // The host rejects another :ss on the offset when the clock already has seconds.
+  if (match[3] !== undefined && match[5] && /^[+-]\d{1,2}:\d{1,2}:\d{1,2}$/.test(match[5])) return false;
   return !match[5] || zoneFits(match[5]);
 }
 
 function rollsForward(rest) {
   if (!rest) return false;
   // The weekday forms pass the whole date, so the clock is not always at the start.
-  const clock = /(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d+))?)?/.exec(String(rest));
+  const text = String(rest).replace(/(\d),(\d+)/g, '$1.$2');
+  const clock = /(\d{1,2})\s*:\s*(\d{1,2})(?:\s*:\s*(\d{1,2})(?:\.(\d+))?)?/.exec(text);
   if (!clock) return false;
   let hour = Number(clock[1]);
   const minute = Number(clock[2]);
@@ -257,46 +268,98 @@ function numericDashParts(monthText, dayText, yearText) {
   return { year, month, day };
 }
 
+function normalizeDateText(value) {
+  let text = String(value || '').trim().replace(/[.,]+$/g, '').trim();
+  // A leading hyphen is a date separator (2026-11). Only a plus, Z, or GMT is glued on.
+  // 1/1/06+10:00 has no month word or four-digit year, so the host allows that plus only after whitespace.
+  const glued = new RegExp(String.raw`^(.*\d)\s*([zZ]|GMT|\+\d{1,2}(?::\d{1,2}(?::\d{1,2})?|\d{2,4})?)$`, 'i').exec(text);
+  const shortNumericPlus = /^(?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*,?\s+)?\d{1,2}[/-]\d{1,2}[/-]\d{2}\+/i.test(text);
+  if (glued && zoneFits(glued[2]) && !shortNumericPlus) text = `${glued[1]} ${glued[2]}`;
+  // -05:00 and -0500 on a finished date are offsets. A hyphen inside 2026-11-13, or the year in 11-13-1400, stays put.
+  const minus = /^(.*\d)-(\d{2}:\d{2}|\d{4})$/.exec(text);
+  if (minus && zoneFits(`-${minus[2]}`) && dateFits(minus[1])) text = `${minus[1]} -${minus[2]}`;
+  return text.replace(/^(\d{4})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})(?=$|\s|[Tt]|[+-]|Z)/i, '$1-$2-$3');
+}
+
+function leadClockMatch(value) {
+  return new RegExp(String.raw`^(\d{1,2}(?::\d{1,2}(?::\d{1,2}(?:[.,]\d+)?)?)?(?:\s*[ap]m)?)(?:\s*(${ZONE_TOKEN}))?\s+(\S.*)$`, 'i').exec(value);
+}
+
+function stripLeadClock(value) {
+  const lead = leadClockMatch(value);
+  if (!lead) return value;
+  const clockText = lead[2] ? `${lead[1]} ${lead[2]}` : lead[1];
+  if (!clockFits(clockText)) return value;
+  return lead[3];
+}
+
+function monthYearOnly(value) {
+  const text = String(value || '').trim();
+  return /^\d{4}[-/]\d{1,2}$/.test(text) || /^\d{1,2}-\d{4}$/.test(text) || /^[A-Za-z]+\.?(?:,\s*|\s+|\/)\d{4}$/.test(text) || /^\d{4}\s+[A-Za-z]+\.?$/.test(text);
+}
+
 function calendarOf(value) {
-  const named = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d),?\s*(\d{1,4})(?!\d)/.exec(value);
-  if (named && monthIndex(named[1])) {
-    const parts = spacedParts(named[2], named[1], named[3]);
-    if (parts) return parts;
+  const text = stripLeadClock(normalizeDateText(value));
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[Tt\s].*)/.exec(text);
+  if (iso && calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]))) return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) };
+  const yearMonth = /^(\d{4})[-/](\d{1,2})$/.exec(text);
+  if (yearMonth && Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12) return { year: Number(yearMonth[1]), month: Number(yearMonth[2]), day: 1 };
+  const monthDashYear = /^(\d{1,2})-(\d{4})$/.exec(text);
+  if (monthDashYear && Number(monthDashYear[1]) >= 1 && Number(monthDashYear[1]) <= 12) return { year: Number(monthDashYear[2]), month: Number(monthDashYear[1]), day: 1 };
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s.*)?$/.exec(text);
+  if (slash && calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2]))) return { year: expandYear(slash[3]), month: Number(slash[1]), day: Number(slash[2]) };
+  const slashNamed = /^(\d{1,4})[/.]([A-Za-z]+)[/.](\d{1,4})(?:\s.*)?$/.exec(text);
+  if (slashNamed) {
+    const named = dashedNamedParts(slashNamed[1], slashNamed[2], slashNamed[3]);
+    if (named) return named;
   }
-  const behind = /^(\d{1,2})\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})/.exec(value);
-  if (behind && monthIndex(behind[2])) {
-    const parts = spacedParts(behind[1], behind[2], behind[3]);
-    if (parts) return parts;
+  const monthSlash = /^([A-Za-z]+)[/.](\d{1,4})[/.](\d{1,4})(?:\s.*)?$/.exec(text);
+  if (monthSlash) {
+    const named = monthDashParts(monthSlash[1], monthSlash[2], monthSlash[3]);
+    if (named) return named;
   }
-  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(value);
-  if (slash) return { year: expandYear(slash[3]), month: Number(slash[1]), day: Number(slash[2]) };
-  const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(value);
-  if (yearSlash) return { year: Number(yearSlash[1]), month: Number(yearSlash[2]), day: Number(yearSlash[3]) };
-  const yearNamed = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})/.exec(value);
-  if (yearNamed && monthIndex(yearNamed[2]) && calendarDay(Number(yearNamed[1]), monthIndex(yearNamed[2]), Number(yearNamed[3]))) return { year: Number(yearNamed[1]), month: monthIndex(yearNamed[2]), day: Number(yearNamed[3]) };
-  const dashedName = /^(\d{1,4})-([A-Za-z]+)-(\d{1,4})/.exec(value);
+  const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:$|[Tt\s].*)/.exec(text);
+  if (yearSlash && calendarDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3]))) return { year: Number(yearSlash[1]), month: Number(yearSlash[2]), day: Number(yearSlash[3]) };
+  const monthFirst = /^([A-Za-z]+)-(\d{1,4})-(\d{1,4})(?:\s.*)?$/.exec(text);
+  if (monthFirst) {
+    const named = monthDashParts(monthFirst[1], monthFirst[2], monthFirst[3]);
+    if (named) return named;
+  }
+  const dashedName = /^(\d{1,4})-([A-Za-z]+)-(\d{1,4})(?:\s.*)?$/.exec(text);
   if (dashedName) {
     const named = dashedNamedParts(dashedName[1], dashedName[2], dashedName[3]);
     if (named) return named;
   }
-  const numericDash = /^(\d{1,2})-(\d{1,2})-(\d{2,4})/.exec(value);
+  const numericDash = /^(\d{1,2})-(\d{1,2})-(\d{2,4})(?:\s.*)?$/.exec(text);
   if (numericDash) {
     const dashed = numericDashParts(numericDash[1], numericDash[2], numericDash[3]);
     if (dashed) return dashed;
   }
-  const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})/.exec(value);
-  if (dots) return { year: Number(dots[1]), month: Number(dots[2]), day: Number(dots[3]) };
-  const monthFirst = /^([A-Za-z]+)-(\d{1,2})-(\d{2,4})/.exec(value);
-  if (monthFirst) {
-    const named = monthDashParts(monthFirst[1], monthFirst[2], monthFirst[3]);
-    if (named) return named;
+  const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:$|\s.*|[Tt].*)/.exec(text);
+  if (dots && calendarDay(Number(dots[1]), Number(dots[2]), Number(dots[3]))) return { year: Number(dots[1]), month: Number(dots[2]), day: Number(dots[3]) };
+  const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})$/.exec(text);
+  if (monthYear && monthIndex(monthYear[1])) return { year: Number(monthYear[2]), month: monthIndex(monthYear[1]), day: 1 };
+  const yearMonthName = /^(\d{4})\s+([A-Za-z]+\.?)$/.exec(text);
+  if (yearMonthName && monthIndex(yearMonthName[2])) return { year: Number(yearMonthName[1]), month: monthIndex(yearMonthName[2]), day: 1 };
+  const yearFirst = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s.*)?$/.exec(text);
+  if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return { year: Number(yearFirst[1]), month: monthIndex(yearFirst[2]), day: Number(yearFirst[3]) };
+  const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d),?\s*(\d{1,4})(?!\d)(?:\s.*)?$/.exec(text);
+  if (ahead && monthIndex(ahead[1])) {
+    const parts = spacedParts(ahead[2], ahead[1], ahead[3]);
+    if (parts) return parts;
+  }
+  const behind = /^(\d{1,2}),?\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s.*)?$/.exec(text);
+  if (behind && monthIndex(behind[2])) {
+    const parts = spacedParts(behind[1], behind[2], behind[3]);
+    if (parts) return parts;
   }
   return null;
 }
 
 function clockOrZone(rest, year, month, day) {
   if (!rest) return true;
-  if (zoneOnly(rest)) return true;
+  // A zone with no clock is midnight. A positive offset on year 1 is before the earliest instant.
+  if (zoneOnly(rest)) return instantFits(year, month, day, `00:00 ${rest}`);
   return clockFits(rest) && instantFits(year, month, day, rest);
 }
 
@@ -306,7 +369,7 @@ function namedDay(value) {
     const parts = spacedParts(ahead[2], ahead[1], ahead[3]);
     return !!parts && clockOrZone(ahead[4], parts.year, parts.month, parts.day);
   }
-  const behind = /^(\d{1,2})\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s+(.*))?$/.exec(value);
+  const behind = /^(\d{1,2}),?\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (behind && monthIndex(behind[2])) {
     const parts = spacedParts(behind[1], behind[2], behind[3]);
     return !!parts && clockOrZone(behind[4], parts.year, parts.month, parts.day);
@@ -320,34 +383,55 @@ function rfc1123(value) {
   const year = expandYear(match[4]);
   const month = monthIndex(match[3]);
   const day = Number(match[2]);
-  if (!calendarDay(year, month, day) || (match[5] && !(clockFits(match[5]) && instantFits(year, month, day, match[5])))) return false;
+  if (!calendarDay(year, month, day) || (match[5] && !clockOrZone(match[5], year, month, day))) return false;
   if (!match[1]) return true;
   const names = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
   return names[match[1].toLowerCase()] === datedWeekday(year, month, day, match[5]);
 }
 
 function tClock(rest) {
-  return /^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*(?:[zZ]|GMT|[+-]\d{1,2}(?::\d{1,2}|\d{2})?))?$/i.test(String(rest).trim());
+  const text = String(rest).trim().replace(/(\d),(\d+)/g, '$1.$2');
+  return new RegExp(String.raw`^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*(?:${ZONE_TOKEN}))?$`, 'i').test(text);
 }
 
 function timedDay(year, month, day, separator, rest) {
   if (!calendarDay(year, month, day)) return false;
-  if (rest === undefined) return true;
-  if (zoneOnly(rest)) return separator !== 'T' && separator !== 't';
-  if (/^(z|gmt)$/i.test(rest.trim())) return separator !== 'T' && separator !== 't';
+  if (rest === undefined || rest === '') return true;
+  if (zoneOnly(rest)) {
+    if (separator === 'T' || separator === 't') return false;
+    return instantFits(year, month, day, `00:00 ${rest}`);
+  }
   // A T before GMT, with or without a space, is not a value the host accepts.
   if ((separator === 'T' || separator === 't') && (/gmt$/i.test(rest.trim()) || !tClock(rest))) return false;
   return clockFits(rest) && instantFits(year, month, day, rest);
 }
 
 function dateFits(value) {
-  value = String(value || '').trim();
+  value = normalizeDateText(value);
   if (!value || /^\d{4}$/.test(value)) return false;
+  // One comma between a date already accepted and its clock. Nov 13, 2026 stays a date: 2026 is not a clock.
+  const commaClock = /^(.*\d),\s+(\S.*)$/.exec(value);
+  if (commaClock && clockFits(commaClock[2]) && !monthYearOnly(commaClock[1])) {
+    const when = calendarOf(commaClock[1]);
+    if (when && calendarDay(when.year, when.month, when.day) && dateFits(commaClock[1])) return clockOrZone(commaClock[2], when.year, when.month, when.day);
+  }
   const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(value);
   if (yearMonth) return Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12;
+  const yearMonthSlash = /^(\d{4})\/(\d{1,2})$/.exec(value);
+  if (yearMonthSlash) return Number(yearMonthSlash[2]) >= 1 && Number(yearMonthSlash[2]) <= 12;
+  const monthDashYear = /^(\d{1,2})-(\d{4})$/.exec(value);
+  if (monthDashYear) return Number(monthDashYear[1]) >= 1 && Number(monthDashYear[1]) <= 12;
   if (/^\d{1,2}:\d{2}/.test(value) && clockFits(value)) return true;
-  const leadClock = /^(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?)\s+(\D.*)$/i.exec(value);
-  if (leadClock && clockFits(leadClock[1]) && dateFits(leadClock[2])) return true;
+  const leadClock = leadClockMatch(value);
+  if (leadClock) {
+    const clockText = leadClock[2] ? `${leadClock[1]} ${leadClock[2]}` : leadClock[1];
+    const datePart = leadClock[3];
+    // A leading clock on a month and year is the first day: 15:00 November 2026.
+    if (clockFits(clockText) && dateFits(datePart)) {
+      const when = calendarOf(datePart);
+      if (when && calendarDay(when.year, when.month, when.day)) return instantFits(when.year, when.month, when.day, clockText);
+    }
+  }
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
   if (iso) {
     const year = Number(iso[1]);
@@ -369,56 +453,49 @@ function dateFits(value) {
     const named = dashedNamedParts(slashNamed[1], slashNamed[2], slashNamed[3]);
     if (named) return clockOrZone(slashNamed[4], named.year, named.month, named.day);
   }
+  const monthSlash = /^([A-Za-z]+)[/.](\d{1,4})[/.](\d{1,4})(?:\s+(.*))?$/.exec(value);
+  if (monthSlash) {
+    const named = monthDashParts(monthSlash[1], monthSlash[2], monthSlash[3]);
+    if (named) return clockOrZone(monthSlash[4], named.year, named.month, named.day);
+  }
   const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
   if (yearSlash) return timedDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3]), yearSlash[4], yearSlash[5]);
   const monthFirst = /^([A-Za-z]+)-(\d{1,4})-(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (monthFirst) {
     const named = monthDashParts(monthFirst[1], monthFirst[2], monthFirst[3]);
-    if (named) return !monthFirst[4] || (clockFits(monthFirst[4]) && instantFits(named.year, named.month, named.day, monthFirst[4]));
+    if (named) return clockOrZone(monthFirst[4], named.year, named.month, named.day);
   }
   const dashedName = /^(\d{1,4})-([A-Za-z]+)-(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (dashedName) {
     const named = dashedNamedParts(dashedName[1], dashedName[2], dashedName[3]);
-    if (named) return !dashedName[4] || (clockFits(dashedName[4]) && instantFits(named.year, named.month, named.day, dashedName[4]));
+    if (named) return clockOrZone(dashedName[4], named.year, named.month, named.day);
   }
   const dashed = /^(\d{1,2})-(\d{1,2})-(\d{2,4})(?:\s+(.*))?$/.exec(value);
   if (dashed) {
     const named = numericDashParts(dashed[1], dashed[2], dashed[3]);
-    if (named) return !dashed[4] || (clockFits(dashed[4]) && instantFits(named.year, named.month, named.day, dashed[4]));
+    if (named) return clockOrZone(dashed[4], named.year, named.month, named.day);
   }
   const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
   if (dots) return timedDay(Number(dots[1]), Number(dots[2]), Number(dots[3]), dots[4], dots[5]);
   const isoZone = /^(\d{4})-(\d{1,2})-(\d{1,2})\s*(Z|GMT)$/i.exec(value);
   if (isoZone) return calendarDay(Number(isoZone[1]), Number(isoZone[2]), Number(isoZone[3]));
-  const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+)(\d{4})$/.exec(value);
+  const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})$/.exec(value);
   if (monthYear && monthIndex(monthYear[1])) return true;
   const yearMonthName = /^(\d{4})\s+([A-Za-z]+)$/.exec(value);
   if (yearMonthName && monthIndex(yearMonthName[2])) return true;
   const yearFirst = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s+(.*))?$/.exec(value);
-  if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return !yearFirst[4] || (clockFits(yearFirst[4]) && instantFits(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]), yearFirst[4]));
+  if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return clockOrZone(yearFirst[4], Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]));
   const named = namedDay(value);
   if (named !== null) return named;
   const rfc = rfc1123(value);
   if (rfc !== null) return rfc;
-  const lead = /^(Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?)(?:,\s*|\s+)(.+)$/i.exec(value);
+  const lead = /^((?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?))(?:[.,]\s*|\s+)(.+)$/i.exec(value);
   if (lead) {
     if (!dateFits(lead[2])) return false;
-    const rest = lead[2].trim();
+    const found = calendarOf(lead[2]);
+    if (!found || !calendarDay(found.year, found.month, found.day)) return false;
     const names = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
-    const wanted = names[lead[1].toLowerCase()];
-    const isoDate = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(rest);
-    if (isoDate) return datedWeekday(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3]), '') === wanted;
-    const isoWhen = /^(\d{4})-(\d{1,2})-(\d{1,2})[Tt\s](.*)$/.exec(rest);
-    if (isoWhen) return datedWeekday(Number(isoWhen[1]), Number(isoWhen[2]), Number(isoWhen[3]), isoWhen[4]) === wanted;
-    const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(rest);
-    if (yearMonth && Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12) return weekdayOf(Number(yearMonth[1]), Number(yearMonth[2]), 1) === wanted;
-    const found = calendarOf(rest);
-    if (found && calendarDay(found.year, found.month, found.day)) return datedWeekday(found.year, found.month, found.day, rest) === wanted;
-    const isoZoneDay = /^(\d{4})-(\d{1,2})-(\d{1,2})(Z|GMT)$/i.exec(rest);
-    if (isoZoneDay) return datedWeekday(Number(isoZoneDay[1]), Number(isoZoneDay[2]), Number(isoZoneDay[3]), '') === wanted;
-    const stamp = Date.parse(rest);
-    if (Number.isNaN(stamp)) return false;
-    return new Date(stamp).getDay() === wanted;
+    return names[lead[1].toLowerCase()] === datedWeekday(found.year, found.month, found.day, lead[2]);
   }
   return false;
 }
@@ -480,15 +557,19 @@ function isIpv4Mapped(value) {
 
 function ipv6Fits(value) {
   let text = String(value).trim();
-  if (text.startsWith('[') && text.endsWith(']')) text = text.slice(1, -1);
-  const zoneAt = text.indexOf('%');
-  if (zoneAt >= 0) {
-    const id = text.slice(zoneAt + 1);
-    if (!id || !/^[A-Za-z0-9._:-]+$/.test(id)) return false;
-    text = text.slice(0, zoneAt);
+  // A slash is a prefix length, not an address. IPAddress.TryParse still accepts an empty zone, a second %, or #.
+  if (text.includes('/')) return false;
+  if (text.startsWith('[')) {
+    const end = text.indexOf(']');
+    if (end < 0) return false;
+    const rest = text.slice(end + 1);
+    if (rest.length > 0 && !rest.startsWith('%')) return false;
+    text = text.slice(1, end) + rest;
   }
+  const zoneAt = text.indexOf('%');
+  if (zoneAt >= 0) text = text.slice(0, zoneAt);
   value = text;
-  if (!value.includes(':') || value.includes('%')) return false;
+  if (!value.includes(':')) return false;
   const halves = value.split('::');
   if (halves.length > 2) return false;
   let count = 0;

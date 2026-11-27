@@ -163,7 +163,7 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
         var includeRawRequested = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("includeRaw", out var rawFlag) && rawFlag.ValueKind == JsonValueKind.True;
         var sizeCap = includeRawRequested ? 5 : 25;
         var size = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("size", out var sizeEl) && sizeEl.TryGetInt32(out var n) ? Math.Clamp(n, 1, sizeCap) : Math.Min(20, sizeCap);
-        var sort = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("sort", out var sortEl) && sortEl.ValueKind == JsonValueKind.String && sortEl.GetString() == "asc"
+        var sort = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("sort", out var sortEl) && sortEl.ValueKind == JsonValueKind.String && string.Equals(sortEl.GetString(), "asc", StringComparison.OrdinalIgnoreCase)
             ? SortDirection.Ascending
             : SortDirection.Descending;
         var includeRaw = includeRawRequested;
@@ -224,15 +224,15 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
         {
             var name = agg.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
             var kind = agg.TryGetProperty("kind", out var kindEl) ? kindEl.GetString() : null;
-            var field = agg.TryGetProperty("field", out var fieldEl) ? fieldEl.GetString() : "@timestamp";
+            var field = agg.TryGetProperty("field", out var fieldEl) ? fieldEl.GetString() : null;
             var aggSize = agg.TryGetProperty("size", out var aggSizeEl) && aggSizeEl.TryGetInt32(out var s) ? s : 10;
             var interval = agg.TryGetProperty("interval", out var intervalEl) ? intervalEl.GetString() : null;
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(field))
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(kind))
             {
                 throw new ArgumentException("Each aggregation needs a name, kind, and field.");
             }
 
-            specs.Add(new AggregationSpec(name, ParseKind(kind), field, aggSize, interval));
+            specs.Add(new AggregationSpec(name, ParseKind(kind), AuditEndpoints.AggregationField(kind, field), aggSize, interval));
         }
 
         var result = await search.AggregateAsync(new EventAggregationQuery

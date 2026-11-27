@@ -29,3 +29,17 @@ test('an IPv4-mapped IPv6 address is still rejected', () => {
   assert.equal(plain.ok, true);
   assert.equal(plain.value, '192.0.2.1');
 });
+
+test('a prefix that is not canonical decimal is rejected', () => {
+  for (const bad of ['203.0.113.10/00', '203.0.113.10/01', '203.0.113.10/008', '2001:db8::/032']) {
+    const parsed = parse(bad);
+    assert.equal(parsed.ok, false, bad);
+    assert.match(parsed.error, /decimal integer/);
+  }
+  assert.equal(parse('203.0.113.10/0').ok, true);
+  assert.equal(parse('203.0.113.10/0').value, '203.0.113.10/0');
+  assert.equal(parse('203.0.113.10/24').value, '203.0.113.10/24');
+  assert.equal(parse('203.0.113.10/32').value, '203.0.113.10/32');
+  assert.equal(parse('2001:db8::/32').ok, true);
+  assert.equal(parse('2001:db8::/32').value, '2001:db8::/32');
+});

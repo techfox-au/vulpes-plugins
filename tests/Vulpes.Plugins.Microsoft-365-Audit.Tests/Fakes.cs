@@ -172,7 +172,7 @@ public static class TestContext
     public static GraphClient Client(HttpMessageHandler handler, TimeProvider? time = null) =>
         new(new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com") }, new FakeTokenProvider(), GraphCloud.Global, NullLogger.Instance, time);
 
-    public static CollectorContext Context(GraphClient graph, FakePipeline pipeline, Checkpoint? checkpoint = null, AuditOptions? options = null, SourceSettings? settings = null, TimeProvider? time = null)
+    public static CollectorContext Context(GraphClient graph, IEventPipeline pipeline, Checkpoint? checkpoint = null, AuditOptions? options = null, SourceSettings? settings = null, TimeProvider? time = null)
     {
         time ??= TimeProvider.System;
         return new CollectorContext

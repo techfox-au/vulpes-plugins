@@ -6,6 +6,7 @@ using Vulpes.Plugins.Microsoft365Audit.Collectors;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
 using Vulpes.Plugins.Microsoft365Audit.Tenants;
+using Vulpes.Sdk;
 using Xunit;
 
 namespace Vulpes.Plugins.Microsoft365Audit.Tests;
@@ -418,6 +419,102 @@ public sealed class CollectorTests
         Assert.Contains(pipeline.Events, e => e.Source == "securescore" && e.Labels!["percent"] == "61.5");
     }
 
+    [Fact]
+    public async Task Purview_budget_cancel_saves_the_page_and_resumes()
+    {
+        using var budget = new CancellationTokenSource();
+        var pipeline = new GatePipeline();
+        var checkpoint = new Checkpoint
+        {
+            TenantId = TestContext.Tenant.Id,
+            Source = "activity",
+            Watermark = Now.AddHours(-6),
+            StateJson = """{"pendingQueryId":"q-cancel","pendingWindowEnd":"2026-10-30T11:45:00Z","pendingCreatedAt":"2026-10-30T12:00:00Z"}""",
+        };
+
+        var result = await new PurviewAuditCollector().CollectAsync(
+            TestContext.Context(TestContext.Client(new CancelSecondPage(budget)), pipeline, checkpoint),
+            budget.Token);
+
+        Assert.False(result.Complete);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(1, result.Published);
+        Assert.Equal("q-cancel", result.QueryId);
+        Assert.Equal("query q-cancel partially drained; resuming next run", result.Note);
+        Assert.Equal(Now.AddHours(-6), checkpoint.Watermark);
+        Assert.Contains("pendingQueryId", checkpoint.StateJson, StringComparison.Ordinal);
+        Assert.Contains("q-cancel", checkpoint.StateJson, StringComparison.Ordinal);
+        Assert.Contains("skiptoken=next", checkpoint.StateJson, StringComparison.Ordinal);
+        Assert.Single(pipeline.Events);
+    }
+
+    [Fact]
+    public async Task Purview_out_of_time_stays_a_partial_drain()
+    {
+        var time = new FakeTimeProvider(Now);
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("/records", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+                [Record("r1", Now.AddHours(-2))],
+                "https://graph.microsoft.com/v1.0/security/auditLog/queries/q-time/records?$skiptoken=later"))
+            .Get(p => p.Contains("queries/q-time", StringComparison.Ordinal), _ => FakeGraphHandler.Json(new { id = "q-time", status = "succeeded" }));
+        var checkpoint = new Checkpoint
+        {
+            TenantId = TestContext.Tenant.Id,
+            Source = "activity",
+            Watermark = Now.AddHours(-6),
+            StateJson = """{"pendingQueryId":"q-time","pendingWindowEnd":"2026-10-30T11:45:00Z","pendingCreatedAt":"2026-10-30T12:00:00Z"}""",
+        };
+        var context = TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, time: time);
+        time.Advance(TimeSpan.FromMinutes(20));
+
+        var result = await new PurviewAuditCollector().CollectAsync(context, CancellationToken.None);
+
+        Assert.False(result.Complete);
+        Assert.Equal(1, result.Published);
+        Assert.Equal("query q-time partially drained; resuming next run", result.Note);
+        Assert.Equal(Now.AddHours(-6), checkpoint.Watermark);
+        Assert.Contains("records", checkpoint.StateJson, StringComparison.Ordinal);
+        Assert.Contains("q-time", checkpoint.StateJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Secure_score_caps_a_future_watermark_at_now()
+    {
+        var time = new FakeTimeProvider(Now);
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("security/secureScores", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+            [
+                new { id = "future", createdDateTime = Now.AddMinutes(5).ToString("O", CultureInfo.InvariantCulture), currentScore = 10, maxScore = 100 },
+            ]));
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "securescore" };
+
+        var result = await new SecureScoreCollector().CollectAsync(
+            TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, time: time),
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Published);
+        Assert.Equal(time.GetUtcNow(), checkpoint.Watermark);
+    }
+
+    [Fact]
+    public async Task Secure_score_does_not_move_an_existing_watermark_backwards()
+    {
+        var time = new FakeTimeProvider(Now);
+        var held = Now.AddMinutes(10);
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("security/secureScores", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(
+            [
+                new { id = "future", createdDateTime = Now.AddMinutes(30).ToString("O", CultureInfo.InvariantCulture), currentScore = 10, maxScore = 100 },
+            ]));
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "securescore", Watermark = held };
+
+        await new SecureScoreCollector().CollectAsync(
+            TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, time: time),
+            CancellationToken.None);
+
+        Assert.Equal(held, checkpoint.Watermark);
+    }
+
     private static object Record(string id, DateTimeOffset at) => new
     {
         id,
@@ -431,4 +528,45 @@ public sealed class CollectorTests
         clientIp = "198.51.100.7",
         auditData = new { Workload = "SharePoint", ResultStatus = "Succeeded", SourceFileName = "doc.docx" },
     };
+
+    /// <summary>Publishing with a cancelled budget token fails the test, so the collector must pass CancellationToken.None.</summary>
+    private sealed class GatePipeline : IEventPipeline
+    {
+        public List<SecurityEvent> Events { get; } = [];
+
+        public Task<PublishResult> PublishAsync(IReadOnlyList<SecurityEvent> events, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Events.AddRange(events);
+            return Task.FromResult(new PublishResult(events.Count, 0, 0, 0));
+        }
+    }
+
+    /// <summary>The second records page cancels the run budget, the same way a time budget ends a Graph read.</summary>
+    private sealed class CancelSecondPage(CancellationTokenSource budget) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = Uri.UnescapeDataString(request.RequestUri?.PathAndQuery ?? string.Empty);
+            if (path.Contains("skiptoken=next", StringComparison.Ordinal))
+            {
+                budget.Cancel();
+                throw new OperationCanceledException(cancellationToken);
+            }
+
+            if (path.Contains("/records", StringComparison.Ordinal))
+            {
+                return Task.FromResult(RoutedGraphHandler.Page(
+                    [Record("r1", Now.AddHours(-2))],
+                    "https://graph.microsoft.com/v1.0/security/auditLog/queries/q-cancel/records?$skiptoken=next"));
+            }
+
+            if (path.Contains("queries/q-cancel", StringComparison.Ordinal))
+            {
+                return Task.FromResult(FakeGraphHandler.Json(new { id = "q-cancel", status = "succeeded" }));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
 }

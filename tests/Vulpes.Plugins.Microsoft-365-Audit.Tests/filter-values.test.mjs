@@ -18,6 +18,11 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '2026-11-13T02:00:00+10:00'), true);
   assert.equal(valueFits('date', '2024-02-29'), true);
   assert.equal(valueFits('date', 'November 13, 2026'), true);
+  assert.equal(valueFits('date', 'Nov 13, 2026'), true);
+  assert.equal(valueFits('date', 'Nov 13, 2026, 15:00'), true);
+  assert.equal(valueFits('date', '2026-11-13, 15:00'), true);
+  assert.equal(valueFits('date', '13 Nov 2026, 15:00'), true);
+  assert.equal(valueFits('date', '13-Nov-2026, 15:00'), true);
   assert.equal(valueFits('date', '13 November 2026'), true);
   assert.equal(valueFits('date', 'November 31, 2026'), false);
   assert.equal(valueFits('date', 'February 31, 2026'), false);
@@ -44,6 +49,9 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '2026-11-13 9:30'), true);
   assert.equal(valueFits('date', '2026-11-13 00:00:00 +00:00'), true);
   assert.equal(valueFits('date', '2026-11-13 15:00:00 -5:00'), true);
+  assert.equal(valueFits('date', '2026-11-13 15:00:00 +00:00:01'), false);
+  assert.equal(valueFits('date', '2026-11-13 15:00 +14:00:01'), true);
+  assert.equal(valueFits('date', '2026-11-13 15:00 +00:00:01'), true);
   assert.equal(valueFits('date', '2026-11-13 00:00:00 GMT'), true);
   assert.equal(valueFits('date', '2026-11-13 00:00:00GMT'), true);
   assert.equal(valueFits('date', '2026-11-13T00:00:00GMT'), false);
@@ -150,6 +158,11 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '01-Jan-0001 00:00:00 +01:00'), false);
   assert.equal(valueFits('date', '31-Dec-9999 23:00:00 -01:00'), false);
   assert.equal(valueFits('date', '13-Nov-2026 9:30'), true);
+  assert.equal(valueFits('date', 'November 2026'), true);
+  assert.equal(valueFits('date', '15:00 November 2026'), true);
+  assert.equal(valueFits('date', '3 PM November 2026'), true);
+  assert.equal(valueFits('date', '15:00 2026-11'), true);
+  assert.equal(valueFits('date', '15:00 Nov 13'), false);
   assert.equal(valueFits('date', 'November 2026 00:00'), false);
   assert.equal(valueFits('date', 'Sunday, November 2026 00:00'), false);
   assert.equal(valueFits('date', 'November 20, 2026 00:00'), true);
@@ -266,11 +279,23 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', 'Nov 0, 13'), true);
   assert.equal(valueFits('date', 'Nov-2026-13'), true);
   assert.equal(valueFits('date', '15:00 Nov 13, 2015'), true);
+  assert.equal(valueFits('date', '15:0 November 13, 2026'), true);
+  assert.equal(valueFits('date', '3:5 PM November 13, 2026'), true);
+  assert.equal(valueFits('date', '15:00:5 November 13, 2026'), true);
+  assert.equal(valueFits('date', '15:0 Nov 13'), false);
   assert.equal(valueFits('date', '2026-11-13 23:59:59,999'), true);
   assert.equal(valueFits('date', '2026-11-13 3.45 PM'), true);
   assert.equal(valueFits('date', '13/Nov/2026'), true);
   assert.equal(valueFits('date', '13.Nov.2026'), true);
   assert.equal(valueFits('date', '2026-11-13 +10:00'), true);
+  assert.equal(valueFits('date', '1/1/06+10:00'), false);
+  assert.equal(valueFits('date', '11/13/2026+10:00'), true);
+  assert.equal(valueFits('date', '1/1/06 +10:00'), true);
+  assert.equal(valueFits('date', '2026-11-13-05:00'), true);
+  assert.equal(valueFits('date', '2026-11-13-0500'), true);
+  assert.equal(valueFits('date', '11/13/2026-05:00'), true);
+  assert.equal(valueFits('date', 'November 13, 2026-05:00'), true);
+  assert.equal(valueFits('date', '2026-11-13-32:00'), false);
   assert.equal(valueFits('date', 'November 13, 2026 GMT'), true);
   assert.equal(valueFits('date', '11/13/2026 Z'), true);
   assert.equal(valueFits('date', '2026.11.13 3 PM'), true);
@@ -279,6 +304,32 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('ip', 'fe80::1%1'), true);
   assert.equal(valueFits('ip', '[::1]'), true);
   assert.equal(valueFits('ip', '[::1]/128'), true);
+  for (const value of [
+    'Nov-13-2026 15:00', 'Nov-13-2026 3 PM', 'Sept-13-2026 15:00', '13-Nov-2026 15:00',
+    '5.Nov.6 15:00', '0.Jan.4 15:00', '0.Jan.4 +10:00', '13.Nov.2026 15:00',
+    '13-Nov-2026 GMT', '13-Nov-2026 +10:00', '11-13-2026 +10:00', '11-13-2026 Z', 'Nov-13-2026 GMT', '2026 Nov 13 GMT',
+    'Friday, 13 Nov 2026 GMT', 'Friday, 13 Nov 2026 Z', 'November 13, 2026 GMT',
+    '2026-11-13+10:00', '2026-11-13+1000', '2026/11/13+10:00', 'November 13, 2026+10:00', '13-Nov-2026Z', '2026-11-13 +10:00',
+    '2026-11-13T00:00:00,000Z', '2026-11-13 23:59:59,999',
+    '10:00:00 13 Nov 2026', '3:00 PM 13 November 2026', '3PM Nov 13, 2026', '15:00:00.5 November 13, 2026',
+    '15:00 GMT November 13, 2026', '15:00+10:00 November 13, 2026', '15:00 Nov 13, 2015',
+    '2026-11-13 10 :30 PM', '2026-11-13 12 :00 PM', '2026-11-13 10 :00 PM', '2026-11-13 10: 00 PM',
+    'Friday, 0001/Jan/5', '0001/Jan/5', 'Saturday, Nov-13-4 3 PM', 'Nov-13-4 3 PM',
+    'Thursday, 1/Jan/2026 15:00 +0000',
+    'Nov/13/2026', 'Nov.13.2026', '13/Nov/2026', '13.Nov.2026',
+    '2026/11', '11-2026', 'Nov/2026', '2026-11',
+    '2026-11-13 3:45 PM.', 'November 13, 2026,', '13, November, 2026', 'Fri. 13 Nov 2026', '2026 - 11 - 13',
+    '2026-11-13 15:00 +00:00:01',
+  ]) assert.equal(valueFits('date', value), true, value);
+  for (const value of [
+    '0001-01-01 +10:00', '0001-01-01 +01:00', 'Jan 1, 0001 +10:00',
+    '0001-01-01 00:00 +01:00', '9999-12-31 23:00 -01:00',
+    'Saturday, 0001/Jan/5', 'Friday, 1/Jan/2026 15:00 +0000',
+    '15:0 Nov 13', 'Nov 13 15:0', 'Nov 13 15: 00', '15:00 Nov 13', 'Nov 13 15:00',
+  ]) assert.equal(valueFits('date', value), false, value);
+  for (const value of ['[::1]%1', '[::1]%eth0', '[fe80::1]%1', '[::ffff:192.0.2.1]%1', '[::]%1', 'fe80::1%', 'fe80::1%#1', 'fe80::1%%1', 'fe80::1%1%2', '[fe80::1%]', '[::1]', 'fe80::1%1', 'fe80::1%eth0', 'fe80::1%-1']) {
+    assert.equal(valueFits('ip', value), true, value);
+  }
 });
 
 test('a 730-day custom range survives a daylight-saving hour', () => {

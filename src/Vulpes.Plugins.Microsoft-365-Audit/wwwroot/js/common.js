@@ -383,7 +383,9 @@ function rfc1123(value) {
   const year = expandYear(match[4]);
   const month = monthIndex(match[3]);
   const day = Number(match[2]);
-  if (!calendarDay(year, month, day) || (match[5] && !clockOrZone(match[5], year, month, day))) return false;
+  // 31 November 2013 is not a day. Leave it so 31 can swap into 2031 and the weekday check can decide.
+  if (!calendarDay(year, month, day)) return null;
+  if (match[5] && !clockOrZone(match[5], year, month, day)) return false;
   if (!match[1]) return true;
   const names = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
   return names[match[1].toLowerCase()] === datedWeekday(year, month, day, match[5]);
@@ -406,6 +408,14 @@ function timedDay(year, month, day, separator, rest) {
   return clockFits(rest) && instantFits(year, month, day, rest);
 }
 
+// Month and year is 00:00 on day 1. A numeric offset uses that midnight. GMT does not.
+function monthYearOffset(rest, year, month) {
+  if (!rest) return month >= 1 && month <= 12;
+  if (!/^[+-]/.test(rest)) return null;
+  if (month < 1 || month > 12) return false;
+  return clockOrZone(rest, year, month, 1);
+}
+
 function dateFits(value) {
   value = normalizeDateText(value);
   if (!value || /^\d{4}$/.test(value)) return false;
@@ -415,12 +425,21 @@ function dateFits(value) {
     const when = calendarOf(commaClock[1]);
     if (when && calendarDay(when.year, when.month, when.day) && dateFits(commaClock[1])) return clockOrZone(commaClock[2], when.year, when.month, when.day);
   }
-  const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(value);
-  if (yearMonth) return Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12;
-  const yearMonthSlash = /^(\d{4})\/(\d{1,2})$/.exec(value);
-  if (yearMonthSlash) return Number(yearMonthSlash[2]) >= 1 && Number(yearMonthSlash[2]) <= 12;
-  const monthDashYear = /^(\d{1,2})-(\d{4})$/.exec(value);
-  if (monthDashYear) return Number(monthDashYear[1]) >= 1 && Number(monthDashYear[1]) <= 12;
+  const yearMonth = /^(\d{4})-(\d{1,2})(?:\s+(\S.*))?$/.exec(value);
+  if (yearMonth) {
+    const fits = monthYearOffset(yearMonth[3], Number(yearMonth[1]), Number(yearMonth[2]));
+    if (fits !== null) return fits;
+  }
+  const yearMonthSlash = /^(\d{4})\/(\d{1,2})(?:\s+(\S.*))?$/.exec(value);
+  if (yearMonthSlash) {
+    const fits = monthYearOffset(yearMonthSlash[3], Number(yearMonthSlash[1]), Number(yearMonthSlash[2]));
+    if (fits !== null) return fits;
+  }
+  const monthDashYear = /^(\d{1,2})-(\d{4})(?:\s+(\S.*))?$/.exec(value);
+  if (monthDashYear) {
+    const fits = monthYearOffset(monthDashYear[3], Number(monthDashYear[2]), Number(monthDashYear[1]));
+    if (fits !== null) return fits;
+  }
   if (/^\d{1,2}:\d{2}/.test(value) && clockFits(value)) return true;
   const leadClock = leadClockMatch(value);
   if (leadClock) {
@@ -479,10 +498,16 @@ function dateFits(value) {
   if (dots) return timedDay(Number(dots[1]), Number(dots[2]), Number(dots[3]), dots[4], dots[5]);
   const isoZone = /^(\d{4})-(\d{1,2})-(\d{1,2})\s*(Z|GMT)$/i.exec(value);
   if (isoZone) return calendarDay(Number(isoZone[1]), Number(isoZone[2]), Number(isoZone[3]));
-  const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})$/.exec(value);
-  if (monthYear && monthIndex(monthYear[1])) return true;
-  const yearMonthName = /^(\d{4})\s+([A-Za-z]+)$/.exec(value);
-  if (yearMonthName && monthIndex(yearMonthName[2])) return true;
+  const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})(?:\s+(\S.*))?$/.exec(value);
+  if (monthYear && monthIndex(monthYear[1])) {
+    const fits = monthYearOffset(monthYear[3], Number(monthYear[2]), monthIndex(monthYear[1]));
+    if (fits !== null) return fits;
+  }
+  const yearMonthName = /^(\d{4})\s+([A-Za-z]+)(?:\s+(\S.*))?$/.exec(value);
+  if (yearMonthName && monthIndex(yearMonthName[2])) {
+    const fits = monthYearOffset(yearMonthName[3], Number(yearMonthName[1]), monthIndex(yearMonthName[2]));
+    if (fits !== null) return fits;
+  }
   const yearFirst = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s+(.*))?$/.exec(value);
   if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return clockOrZone(yearFirst[4], Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]));
   const named = namedDay(value);

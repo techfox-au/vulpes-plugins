@@ -165,6 +165,12 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '15:00 Nov 13'), false);
   assert.equal(valueFits('date', 'November 2026 00:00'), false);
   assert.equal(valueFits('date', 'Sunday, November 2026 00:00'), false);
+  assert.equal(valueFits('date', 'November 2026 +10:00'), true);
+  assert.equal(valueFits('date', 'November 2026+10:00'), true);
+  assert.equal(valueFits('date', '2026-11 +10:00'), true);
+  assert.equal(valueFits('date', '2026-1+10:00'), true);
+  assert.equal(valueFits('date', 'November 2026 GMT'), false);
+  assert.equal(valueFits('date', '2026-11 GMT'), false);
   assert.equal(valueFits('date', 'November 20, 2026 00:00'), true);
   assert.equal(valueFits('date', 'Friday, 2026/11/13 23:59:59.99999995'), false);
   assert.equal(valueFits('date', 'Saturday, 2026/11/13 23:59:59.99999995'), true);
@@ -276,6 +282,9 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '5-Nov-6 3 PM'), true);
   assert.equal(valueFits('date', 'Nov 13, 6'), true);
   assert.equal(valueFits('date', '31 Nov 13'), true);
+  assert.equal(valueFits('date', 'Thursday, 31 Nov 13'), true);
+  assert.equal(valueFits('date', 'Friday, 31 Nov 13'), false);
+  assert.equal(valueFits('date', 'Thursday, 31-Nov-13'), true);
   assert.equal(valueFits('date', 'Nov 0, 13'), true);
   assert.equal(valueFits('date', 'Nov-2026-13'), true);
   assert.equal(valueFits('date', '15:00 Nov 13, 2015'), true);

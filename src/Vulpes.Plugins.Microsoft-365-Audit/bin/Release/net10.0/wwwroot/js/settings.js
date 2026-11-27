@@ -1,4 +1,4 @@
-import { appendApplication } from './application.js?v=app1';
+import { appendApplication } from './application.js?v=app2';
 
 const intervals = [
   ['signins', 'Sign-ins'],

@@ -54,8 +54,8 @@ async function render(ctx) {
   }));
 }
 
-async function mirrorPsa(ctx, id, organisationName) {
-  try { await ctx.api.post(psa + '/ensure', { id, organisationName }); }
+async function mirrorPsa(ctx, id, organisationName, shortName) {
+  try { await ctx.api.post(psa + '/ensure', { id, organisationName, shortName }); }
   catch (err) { if (err.status !== 404) throw err; }
 }
 
@@ -90,7 +90,7 @@ async function editClient(ctx, existing) {
         id = addedId;
       }
       else await ctx.api.put(`/api/admin/tenants/${addedId}`, body);
-      try { await mirrorPsa(ctx, id, name.value.trim()); }
+      try { await mirrorPsa(ctx, id, name.value.trim(), shortName.value.trim()); }
       catch (err) {
         await render(ctx);
         const message = 'The PSA mirror did not update. ' + errorMessage(err);

@@ -12,6 +12,7 @@ using Vulpes.PluginPacker;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
+using Vulpes.Plugins.Microsoft365Audit.Scheduling;
 using Vulpes.Plugins.Microsoft365Audit.Tenants;
 using Vulpes.Sdk;
 using Xunit;
@@ -95,6 +96,49 @@ public sealed class TenantServiceTests : IDisposable
         events.Fail = false;
         await service.SyncFromDirectoryAsync([], application, CancellationToken.None);
         Assert.Empty(_db.Tenants);
+    }
+
+    [Fact]
+    public async Task Replacing_a_client_id_for_the_same_directory_keeps_the_stored_events()
+    {
+        var events = new RecordingMaintenance();
+        var service = new TenantService(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance, events: events);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var directory = Guid.NewGuid().ToString();
+        var application = new EntraApplicationCredential(Guid.NewGuid().ToString(), "secret", "Global", "secret", null, null);
+        await service.SyncFromDirectoryAsync([new ManagedTenant(first, "Contoso", directory, true, null)], application, CancellationToken.None);
+        events.Fail = true;
+        await service.SyncFromDirectoryAsync([new ManagedTenant(second, "Contoso", directory, true, null)], application, CancellationToken.None);
+        Assert.Empty(events.Deleted);
+        var kept = Assert.Single(_db.Tenants);
+        Assert.Equal(second, kept.Id);
+        Assert.True(kept.Enabled);
+        events.Fail = false;
+        await service.SyncFromDirectoryAsync([new ManagedTenant(second, "Contoso", directory, true, null)], application, CancellationToken.None);
+        Assert.Empty(events.Deleted);
+        Assert.Equal(second, Assert.Single(_db.Tenants).Id);
+    }
+
+    [Fact]
+    public async Task Changing_the_cloud_clears_a_sign_in_pause()
+    {
+        var scheduler = new CollectionScheduler(null!, [], new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector), NullLoggerFactory.Instance, TimeProvider.System), null!, null!, new AuditOptions(), TimeProvider.System, NullLogger<CollectionScheduler>.Instance);
+        var service = new TenantService(_db, _protector, new GraphClientFactory(new NoHttpClientFactory(), new GraphCredentialFactory(_protector), NullLoggerFactory.Instance, TimeProvider.System), [new SignInsCollector()], new FakeTimeProvider(), new AuditOptions(), NullLogger<TenantService>.Instance, scheduler: scheduler);
+        var id = Guid.NewGuid();
+        var directory = Guid.NewGuid().ToString();
+        var clientId = Guid.NewGuid().ToString();
+        var application = new EntraApplicationCredential(clientId, "secret", "Global", "secret", null, null);
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null)], application, CancellationToken.None);
+        scheduler.HoldCredential(id);
+        Assert.True(scheduler.HasCredentialBlock(id));
+        var paused = new DateTimeOffset(2026, 11, 27, 12, 15, 0, TimeSpan.Zero);
+        _db.Checkpoints.Add(new Checkpoint { TenantId = id, Source = "signins", NextRunAt = paused });
+        await _db.SaveChangesAsync();
+        await service.SyncFromDirectoryAsync([new ManagedTenant(id, "Contoso", directory, true, null)], application with { Cloud = "USGov" }, CancellationToken.None);
+        Assert.False(scheduler.HasCredentialBlock(id));
+        Assert.Equal("USGov", Assert.Single(_db.Tenants).Cloud);
+        Assert.NotEqual(paused, _db.Checkpoints.Single(row => row.TenantId == id && row.Source == "signins").NextRunAt);
     }
 
     [Fact]

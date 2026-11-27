@@ -274,6 +274,8 @@ public static class AuditEndpoints
             return Error(503, "search_unavailable", "Elasticsearch is not reachable.");
         }
 
+        var directory = await clients.ListAllAsync(ct);
+        var hidden = directory.Where(client => client.Disabled && !string.IsNullOrWhiteSpace(client.DirectoryId)).Select(client => client.DirectoryId).ToList();
         var titles = catalog.GetSources(Normalizers.PluginId).ToDictionary(s => s.Source, s => s.Title, StringComparer.Ordinal);
         var usageRows = new List<(string Key, long Count, double Bytes)>();
         var spans = new Dictionary<string, (DateTimeOffset? Oldest, DateTimeOffset? Newest)>(StringComparer.Ordinal);
@@ -289,6 +291,7 @@ public static class AuditEndpoints
                 {
                     PluginId = Normalizers.PluginId,
                     Source = source.Source,
+                    Filters = hidden.Count == 0 ? [] : [new FieldFilter("vc.tenantId", FilterOperator.NotIn, hidden)],
                     Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", 50)],
                 }, ct);
                 if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
@@ -296,20 +299,12 @@ public static class AuditEndpoints
                     continue;
                 }
 
-                long counted = 0;
+                var denominator = agg.Total > 0 ? agg.Total : source.Documents;
                 foreach (var bucket in buckets)
                 {
-                    counted += bucket.Count;
-                    var share = (double)bucket.Count / source.Documents * source.StoredBytes;
+                    var share = denominator == 0 ? 0 : (double)bucket.Count / denominator * source.StoredBytes;
                     var key = string.IsNullOrWhiteSpace(bucket.Key) || bucket.Key == "(none)" ? "\0unknown" : bucket.Key;
                     AddUsage(usageRows, key, bucket.Count, share);
-                }
-
-                var remainder = source.Documents - counted;
-                if (remainder > 0)
-                {
-                    var share = (double)remainder / source.Documents * source.StoredBytes;
-                    AddUsage(usageRows, "\0other", remainder, share);
                 }
             }
             catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
@@ -317,7 +312,7 @@ public static class AuditEndpoints
             }
         }
 
-        var tenants = TenantBreakdown(usageRows, await clients.ListAllAsync(ct));
+        var tenants = TenantBreakdown(usageRows, directory);
 
         return Results.Json(new
         {

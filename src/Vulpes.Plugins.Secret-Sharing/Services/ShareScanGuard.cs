@@ -23,6 +23,81 @@ public sealed class ShareScanGuard(ShareDatabase database, IPowPolicy? policy = 
 
     public void RecordFailure(string clientKey) => Record(KindFailure, clientKey);
 
+    /// <summary>Records one failure when the client is still under the cap. Parallel callers cannot all pass the check.</summary>
+    public bool RecordFailureWithinBudget(string clientKey, out double retryAfterSeconds)
+    {
+        MaybeCleanup();
+        retryAfterSeconds = 0;
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var windowSeconds = _policy.ScanBudgetWindowSeconds;
+        var cutoff = nowMs - (long)(windowSeconds * 1000);
+        using var conn = database.Open();
+        using (var begin = conn.CreateCommand())
+        {
+            begin.CommandText = "BEGIN IMMEDIATE";
+            begin.ExecuteNonQuery();
+        }
+
+        try
+        {
+            long? oldest = null;
+            var count = 0;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT AtMs FROM scan_events WHERE Kind = @kind AND ClientKey = @ck AND AtMs >= @cut ORDER BY AtMs ASC";
+                cmd.Parameters.AddWithValue("@kind", KindFailure);
+                cmd.Parameters.AddWithValue("@ck", clientKey);
+                cmd.Parameters.AddWithValue("@cut", cutoff);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    count++;
+                    oldest ??= reader.GetInt64(0);
+                }
+            }
+
+            if (count >= MaxFailuresInWindow)
+            {
+                retryAfterSeconds = oldest is long at
+                    ? Math.Max(0.1, (at + (long)(windowSeconds * 1000) - nowMs) / 1000.0)
+                    : windowSeconds;
+                using var commit = conn.CreateCommand();
+                commit.CommandText = "COMMIT";
+                commit.ExecuteNonQuery();
+                return false;
+            }
+
+            using (var insert = conn.CreateCommand())
+            {
+                insert.CommandText = "INSERT INTO scan_events (Kind, ClientKey, AtMs) VALUES (@k, @c, @t)";
+                insert.Parameters.AddWithValue("@k", KindFailure);
+                insert.Parameters.AddWithValue("@c", clientKey);
+                insert.Parameters.AddWithValue("@t", nowMs);
+                insert.ExecuteNonQuery();
+            }
+
+            using var done = conn.CreateCommand();
+            done.CommandText = "COMMIT";
+            done.ExecuteNonQuery();
+            return true;
+        }
+        catch
+        {
+            using var rollback = conn.CreateCommand();
+            rollback.CommandText = "ROLLBACK";
+            try
+            {
+                rollback.ExecuteNonQuery();
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException)
+            {
+                // The transaction is already closed.
+            }
+
+            throw;
+        }
+    }
+
     public static string ClientKey(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     private bool IsBudgetExceeded(string kind, string clientKey, int max, out double retryAfterSeconds)

@@ -29,7 +29,8 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
         var local = await db.Tenants.ToListAsync(ct);
         foreach (var gone in local.Where(t => !wanted.Contains(t.Id)).ToList())
         {
-            if (!await DeleteStoredEventsAsync(gone, ct))
+            var kept = tenants.Any(remote => string.Equals(remote.DirectoryId, gone.TenantId, StringComparison.OrdinalIgnoreCase));
+            if (!kept && !await DeleteStoredEventsAsync(gone, ct))
             {
                 // A running collector blocked the delete. Stop every other feed until the next sync can remove the row.
                 gone.Enabled = false;
@@ -78,6 +79,9 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             }
             else
             {
+                credentialChanged |= !string.Equals(row.ClientId, application.ClientId, StringComparison.Ordinal)
+                    || !string.Equals(row.CredentialType, application.CredentialType, StringComparison.Ordinal)
+                    || !string.Equals(row.Cloud, application.Cloud, StringComparison.Ordinal);
                 row.ClientId = application.ClientId;
                 row.CredentialType = application.CredentialType;
                 row.Cloud = application.Cloud;
@@ -122,6 +126,12 @@ public sealed class TenantService(AuditDbContext db, IDataAtRestProtector data, 
             if (credentialChanged)
             {
                 scheduler?.ClearCredentialBlock(row.Id);
+                var now = timeProvider.GetUtcNow();
+                var waiting = db.Checkpoints.Where(checkpoint => checkpoint.TenantId == row.Id && checkpoint.NextRunAt != null && checkpoint.NextRunAt > now).ToList();
+                foreach (var checkpoint in waiting)
+                {
+                    checkpoint.NextRunAt = now;
+                }
             }
 
             row.UpdatedAt = timeProvider.GetUtcNow();

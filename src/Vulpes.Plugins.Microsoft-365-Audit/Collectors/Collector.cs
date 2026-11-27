@@ -141,9 +141,8 @@ public abstract class WatermarkCollector : ICollector
     /// <summary>The earliest time Graph named, or one UTC day later when that instant was already rejected.</summary>
     private static DateTimeOffset? AdvancePastFloor(DateTimeOffset from, DateTimeOffset minimum, DateTimeOffset now)
     {
-        var candidate = minimum > from
-            ? minimum
-            : new DateTimeOffset(from.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
+        // The named minimum is still inside that day. One tick past a rejected instant does not skip the rest of it.
+        var candidate = minimum > from ? minimum : from.AddSeconds(1);
         if (candidate > now)
         {
             candidate = now;
@@ -220,6 +219,8 @@ public abstract class WatermarkCollector : ICollector
         var seen = 0;
         string? resume = null;
 
+        try
+        {
         await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun, cancellationToken, UseBeta, c => complete &= c, url => resume = url))
         {
             if (Map(context, record) is not { } mapped)
@@ -242,8 +243,13 @@ public abstract class WatermarkCollector : ICollector
                 break;
             }
         }
+        }
+        catch (OperationCanceledException)
+        {
+            complete = false;
+        }
 
-        var last = await context.PublishAsync(buffer, cancellationToken);
+        var last = await context.PublishAsync(buffer, cancellationToken.IsCancellationRequested ? CancellationToken.None : cancellationToken);
         totals = Add(totals, last);
 
         // A rejected index is retried from the same watermark. Moving it forward would drop those events
@@ -265,9 +271,17 @@ public abstract class WatermarkCollector : ICollector
         // Oldest-first: a finished run moves the watermark through the newest record read.
         // An empty finished run moves the watermark to now. A partial run moves it only past the previous watermark.
         DateTimeOffset? newWatermark = max ?? (complete ? context.Checkpoint.Watermark ?? context.Now : context.Checkpoint.Watermark);
-        if (newWatermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark))
+        if (newWatermark is { } w)
         {
-            context.Checkpoint.Watermark = w;
+            if (w > context.Now)
+            {
+                w = context.Now;
+            }
+
+            if (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark)
+            {
+                context.Checkpoint.Watermark = w;
+            }
         }
 
         var reason = context.OutOfTime ? "time budget" : "page budget";
@@ -312,6 +326,8 @@ public abstract class WatermarkCollector : ICollector
         var seen = 0;
         string? resume = null;
 
+        try
+        {
         await foreach (var record in context.Graph.GetPagedAsync(path, context.Options.MaxPagesPerRun, cancellationToken, UseBeta, c => complete &= c, url => resume = url))
         {
             if (Map(context, record) is not { } mapped)
@@ -334,8 +350,13 @@ public abstract class WatermarkCollector : ICollector
                 break;
             }
         }
+        }
+        catch (OperationCanceledException)
+        {
+            complete = false;
+        }
 
-        var last = await context.PublishAsync(buffer, cancellationToken);
+        var last = await context.PublishAsync(buffer, cancellationToken.IsCancellationRequested ? CancellationToken.None : cancellationToken);
         totals = Add(totals, last);
         if (totals.Failed > 0)
         {
@@ -354,9 +375,17 @@ public abstract class WatermarkCollector : ICollector
         SaveContinuation(context, null, null);
 
         DateTimeOffset? newWatermark = newest ?? context.Checkpoint.Watermark ?? context.Now;
-        if (newWatermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark))
+        if (newWatermark is { } w)
         {
-            context.Checkpoint.Watermark = w;
+            if (w > context.Now)
+            {
+                w = context.Now;
+            }
+
+            if (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark)
+            {
+                context.Checkpoint.Watermark = w;
+            }
         }
 
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true, moved);

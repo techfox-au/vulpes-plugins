@@ -146,6 +146,19 @@ public sealed class NormalizerEdgeCaseTests
         Assert.Contains("(timeout)", timedOut.Message, StringComparison.Ordinal);
 
         Assert.Equal("success", Directory("success").Outcome);
+        var partial = Normalizers.AuditLogRecord(JsonElement.Parse("""{"id":"e9","createdDateTime":"2026-10-29T10:06:11Z","auditLogRecordType":"exchangeItem","operation":"Send","userPrincipalName":"bob@contoso.com","auditData":{"ResultStatus":"PartiallySucceeded"}}"""), "t", null);
+        Assert.NotNull(partial);
+        Assert.Equal("success", partial.Outcome);
+        var plainName = Normalizers.DirectoryAudit(JsonSerializer.SerializeToElement(new JsonObject
+        {
+            ["id"] = "d2",
+            ["activityDateTime"] = "2026-10-28T23:44:01Z",
+            ["result"] = "success",
+            ["activityDisplayName"] = "Update user",
+            ["initiatedBy"] = new JsonObject { ["user"] = new JsonObject { ["userPrincipalName"] = "admin" } },
+        }), "t", null);
+        Assert.Null(plainName!.UserEmail);
+        Assert.Equal("admin", plainName.UserName);
         Assert.Equal("failure", Directory("failure").Outcome);
         Assert.Equal("unknown", Directory("unknownFutureValue").Outcome);
     }

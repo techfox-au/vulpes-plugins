@@ -34,6 +34,9 @@
           throw new Error("Vulpes crypto did not load.");
         }
         return global.SenditCrypto;
+      }).catch(function (err) {
+        loading = null;
+        throw err;
       });
     }
     return loading;

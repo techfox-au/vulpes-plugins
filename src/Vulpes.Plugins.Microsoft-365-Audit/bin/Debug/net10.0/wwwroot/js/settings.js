@@ -1,3 +1,5 @@
+import { appendApplication } from './application.js?v=app2';
+
 const intervals = [
   ['signins', 'Sign-ins'],
   ['directory', 'Directory audit'],
@@ -10,8 +12,15 @@ const intervals = [
 ];
 
 export async function mount(el, ctx) {
-  const { h, errorMessage, setBusy, panelNote } = ctx.ui;
+  const { h, errorMessage, setBusy, panelNote, clear } = ctx.ui;
   const form = el.querySelector('[data-role="form"]');
+  const application = h('div');
+  form.before(application);
+  const refreshApplication = async () => {
+    clear(application);
+    await appendApplication(ctx, application, refreshApplication);
+  };
+  await refreshApplication();
   let current;
   try { current = await ctx.api.get(`${ctx.plugin.apiBase}/settings`); }
   catch (err) { form.append(h('div', { class: 'alert danger' }, errorMessage(err))); return; }

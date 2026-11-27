@@ -21,7 +21,7 @@ function loadScript() {
   if (window.SecretUdk && window.SecretUdk.ready) return window.SecretUdk.ready();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = '/assets/js/udk.js?v=udk6';
+    s.src = '/assets/js/udk.js?v=udk7';
     s.onload = () => window.SecretUdk.ready().then(resolve, reject);
     s.onerror = () => reject(new Error('Could not load encryption.'));
     document.head.append(s);
@@ -177,7 +177,7 @@ export async function requireUserDataKey() {
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', 'Use your passkey to unlock encryption in this browser tab.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to unlock encryption.');
-  const webauthn = await import('./webauthn.js?v=shell454');
+  const webauthn = await import('./webauthn.js?v=shell463');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
   const udk = window.SecretUdk.loadUserDataKey(userId);
   if (!udk) throw new Error('This passkey could not unlock encryption.');
@@ -331,7 +331,7 @@ async function unlockWithPasskeyPrompt(message) {
   const { modal } = await import('./ui.js?v=shell104');
   const agreed = await modal.confirm('Unlock encryption', message || 'Use your passkey so this password wraps the same encryption key.', { confirmLabel: 'Use passkey' });
   if (!agreed) throw new Error('Passkey required to wrap encryption for this password.');
-  const webauthn = await import('./webauthn.js?v=shell454');
+  const webauthn = await import('./webauthn.js?v=shell463');
   await webauthn.authenticate({ optionsUrl: '/api/account/reauth/passkey/options', finishUrl: '/api/account/reauth/passkey', onCredential: (credential) => unlockWithPasskey(credential) });
   return window.SecretUdk.loadUserDataKey(await accountId());
 }

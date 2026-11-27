@@ -137,7 +137,10 @@
   async function ready() {
     if (!readyPromise) {
       startWorker();
-      readyPromise = restore();
+      readyPromise = restore().catch(function (err) {
+        readyPromise = null;
+        throw err;
+      });
     }
     return readyPromise;
   }

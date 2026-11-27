@@ -138,20 +138,19 @@ public sealed class CollectUploadGate : IStartupFilter
 
     private static bool TryParseForwarded(string text, out IPAddress address)
     {
-        var value = text.Trim().Trim('"');
-        if (value.Length >= 2 && value[0] == '[')
+        // Do not trim. Forwarded-headers parses the same token with IPEndPoint.TryParse, which keeps a trailing space.
+        var value = text;
+        if (IPEndPoint.TryParse(value, out var endpoint))
         {
-            var end = value.IndexOf(']');
-            if (end > 1)
-            {
-                value = value[1..end];
-            }
+            address = endpoint.Address;
+            return true;
         }
 
-        var colon = value.LastIndexOf(':');
-        if (colon > 0 && value.IndexOf(':') == colon)
+        // A broken port, such as 203.0.113.50:80a, is not an address the forwarded-headers middleware will keep.
+        if (value.Contains(':') && !(value.StartsWith('[') && value.EndsWith(']')))
         {
-            value = value[..colon];
+            address = IPAddress.None;
+            return false;
         }
 
         if (!IPAddress.TryParse(value, out var parsed) || parsed is null)

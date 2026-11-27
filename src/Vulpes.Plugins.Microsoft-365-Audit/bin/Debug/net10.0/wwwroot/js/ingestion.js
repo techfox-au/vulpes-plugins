@@ -1,4 +1,4 @@
-import { statusBadge } from './common.js?v=shell373';
+import { statusBadge } from './common.js?v=shell389';
 
 let timer;
 let mountGeneration = 0;

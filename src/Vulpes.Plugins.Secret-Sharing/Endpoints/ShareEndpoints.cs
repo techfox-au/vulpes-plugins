@@ -584,16 +584,13 @@ public static class ShareEndpoints
     private static IResult Miss(ShareScanGuard scan, HttpContext http)
     {
         var client = ShareScanGuard.ClientKey(http);
-        if (scan.IsFailureBudgetExceeded(client, out var retry)) return TooMany(http, retry);
-        scan.RecordFailure(client);
-        return Gone();
+        return scan.RecordFailureWithinBudget(client, out var retry) ? Gone() : TooMany(http, retry);
     }
 
     private static IResult Denied(ShareScanGuard scan, HttpContext http, string reason)
     {
         var client = ShareScanGuard.ClientKey(http);
-        if (scan.IsFailureBudgetExceeded(client, out var retry)) return TooMany(http, retry);
-        scan.RecordFailure(client);
+        if (!scan.RecordFailureWithinBudget(client, out var retry)) return TooMany(http, retry);
         return Results.Json(new { error = "pow", message = reason }, statusCode: StatusCodes.Status403Forbidden);
     }
 

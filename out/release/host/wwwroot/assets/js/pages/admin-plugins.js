@@ -65,6 +65,10 @@ function compareNumericText(left, right) {
 }
 
 function compareIdentifier(left, right) {
+  if (!left.length || !right.length) {
+    if (!left.length && !right.length) return 0;
+    return left.length ? 1 : -1;
+  }
   const leftNumber = /^\d+$/.test(left);
   const rightNumber = /^\d+$/.test(right);
   if (leftNumber && rightNumber) return compareNumericText(left, right);

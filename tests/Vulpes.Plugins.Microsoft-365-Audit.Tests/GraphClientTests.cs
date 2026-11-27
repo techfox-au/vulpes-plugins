@@ -81,6 +81,22 @@ public sealed class GraphClientTests
     }
 
     [Fact]
+    public async Task A_cancelled_budget_stops_a_long_retry_wait()
+    {
+        var handler = new RoutedGraphHandler().Get(p => p.Contains("organization", StringComparison.Ordinal), _ =>
+        {
+            var throttled = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            throttled.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(30));
+            return throttled;
+        });
+        var client = TestContext.Client(handler);
+        using var budget = new CancellationTokenSource(TimeSpan.FromMilliseconds(80));
+        var started = DateTime.UtcNow;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.GetAsync("organization", budget.Token));
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Unauthorized_drops_the_token_and_asks_for_a_new_one()
     {
         var calls = 0;

@@ -1,5 +1,5 @@
 // Entra directory changes and provisioning (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell373';
+import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell389';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -23,17 +23,17 @@ export async function mount(el, ctx) {
       filters = [];
       if (which === 'directory') {
         const activity = drillFilter(q, 'activity', 'event.action');
-        const user = drillFilter(q, 'user', 'user.name');
         if (activity) filters.push({ ...activity, drill: true });
-        if (user) filters.push({ ...user, drill: true });
       }
+      const user = drillFilter(q, 'user', 'user.name');
+      if (user) filters.push(which === 'provisioning' ? user : { ...user, drill: true });
     } else {
       filters = carried.filters.map((f) => ({ field: f.field, operator: f.operator, values: [...(f.values || [])], ...(f.drill ? { drill: true } : {}) }));
     }
     explorer = createExplorer(host, ctx, {
       initialFilters: filters,
       initialState: carried ? { ...carried, filters } : null,
-      skipFilter: which === 'provisioning' ? (f) => f.drill === true : null,
+      skipFilter: which === 'provisioning' ? (f) => f.drill === true && f.field !== 'user.name' : null,
       source: which,
       defaultRange: carried?.range || q.range || '7d',
       columns: which === 'directory' ? [

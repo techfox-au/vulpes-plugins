@@ -1,3 +1,4 @@
+import { nextConditions } from '../alert-conditions.js?v=shell463';
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, jsonView, dropdown, panelNote, pageNote } from '../ui.js?v=shell409';
 import { severityKind } from './home.js';
 
@@ -160,17 +161,23 @@ async function editRule(ctx, rule) {
         h('span', null, s.title)));
     }
   };
+  let conditionsTouched = false;
   const conditionRow = (c) => {
     const fieldSel = dropdown(fieldsForSources().map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: c.field || '', ariaLabel: 'Field' });
     const opSel = dropdown(OPERATORS.map(([value, label]) => ({ value, label })), { value: c.operator || 'equals', ariaLabel: 'Operator' });
     const shown = MULTI_VALUE.has(c.operator) ? (c.values || []).join(', ') : ((c.values || [])[0] || '');
     const valueInput = h('input', { class: 'input', value: shown, placeholder: MULTI_VALUE.has(c.operator || 'equals') ? 'value(s), comma separated' : 'value' });
-    const row = h('div', { class: 'form-row' }, fieldSel, opSel, valueInput, h('button', { class: 'btn ghost sm', type: 'button', onClick: () => row.remove() }, 'Remove'));
+    const row = h('div', { class: 'form-row' }, fieldSel, opSel, valueInput, h('button', { class: 'btn ghost sm', type: 'button', onClick: () => { conditionsTouched = true; row.remove(); } }, 'Remove'));
     row.read = () => ({ field: fieldSel.value, operator: opSel.value, values: conditionValues(opSel.value, valueInput.value) });
     return row;
   };
-  const renderConditions = () => { const existing = [...conditionsBox.children].map((row) => row.read?.()).filter(Boolean); clear(conditionsBox); for (const c of (existing.length ? existing : r.conditions)) conditionsBox.append(conditionRow(c)); };
-  pluginSel.addEventListener('change', () => { r.sources = [firstSource(currentPlugin())].filter(Boolean); renderSources(); r.conditions = []; renderConditions(); });
+  const renderConditions = (replace) => {
+    const existing = [...conditionsBox.children].map((row) => row.read?.()).filter(Boolean);
+    const rows = nextConditions(existing, r.conditions, conditionsTouched, replace === true);
+    clear(conditionsBox);
+    for (const c of rows) conditionsBox.append(conditionRow(c));
+  };
+  pluginSel.addEventListener('change', () => { r.sources = [firstSource(currentPlugin())].filter(Boolean); renderSources(); r.conditions = []; conditionsTouched = true; renderConditions(true); });
   renderSources();
   renderConditions();
 

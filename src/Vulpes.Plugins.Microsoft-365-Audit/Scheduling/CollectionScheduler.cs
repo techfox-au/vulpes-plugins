@@ -127,7 +127,6 @@ public sealed class CollectionScheduler(
         }
 
         var secureScoreNow = !_secureScoreOnStartup;
-        _secureScoreOnStartup = true;
         var now = timeProvider.GetUtcNow();
         List<(Tenant Tenant, string Source)> due;
         await using (var scope = scopeFactory.CreateAsyncScope())
@@ -184,6 +183,8 @@ public sealed class CollectionScheduler(
             logger.LogInformation("Elasticsearch is ready; Secure Score will be collected once at startup");
         }
 
+        // A throw while reading the directory must not consume the one startup collection.
+        _secureScoreOnStartup = true;
         return due;
     }
 
@@ -260,7 +261,18 @@ public sealed class CollectionScheduler(
                     Logger = logger,
                     Deadline = startedAt.AddMinutes(Math.Clamp(options.RunTimeBudgetMinutes, 1, 180)),
                 };
-                var result = await collector.CollectAsync(context, cancellationToken);
+                // Graph retry waits must end when the run budget ends, not only when the host is stopping.
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var remaining = BudgetRemaining(context.Deadline, timeProvider.GetUtcNow());
+                if (remaining <= TimeSpan.Zero)
+                {
+                    budget.Cancel();
+                }
+                else
+                {
+                    budget.CancelAfter(remaining);
+                }
+                var result = await collector.CollectAsync(context, budget.Token);
                 queryTracked = result.QueryId;
                 var finished = timeProvider.GetUtcNow();
                 var indexedCleanly = result.Failed == 0;
@@ -397,6 +409,28 @@ public sealed class CollectionScheduler(
         {
             _credentialBlock.Remove(tenantId);
         }
+    }
+
+    internal void HoldCredential(Guid tenantId) 
+    {
+        lock (_lock)
+        {
+            _credentialBlock[tenantId] = (DateTimeOffset.MaxValue, "test");
+        }
+    }
+
+    internal bool HasCredentialBlock(Guid tenantId)
+    {
+        lock (_lock)
+        {
+            return _credentialBlock.ContainsKey(tenantId);
+        }
+    }
+
+    internal static TimeSpan BudgetRemaining(DateTimeOffset deadline, DateTimeOffset now)
+    {
+        var remaining = deadline - now;
+        return remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
     }
 
     private static async Task CollapseQueryRunAsync(AuditDbContext db, Tenant tenant, string source, RunLogEntry entry, Checkpoint checkpoint, string? queryTracked, CancellationToken cancellationToken)

@@ -1,4 +1,4 @@
-import { kpiCard } from './common.js?v=shell383';
+import { kpiCard } from './common.js?v=shell389';
 
 let timer;
 let mountGeneration = 0;
@@ -23,11 +23,12 @@ export function unmount() {
   timer = null;
 }
 
-function share(part, total) {
+export function share(part, total) {
   if (!total) return '0%';
   const pct = (part / total) * 100;
-  if (pct > 0 && pct < 10) return `${pct.toFixed(1)}%`;
-  return `${pct.toFixed(0)}%`;
+  const rounded = Math.round(pct * 10) / 10;
+  if (rounded > 0 && rounded < 10) return `${rounded.toFixed(1)}%`;
+  return `${Math.round(pct)}%`;
 }
 
 let renderToken = 0;

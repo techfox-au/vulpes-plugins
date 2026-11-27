@@ -37,7 +37,7 @@ export { customDayBounds };
 
 const MONTHS = {
   january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4, may: 5,
-  june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sep: 9, 
+  june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sept: 9, sep: 9, 
   october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
 };
 
@@ -55,27 +55,40 @@ function weekdayOf(year, month, day) {
   return new Date(Date.UTC(probeYear, month - 1, day)).getUTCDay();
 }
 
-function zoneFits(zone) {
-  if (/^(z|gmt)$/i.test(zone)) return true;
+function zoneParts(zone) {
+  if (!zone || /^(z|gmt)$/i.test(zone)) return { ok: true, minutes: 0 };
+  const sign = zone[0] === '-' ? -1 : 1;
   const body = zone.slice(1);
-  if (/^\d{1,2}$/.test(body)) return Number(body) <= 14;
-  const compact = body.replace(':', '');
-  const digits = compact.length === 3 ? `0${compact}` : compact;
-  if (!/^\d{4}$/.test(digits)) return false;
-  const zoneHour = Number(digits.slice(0, 2));
-  const zoneMinute = Number(digits.slice(2, 4));
+  let hour;
+  let minute;
+  const colon = body.indexOf(':');
+  if (/^\d{1,2}$/.test(body)) {
+    hour = Number(body);
+    minute = 0;
+  } else if (colon >= 0) {
+    // +05:3 is five hours and three minutes. Padding the compact form would make it 53 minutes.
+    const hourText = body.slice(0, colon);
+    const minuteText = body.slice(colon + 1);
+    if (!/^\d{1,2}$/.test(hourText) || !/^\d{1,2}$/.test(minuteText)) return { ok: false, minutes: 0 };
+    hour = Number(hourText);
+    minute = Number(minuteText);
+  } else {
+    const digits = body.length === 3 ? `0${body}` : body;
+    if (!/^\d{4}$/.test(digits)) return { ok: false, minutes: 0 };
+    hour = Number(digits.slice(0, 2));
+    minute = Number(digits.slice(2, 4));
+  }
   // DateTimeOffset accepts an offset of at most 14 hours, and only :00 at that edge.
-  return zoneHour <= 14 && zoneMinute <= 59 && !(zoneHour === 14 && zoneMinute !== 0);
+  if (hour > 14 || minute > 59 || (hour === 14 && minute !== 0)) return { ok: false, minutes: 0 };
+  return { ok: true, minutes: sign * (hour * 60 + minute) };
+}
+
+function zoneFits(zone) {
+  return zoneParts(zone).ok;
 }
 
 function offsetMinutes(zone) {
-  if (!zone || /^(z|gmt)$/i.test(zone)) return 0;
-  const sign = zone[0] === '-' ? -1 : 1;
-  const body = zone.slice(1);
-  if (/^\d{1,2}$/.test(body)) return sign * Number(body) * 60;
-  const compact = body.replace(':', '');
-  const digits = compact.length === 3 ? `0${compact}` : compact;
-  return sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0));
+  return zoneParts(zone).minutes;
 }
 
 // Date.UTC maps years 0–99 onto 1900–1999, so the edges are checked from the clock instead.
@@ -95,7 +108,7 @@ function instantFits(year, month, day, rest) {
   }
   // The host rejects a fraction that overflows the wall clock before it applies the offset.
   if (year === 9999 && month === 12 && day === 31 && hour === 23 && minute === 59 && second === 59 && fractionRoundsPastMax(fraction)) return false;
-  const zone = /(GMT|[zZ]|[+-]\d{1,2}(?::?\d{2})?)\s*$/.exec(String(rest).trim());
+  const zone = /(GMT|[zZ]|[+-]\d{1,2}(?::\d{1,2}|\d{2})?)\s*$/.exec(String(rest).trim());
   const utcMinutes = hour * 60 + minute - (zone ? offsetMinutes(zone[1]) : 0);
   if (year === 1 && month === 1 && day === 1 && utcMinutes < 0) return false;
   if (year === 9999 && month === 12 && day === 31) {
@@ -106,8 +119,15 @@ function instantFits(year, month, day, rest) {
   return true;
 }
 
+function zoneOnly(rest) {
+  const text = String(rest || '').trim();
+  return /^(?:z|gmt|[+-]\d)/i.test(text) && zoneFits(text);
+}
+
 function clockFits(rest) {
-  const match = /^(\d{1,2})(?::(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?)?(?:\s*([ap]m))?(?:\s*([zZ]|GMT|[+-]\d{1,2}(?::?\d{2})?))?$/i.exec(rest.trim());
+  // 23:59:59,999 is the same fraction as 23:59:59.999. 3.45 PM is 3:45 PM.
+  const text = String(rest).trim().replace(/(\d),(\d+)/g, '$1.$2').replace(/^(\d{1,2})\.(\d{1,2})(?=\s*[ap]m\b)/i, '$1:$2');
+  const match = /^(\d{1,2})(?::(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?)?(?:\s*([ap]m))?(?:\s*([zZ]|GMT|[+-]\d{1,2}(?::\d{1,2}|\d{2})?))?$/i.exec(text);
   if (!match || (match[2] === undefined && !match[4])) return false;
   let hour = Number(match[1]);
   const minute = match[2] === undefined ? 0 : Number(match[2]);
@@ -165,42 +185,159 @@ function fractionRoundsPastMax(fraction) {
 }
 
 // .NET maps a two-digit year through 2049. 00 is 2000 and 50 is 1950.
+function monthIndex(token) {
+  return MONTHS[String(token || '').toLowerCase().replace(/\./g, '')] || 0;
+}
+
 function expandYear(text) {
   const year = Number(text);
-  if (String(text).length !== 2) return year;
+  const length = String(text).length;
+  // 0 and 6 are 2000 and 2006. A four-digit year, including 0001, stays as written.
+  if (length === 1) return 2000 + year;
+  if (length !== 2) return year;
   return year <= 49 ? 2000 + year : 1900 + year;
 }
 
+// The filter check and the weekday check both read a dashed date through these.
+// An impossible day is the year, which is how 31-Nov-13 is 13 November 2031.
+function dashedNamedParts(firstText, monthToken, lastText) {
+  const month = monthIndex(monthToken);
+  if (!month) return null;
+  const first = Number(firstText);
+  const last = Number(lastText);
+  // 2013-Nov-13 is year-month-day. 29-Feb-0001 is not swapped into 2029.
+  if (String(firstText).length >= 3 || first > 31) {
+    if (String(lastText).length > 2 || !calendarDay(expandYear(firstText), month, last)) return null;
+    return { year: expandYear(firstText), month, day: last };
+  }
+  const dayFirstYear = expandYear(lastText);
+  if (calendarDay(dayFirstYear, month, first)) return { year: dayFirstYear, month, day: first };
+  if (String(lastText).length >= 3 || String(lastText).length > 2) return null;
+  if (!calendarDay(expandYear(firstText), month, last)) return null;
+  return { year: expandYear(firstText), month, day: last };
+}
+
+function spacedParts(dayText, monthToken, yearText) {
+  const month = monthIndex(monthToken);
+  if (!month) return null;
+  const day = Number(dayText);
+  const year = expandYear(yearText);
+  if (String(dayText).length <= 2 && calendarDay(year, month, day)) return { year, month, day };
+  // 31 Nov 13 is 13 November 2031. Nov 0, 13 is 13 November 2000. A long year is not a day.
+  if (String(yearText).length >= 3 || String(dayText).length > 2) return null;
+  const swappedYear = expandYear(dayText);
+  const swappedDay = Number(yearText);
+  if (!calendarDay(swappedYear, month, swappedDay)) return null;
+  return { year: swappedYear, month, day: swappedDay };
+}
+
+function monthDashParts(monthToken, dayText, yearText) {
+  const month = monthIndex(monthToken);
+  if (!month) return null;
+  const day = Number(dayText);
+  const year = expandYear(yearText);
+  if (String(dayText).length <= 2 && calendarDay(year, month, day)) return { year, month, day };
+  // Nov-2026-13 is 13 November 2026. The middle token is the year.
+  if (String(dayText).length >= 3 && String(yearText).length <= 2 && calendarDay(expandYear(dayText), month, Number(yearText))) {
+    return { year: expandYear(dayText), month, day: Number(yearText) };
+  }
+  // An explicit year of three or four digits is not a day. Nov-0-13 still swaps 0 into 2000.
+  if (String(yearText).length >= 3 || String(dayText).length > 2 || String(yearText).length > 2) return null;
+  const swappedYear = expandYear(dayText);
+  const swappedDay = Number(yearText);
+  if (!calendarDay(swappedYear, month, swappedDay)) return null;
+  return { year: swappedYear, month, day: swappedDay };
+}
+
+function numericDashParts(monthText, dayText, yearText) {
+  const year = expandYear(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!calendarDay(year, month, day)) return null;
+  return { year, month, day };
+}
+
 function calendarOf(value) {
-  const named = /^([A-Za-z]+),?\s*(\d{1,2})(?!\d),?\s*(\d{2,4})(?!\d)/.exec(value);
-  if (named && MONTHS[named[1].toLowerCase()]) return { year: expandYear(named[3]), month: MONTHS[named[1].toLowerCase()], day: Number(named[2]) };
-  const behind = /^(\d{1,2})\s+([A-Za-z]+),?\s+(\d{2,4})/.exec(value);
-  if (behind && MONTHS[behind[2].toLowerCase()]) return { year: expandYear(behind[3]), month: MONTHS[behind[2].toLowerCase()], day: Number(behind[1]) };
+  const named = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d),?\s*(\d{1,4})(?!\d)/.exec(value);
+  if (named && monthIndex(named[1])) {
+    const parts = spacedParts(named[2], named[1], named[3]);
+    if (parts) return parts;
+  }
+  const behind = /^(\d{1,2})\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})/.exec(value);
+  if (behind && monthIndex(behind[2])) {
+    const parts = spacedParts(behind[1], behind[2], behind[3]);
+    if (parts) return parts;
+  }
   const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(value);
   if (slash) return { year: expandYear(slash[3]), month: Number(slash[1]), day: Number(slash[2]) };
+  const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(value);
+  if (yearSlash) return { year: Number(yearSlash[1]), month: Number(yearSlash[2]), day: Number(yearSlash[3]) };
+  const yearNamed = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})/.exec(value);
+  if (yearNamed && monthIndex(yearNamed[2]) && calendarDay(Number(yearNamed[1]), monthIndex(yearNamed[2]), Number(yearNamed[3]))) return { year: Number(yearNamed[1]), month: monthIndex(yearNamed[2]), day: Number(yearNamed[3]) };
+  const dashedName = /^(\d{1,4})-([A-Za-z]+)-(\d{1,4})/.exec(value);
+  if (dashedName) {
+    const named = dashedNamedParts(dashedName[1], dashedName[2], dashedName[3]);
+    if (named) return named;
+  }
+  const numericDash = /^(\d{1,2})-(\d{1,2})-(\d{2,4})/.exec(value);
+  if (numericDash) {
+    const dashed = numericDashParts(numericDash[1], numericDash[2], numericDash[3]);
+    if (dashed) return dashed;
+  }
+  const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})/.exec(value);
+  if (dots) return { year: Number(dots[1]), month: Number(dots[2]), day: Number(dots[3]) };
   const monthFirst = /^([A-Za-z]+)-(\d{1,2})-(\d{2,4})/.exec(value);
-  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return { year: expandYear(monthFirst[3]), month: MONTHS[monthFirst[1].toLowerCase()], day: Number(monthFirst[2]) };
+  if (monthFirst) {
+    const named = monthDashParts(monthFirst[1], monthFirst[2], monthFirst[3]);
+    if (named) return named;
+  }
   return null;
 }
 
+function clockOrZone(rest, year, month, day) {
+  if (!rest) return true;
+  if (zoneOnly(rest)) return true;
+  return clockFits(rest) && instantFits(year, month, day, rest);
+}
+
 function namedDay(value) {
-  const ahead = /^([A-Za-z]+),?\s*(\d{1,2})(?!\d),?\s*(\d{2,4})(?!\d)(?:\s+(.*))?$/.exec(value);
-  if (ahead && MONTHS[ahead[1].toLowerCase()]) return calendarDay(expandYear(ahead[3]), MONTHS[ahead[1].toLowerCase()], Number(ahead[2])) && (!ahead[4] || (clockFits(ahead[4]) && instantFits(expandYear(ahead[3]), MONTHS[ahead[1].toLowerCase()], Number(ahead[2]), ahead[4])));
-  const behind = /^(\d{1,2})\s+([A-Za-z]+),?\s+(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (behind && MONTHS[behind[2].toLowerCase()]) return calendarDay(expandYear(behind[3]), MONTHS[behind[2].toLowerCase()], Number(behind[1])) && (!behind[4] || (clockFits(behind[4]) && instantFits(expandYear(behind[3]), MONTHS[behind[2].toLowerCase()], Number(behind[1]), behind[4])));
+  const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d),?\s*(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(value);
+  if (ahead && monthIndex(ahead[1])) {
+    const parts = spacedParts(ahead[2], ahead[1], ahead[3]);
+    return !!parts && clockOrZone(ahead[4], parts.year, parts.month, parts.day);
+  }
+  const behind = /^(\d{1,2})\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s+(.*))?$/.exec(value);
+  if (behind && monthIndex(behind[2])) {
+    const parts = spacedParts(behind[1], behind[2], behind[3]);
+    return !!parts && clockOrZone(behind[4], parts.year, parts.month, parts.day);
+  }
   return null;
 }
 
 function rfc1123(value) {
   const match = /^(?:(Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?)(?:,\s*|\s+))?(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{2,4})(?:\s+(.*))?$/i.exec(value);
-  if (!match || !MONTHS[match[3].toLowerCase()]) return null;
+  if (!match || !monthIndex(match[3])) return null;
   const year = expandYear(match[4]);
-  const month = MONTHS[match[3].toLowerCase()];
+  const month = monthIndex(match[3]);
   const day = Number(match[2]);
   if (!calendarDay(year, month, day) || (match[5] && !(clockFits(match[5]) && instantFits(year, month, day, match[5])))) return false;
   if (!match[1]) return true;
   const names = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
   return names[match[1].toLowerCase()] === datedWeekday(year, month, day, match[5]);
+}
+
+function tClock(rest) {
+  return /^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*(?:[zZ]|GMT|[+-]\d{1,2}(?::\d{1,2}|\d{2})?))?$/i.test(String(rest).trim());
+}
+
+function timedDay(year, month, day, separator, rest) {
+  if (!calendarDay(year, month, day)) return false;
+  if (rest === undefined) return true;
+  if (zoneOnly(rest)) return separator !== 'T' && separator !== 't';
+  if (/^(z|gmt)$/i.test(rest.trim())) return separator !== 'T' && separator !== 't';
+  // A T before GMT, with or without a space, is not a value the host accepts.
+  if ((separator === 'T' || separator === 't') && (/gmt$/i.test(rest.trim()) || !tClock(rest))) return false;
+  return clockFits(rest) && instantFits(year, month, day, rest);
 }
 
 function dateFits(value) {
@@ -209,43 +346,56 @@ function dateFits(value) {
   const yearMonth = /^(\d{4})-(\d{1,2})$/.exec(value);
   if (yearMonth) return Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12;
   if (/^\d{1,2}:\d{2}/.test(value) && clockFits(value)) return true;
+  const leadClock = /^(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?)\s+(\D.*)$/i.exec(value);
+  if (leadClock && clockFits(leadClock[1]) && dateFits(leadClock[2])) return true;
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
   if (iso) {
     const year = Number(iso[1]);
     const month = Number(iso[2]);
     const day = Number(iso[3]);
-    const separator = iso[4];
-    const rest = iso[5];
-    const dayOk = calendarDay(year, month, day);
-    if (rest === undefined || /^(z|gmt)$/i.test(rest.trim())) return dayOk;
-    // A T glued to GMT is not a value the host accepts. A space before the time is.
-    if ((separator === 'T' || separator === 't') && /gmt$/i.test(rest.trim())) return false;
-    if ((separator === 'T' || separator === 't') && !/^\d{2}:/.test(rest)) return false;
-    return dayOk && clockFits(rest) && instantFits(year, month, day, rest);
+    let separator = iso[4];
+    let rest = iso[5];
+    // "2026-11-13 T00:00:00Z" is the same instant as the form without the space.
+    if (separator === ' ' && rest && /^[Tt]/.test(rest)) {
+      separator = 'T';
+      rest = rest.slice(1).trim();
+    }
+    return timedDay(year, month, day, separator, rest);
   }
   const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (slash) return calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2])) && (!slash[4] || (clockFits(slash[4]) && instantFits(expandYear(slash[3]), Number(slash[1]), Number(slash[2]), slash[4])));
-  const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+(.*))?$/.exec(value);
-  if (yearSlash) return calendarDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3])) && (!yearSlash[4] || (clockFits(yearSlash[4]) && instantFits(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3]), yearSlash[4])));
-  const monthFirst = /^([A-Za-z]+)-(\d{1,2})-(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (monthFirst && MONTHS[monthFirst[1].toLowerCase()]) return calendarDay(expandYear(monthFirst[3]), MONTHS[monthFirst[1].toLowerCase()], Number(monthFirst[2])) && (!monthFirst[4] || (clockFits(monthFirst[4]) && instantFits(expandYear(monthFirst[3]), MONTHS[monthFirst[1].toLowerCase()], Number(monthFirst[2]), monthFirst[4])));
-  const dashedName = /^(\d{1,2})-([A-Za-z]+)-(\d{2,4})(?:\s+(.*))?$/.exec(value);
-  if (dashedName && MONTHS[dashedName[2].toLowerCase()]) {
-    const year = expandYear(dashedName[3]);
-    const month = MONTHS[dashedName[2].toLowerCase()];
-    const day = Number(dashedName[1]);
-    return calendarDay(year, month, day) && (!dashedName[4] || (clockFits(dashedName[4]) && instantFits(year, month, day, dashedName[4])));
+  if (slash) return calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2])) && clockOrZone(slash[4], expandYear(slash[3]), Number(slash[1]), Number(slash[2]));
+  const slashNamed = /^(\d{1,4})[/.]([A-Za-z]+)[/.](\d{1,4})(?:\s+(.*))?$/.exec(value);
+  if (slashNamed) {
+    const named = dashedNamedParts(slashNamed[1], slashNamed[2], slashNamed[3]);
+    if (named) return clockOrZone(slashNamed[4], named.year, named.month, named.day);
   }
-  const dashed = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(value);
-  if (dashed) return calendarDay(Number(dashed[3]), Number(dashed[1]), Number(dashed[2]));
-  const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/.exec(value);
-  if (dots) return calendarDay(Number(dots[1]), Number(dots[2]), Number(dots[3]));
+  const yearSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
+  if (yearSlash) return timedDay(Number(yearSlash[1]), Number(yearSlash[2]), Number(yearSlash[3]), yearSlash[4], yearSlash[5]);
+  const monthFirst = /^([A-Za-z]+)-(\d{1,4})-(\d{1,4})(?:\s+(.*))?$/.exec(value);
+  if (monthFirst) {
+    const named = monthDashParts(monthFirst[1], monthFirst[2], monthFirst[3]);
+    if (named) return !monthFirst[4] || (clockFits(monthFirst[4]) && instantFits(named.year, named.month, named.day, monthFirst[4]));
+  }
+  const dashedName = /^(\d{1,4})-([A-Za-z]+)-(\d{1,4})(?:\s+(.*))?$/.exec(value);
+  if (dashedName) {
+    const named = dashedNamedParts(dashedName[1], dashedName[2], dashedName[3]);
+    if (named) return !dashedName[4] || (clockFits(dashedName[4]) && instantFits(named.year, named.month, named.day, dashedName[4]));
+  }
+  const dashed = /^(\d{1,2})-(\d{1,2})-(\d{2,4})(?:\s+(.*))?$/.exec(value);
+  if (dashed) {
+    const named = numericDashParts(dashed[1], dashed[2], dashed[3]);
+    if (named) return !dashed[4] || (clockFits(dashed[4]) && instantFits(named.year, named.month, named.day, dashed[4]));
+  }
+  const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
+  if (dots) return timedDay(Number(dots[1]), Number(dots[2]), Number(dots[3]), dots[4], dots[5]);
   const isoZone = /^(\d{4})-(\d{1,2})-(\d{1,2})\s*(Z|GMT)$/i.exec(value);
   if (isoZone) return calendarDay(Number(isoZone[1]), Number(isoZone[2]), Number(isoZone[3]));
-  const monthYear = /^([A-Za-z]+)(?:,\s*|\s+)(\d{4})$/.exec(value);
-  if (monthYear && MONTHS[monthYear[1].toLowerCase()]) return true;
+  const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+)(\d{4})$/.exec(value);
+  if (monthYear && monthIndex(monthYear[1])) return true;
   const yearMonthName = /^(\d{4})\s+([A-Za-z]+)$/.exec(value);
-  if (yearMonthName && MONTHS[yearMonthName[2].toLowerCase()]) return true;
+  if (yearMonthName && monthIndex(yearMonthName[2])) return true;
+  const yearFirst = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s+(.*))?$/.exec(value);
+  if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return !yearFirst[4] || (clockFits(yearFirst[4]) && instantFits(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]), yearFirst[4]));
   const named = namedDay(value);
   if (named !== null) return named;
   const rfc = rfc1123(value);
@@ -264,6 +414,8 @@ function dateFits(value) {
     if (yearMonth && Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12) return weekdayOf(Number(yearMonth[1]), Number(yearMonth[2]), 1) === wanted;
     const found = calendarOf(rest);
     if (found && calendarDay(found.year, found.month, found.day)) return datedWeekday(found.year, found.month, found.day, rest) === wanted;
+    const isoZoneDay = /^(\d{4})-(\d{1,2})-(\d{1,2})(Z|GMT)$/i.exec(rest);
+    if (isoZoneDay) return datedWeekday(Number(isoZoneDay[1]), Number(isoZoneDay[2]), Number(isoZoneDay[3]), '') === wanted;
     const stamp = Date.parse(rest);
     if (Number.isNaN(stamp)) return false;
     return new Date(stamp).getDay() === wanted;
@@ -281,7 +433,61 @@ function ipv4Fits(value) {
   return parts.length === 4 && parts.every((part) => ipv4Octet(part));
 }
 
+function cidrFits(value) {
+  const slash = value.indexOf('/');
+  if (slash <= 0 || value.indexOf('/', slash + 1) >= 0) return false;
+  const host = value.slice(0, slash);
+  const prefixText = value.slice(slash + 1);
+  if (!/^(0|[1-9]\d*)$/.test(prefixText)) return false;
+  const prefix = Number(prefixText);
+  if (host.includes(':')) {
+    if (!ipv6Fits(host) || prefix > 128) return false;
+    // The host stores an IPv4-mapped address as IPv4 and rejects a prefix that is still above 32.
+    if (isIpv4Mapped(host)) return (prefix >= 96 ? prefix - 96 : prefix) <= 32;
+    return true;
+  }
+  return ipv4Fits(host) && prefix <= 32;
+}
+
+function isIpv4Mapped(value) {
+  const halves = value.split('::');
+  if (halves.length > 2) return false;
+  const expand = (text) => {
+    if (!text) return [];
+    const out = [];
+    for (const group of text.split(':')) {
+      if (group.includes('.')) {
+        const parts = group.split('.');
+        if (parts.length !== 4 || !parts.every((part) => ipv4Octet(part))) return null;
+        const numbers = parts.map(Number);
+        out.push((numbers[0] << 8) | numbers[1], (numbers[2] << 8) | numbers[3]);
+      } else if (!/^[0-9a-fA-F]{1,4}$/.test(group)) return null;
+      else out.push(parseInt(group, 16));
+    }
+    return out;
+  };
+  const left = expand(halves[0]);
+  const right = halves.length === 2 ? expand(halves[1]) : [];
+  if (!left || !right) return false;
+  let hextets = left;
+  if (halves.length === 2) {
+    const missing = 8 - left.length - right.length;
+    if (missing < 1) return false;
+    hextets = left.concat(Array(missing).fill(0), right);
+  }
+  return hextets.length === 8 && hextets[0] === 0 && hextets[1] === 0 && hextets[2] === 0 && hextets[3] === 0 && hextets[4] === 0 && hextets[5] === 0xffff;
+}
+
 function ipv6Fits(value) {
+  let text = String(value).trim();
+  if (text.startsWith('[') && text.endsWith(']')) text = text.slice(1, -1);
+  const zoneAt = text.indexOf('%');
+  if (zoneAt >= 0) {
+    const id = text.slice(zoneAt + 1);
+    if (!id || !/^[A-Za-z0-9._:-]+$/.test(id)) return false;
+    text = text.slice(0, zoneAt);
+  }
+  value = text;
   if (!value.includes(':') || value.includes('%')) return false;
   const halves = value.split('::');
   if (halves.length > 2) return false;
@@ -305,11 +511,19 @@ function ipv6Fits(value) {
   return halves.length === 2 ? count < 8 : count === 8;
 }
 
+function wholeFits(value) {
+  const text = String(value).trim();
+  if (!/^[+-]?\d+$/.test(text)) return false;
+  const number = Number(text);
+  return Number.isSafeInteger(number);
+}
+
 export function valueFits(type, value) {
   if (type === 'date') return dateFits(value);
-  if (type === 'number' || type === 'wholenumber') return value !== '' && !Number.isNaN(Number(value));
-  if (type === 'boolean') return value === 'true' || value === 'false';
-  if (type === 'ip') return ipv4Fits(value) || ipv6Fits(value);
+  if (type === 'wholenumber') return wholeFits(value);
+  if (type === 'number') return value !== '' && !Number.isNaN(Number(value));
+  if (type === 'boolean') return /^true$/i.test(value) || /^false$/i.test(value);
+  if (type === 'ip') return ipv4Fits(value) || ipv6Fits(value) || cidrFits(value);
   return true;
 }
 

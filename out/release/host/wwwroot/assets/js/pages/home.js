@@ -1,5 +1,6 @@
+import { showAllAlerts } from '../home-role.js?v=shell462';
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell454';
+import { requireUserDataKey } from '../data-key.js?v=shell463';
 
 let status = null;
 let shareTimer = null;
@@ -40,7 +41,7 @@ export async function mount(el, ctx) {
   const pluginsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), h('div', { class: 'muted' }, 'Loading…'));
   const cveCard = h('div', { class: 'card' }, cveHeader('Top CVEs', 'https://radar.cloudflare.com/zero-wire/cves'), h('div', { class: 'muted' }, 'Loading…'));
   const highCard = h('div', { class: 'card' }, cveHeader('High & Critical', 'https://radar.cloudflare.com/zero-wire/cves'), h('div', { class: 'muted' }, 'Loading…'));
-  const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), ctx.hasRole('Admin', 'Analyst') ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
+  const alertsCard = h('div', { class: 'card' }, h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), showAllAlerts(ctx.user?.roles) ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null), h('div', { class: 'muted' }, 'Loading…'));
   const newsCard = h('div', { class: 'card' }, newsHeader(), h('div', { class: 'muted' }, 'Loading…'));
   const sharesCard = h('div', { class: 'card share-panel', hidden: true });
   el.append(greeting, statusGrid, h('div', { class: 'grid cols-2' }, pluginsCard, alertsCard), h('div', { class: 'grid cols-2' }, cveCard, highCard), newsCard, sharesCard);
@@ -52,7 +53,7 @@ export async function mount(el, ctx) {
   const cachedShares = homeRead('shares');
   if (cachedStatus) paintStatus(statusGrid, cachedStatus);
   if (cachedPlugins) paintPlugins(pluginsCard, cachedPlugins.plugins, cachedPlugins.admin, cachedStatus);
-  if (cachedAlerts) paintAlerts(alertsCard, cachedAlerts);
+  if (cachedAlerts) paintAlerts(alertsCard, cachedAlerts, showAllAlerts(ctx.user?.roles));
   else if (!ctx.hasRole('Admin', 'Analyst')) alertsCard.lastChild.replaceWith(empty('No alerts.', 'bell'));
   if (cachedCves) paintCves(cveCard, highCard, cachedCves);
   if (cachedNews) paintNews(newsCard, cachedNews);
@@ -254,9 +255,9 @@ async function ownerText(cipher, userId) {
 
 function ensureCrypto() {
   if (!cryptoReady) {
-    cryptoReady = loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3')
+    cryptoReady = loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto4')
       .then(() => window.VulpesCrypto.ready())
-      .then(() => loadScript('/assets/js/udk.js?v=udk6'))
+      .then(() => loadScript('/assets/js/udk.js?v=udk7'))
       .then(() => window.SecretUdk.ready())
       .catch((err) => {
         cryptoReady = null;
@@ -284,9 +285,9 @@ async function openCollect(ctx, card, item) {
   const note = card.querySelector('.share-error') || h('div', { class: 'alert danger share-error' });
   note.textContent = '';
   try {
-    await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3');
+    await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto4');
     await window.VulpesCrypto.ready();
-    await loadScript('/assets/js/udk.js?v=udk6');
+    await loadScript('/assets/js/udk.js?v=udk7');
     await window.SecretUdk.ready();
     const udk = await requireUserDataKey();
     const pack = await ctx.api.get(`/api/plugins/secret-sharing/collects/${encodeURIComponent(item.id)}/owner-key`);
@@ -467,9 +468,9 @@ function paintPlugins(card, plugins, adminPlugins, snapshot) {
   card.replaceChildren(h('div', { class: 'card-header' }, h('h2', null, 'Plugins')), rows.length === 0 ? empty('No plugins installed.', 'plug') : h('div', { class: 'col' }, rows));
 }
 
-function paintAlerts(card, alerts) {
+function paintAlerts(card, alerts, showAll) {
   card.replaceChildren(
-    h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts')),
+    h('div', { class: 'card-header' }, h('h2', null, 'Recent alerts'), showAll ? h('a', { class: 'btn sm', href: '/alerts' }, 'All alerts') : null),
     !alerts?.items?.length ? empty('No alerts yet.', 'bell')
       : h('div', { class: 'col' }, alerts.items.map((item) => h('div', { class: 'flex between' },
         h('div', { class: 'grow' }, h('div', { class: 'truncate' }, badge(item.severity, severityKind(item.severity)), ' ', item.summary), h('div', { class: 'small muted' }, `${item.ruleName} · ${fmt.relative(item.createdAt)}${item.count > 1 ? ` · ×${item.count}` : ''}`)),
@@ -537,7 +538,7 @@ async function loadAlerts(ctx, card, gen) {
     if (gen !== generation) return;
     if (homeSame(homeRead('alerts'), data)) return;
     homeWrite('alerts', data);
-    paintAlerts(card, data);
+    paintAlerts(card, data, true);
   } catch (err) {
     if (gen !== generation || homeRead('alerts')) return;
     card.lastChild.replaceWith(h('div', { class: 'alert danger' }, errorMessage(err)));

@@ -1,7 +1,8 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
+import { canonicalShellPath } from './shell-path.js?v=shell461';
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
 import { navLinkActive, secretsEntry } from './nav-active.js?v=shell454';
-import { confirmIdentity } from './reauth.js?v=shell454';
+import { confirmIdentity } from './reauth.js?v=shell463';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
 import './pwa.js?v=shell388';
 
@@ -11,12 +12,12 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell454'),
-  '/account': () => import('./pages/account.js?v=shell454'),
-  '/alerts': () => import('./pages/alerts.js?v=shell447'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell454'),
-  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell456'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell457'),
+  '/': () => import('./pages/home.js?v=shell463'),
+  '/account': () => import('./pages/account.js?v=shell463'),
+  '/alerts': () => import('./pages/alerts.js?v=shell463'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell463'),
+  '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell463'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell463'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
@@ -324,7 +325,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   if (stale()) return;
 
   if (page === 'permissions') {
-    const mod = await import(`./pages/permissions.js?v=shell457`);
+    const mod = await import(`./pages/permissions.js?v=shell460`);
     if (stale()) return;
     await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
     return;
@@ -344,7 +345,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell457`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell462`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
@@ -357,6 +358,11 @@ async function route() {
     history.replaceState(null, '', location.hash.slice(1));
   }
   let { path, query } = parseLocation();
+  const canonical = canonicalShellPath(path);
+  if (canonical !== path) {
+    path = canonical;
+    history.replaceState(null, '', path + location.search + location.hash);
+  }
   if (path === '/admin/tenants') {
     const clients = (state.nav?.sections || []).flatMap((section) => section.items).find((item) => item.pluginId === 'microsoft-365-audit' && item.page === 'clients');
     history.replaceState(null, '', clients?.href || '/');

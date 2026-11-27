@@ -109,6 +109,33 @@ public sealed class CollectUploadGateTests : IDisposable
     }
 
     [Fact]
+    public async Task A_broken_forwarded_port_keeps_the_proxy_lockout()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "broken-port.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var proxy = IPAddress.Parse("192.0.2.10");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(proxy.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: proxy, scan: scan, forwardedFor: "203.0.113.50:80a", knownProxy: proxy);
+        var quoted = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: proxy, scan: scan, forwardedFor: "203.0.113.50\"", knownProxy: proxy);
+        Assert.False(quoted.Consumed);
+        var doubled = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: proxy, scan: scan, forwardedFor: "\"\"203.0.113.50\"\"", knownProxy: proxy);
+        Assert.False(doubled.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, doubled.MaxRequestBodySize);
+        Assert.False(locked.Consumed);
+        var spaced = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: proxy, scan: scan, forwardedFor: "203.0.113.50 ", knownProxy: proxy);
+        Assert.False(spaced.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, PowClock.Stamp(DateTimeOffset.UtcNow)));
+    }
+
+    [Fact]
     public async Task Two_trusted_proxies_use_the_single_forwarded_hop_for_the_lockout()
     {
         var database = new ShareDatabase(Path.Combine(_dir, "two-proxy.db"));

@@ -91,6 +91,22 @@ public sealed class ProofOfWorkTests : IDisposable
     }
 
     [Fact]
+    public void Parallel_failures_cannot_all_pass_the_budget()
+    {
+        var guard = new ShareScanGuard(_db);
+        var accepted = 0;
+        Parallel.For(0, 20, _unused =>
+        {
+            if (guard.RecordFailureWithinBudget("203.0.113.77", out _))
+            {
+                Interlocked.Increment(ref accepted);
+            }
+        });
+        Assert.Equal(ShareScanGuard.MaxFailuresInWindow, accepted);
+        Assert.True(guard.IsFailureBudgetExceeded("203.0.113.77", out _));
+    }
+
+    [Fact]
     public void Leading_zero_bits_match_the_high_bits_only()
     {
         Assert.True(PowService.HasLeadingZeroBits([0x00, 0xFF], 8));

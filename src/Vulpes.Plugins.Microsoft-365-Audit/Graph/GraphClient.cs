@@ -467,9 +467,10 @@ public sealed class GraphClient : IDisposable
                 next = ValidateNextLink(link.GetString());
                 if (next is null)
                 {
-                    // The property is present, so this is not the last page. Leave the resume URL on
-                    // this page and report the window unfinished instead of skipping the rest.
+                    // A nextLink that leaves Graph is not a page to resume. Keeping this page's URL
+                    // would fetch it again on every run.
                     complete = false;
+                    onResume?.Invoke(null);
                     break;
                 }
             }

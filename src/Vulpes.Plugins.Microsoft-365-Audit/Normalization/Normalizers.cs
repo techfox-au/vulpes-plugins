@@ -127,7 +127,7 @@ public static class Normalizers
             Severity = SeverityForDirectory(activity),
             UserId = user?.Str("id"),
             UserName = user?.Str("userPrincipalName"),
-            UserEmail = user?.Str("userPrincipalName"),
+            UserEmail = user?.Str("userPrincipalName") is { } upn && upn.Contains('@', StringComparison.Ordinal) ? upn : null,
             SourceIp = user?.Str("ipAddress"),
             ClientAppId = app?.Str("appId") ?? app?.Str("servicePrincipalId"),
             ClientAppName = app?.Str("displayName"),
@@ -630,6 +630,7 @@ public static class Normalizers
         }
 
         if (resultStatus.StartsWith("Succe", StringComparison.OrdinalIgnoreCase)
+            || resultStatus.Equals("PartiallySucceeded", StringComparison.OrdinalIgnoreCase)
             || resultStatus.Equals("True", StringComparison.OrdinalIgnoreCase))
         {
             return "success";

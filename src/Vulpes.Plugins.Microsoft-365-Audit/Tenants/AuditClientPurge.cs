@@ -23,6 +23,13 @@ public static class AuditClientPurge
 
         try
         {
+            // Watermarks go first. If this save fails, the stored logs are still there to read again.
+            var checkpoints = await db.Checkpoints.Where(c => c.TenantId == tenant.Id).ToListAsync(cancellationToken);
+            db.Checkpoints.RemoveRange(checkpoints);
+            var runs = await db.RunLog.Where(r => r.TenantId == tenant.Id).ToListAsync(cancellationToken);
+            db.RunLog.RemoveRange(runs);
+            await db.SaveChangesAsync(cancellationToken);
+
             long deleted;
             try
             {
@@ -37,11 +44,6 @@ public static class AuditClientPurge
                 throw new ClientUnavailableException("search_unavailable", "Elasticsearch could not delete the stored logs.");
             }
 
-            var checkpoints = await db.Checkpoints.Where(c => c.TenantId == tenant.Id).ToListAsync(cancellationToken);
-            db.Checkpoints.RemoveRange(checkpoints);
-            var runs = await db.RunLog.Where(r => r.TenantId == tenant.Id).ToListAsync(cancellationToken);
-            db.RunLog.RemoveRange(runs);
-            await db.SaveChangesAsync(cancellationToken);
             return deleted;
         }
         finally

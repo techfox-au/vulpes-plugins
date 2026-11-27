@@ -199,7 +199,9 @@ public sealed class AuditApiTests : IDisposable
         var ids = nav.GetProperty("sections").EnumerateArray().SelectMany(s => s.GetProperty("items").EnumerateArray()).Select(i => i.GetProperty("id").GetString()).ToList();
         Assert.Contains("microsoft-365-audit:overview", ids);
         Assert.Contains("microsoft-365-audit:permissions", ids);
-        Assert.Contains("admin-tenants", ids);
+        Assert.Contains("microsoft-365-audit:clients", ids);
+        Assert.Contains("microsoft-365-audit:settings", ids);
+        Assert.DoesNotContain("admin-tenants", ids);
         Assert.DoesNotContain("microsoft-365-audit:tenants", ids);
 
         var sources = await admin.JsonAsync(HttpMethod.Get, "/api/plugins/microsoft-365-audit/sources");

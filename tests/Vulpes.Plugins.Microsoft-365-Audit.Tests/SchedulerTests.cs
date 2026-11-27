@@ -214,6 +214,50 @@ public sealed class SchedulerTests : IDisposable
         Assert.Equal(0, indexed);
     }
 
+    [Fact]
+    public async Task A_directory_failure_does_not_use_up_the_startup_secure_score_run()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var directory = new OnceThrowingDirectory();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDbContext<AuditDbContext>(o => o.UseSqlite(connection));
+        services.AddSingleton<ITenantDirectory>(directory);
+        await using var provider = services.BuildServiceProvider();
+        using (var scope = provider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            db.Database.EnsureCreated();
+            var tenant = TestContext.Tenant;
+            db.Tenants.Add(new Tenant { Id = tenant.Id, DisplayName = "Contoso", TenantId = tenant.TenantId, ClientId = tenant.ClientId, ProtectedSecret = new FakeProtector().Protect("s") });
+            db.Checkpoints.Add(new Checkpoint { TenantId = tenant.Id, Source = Sources.SecureScore, NextRunAt = _time.GetUtcNow().AddDays(2) });
+            db.SaveChanges();
+        }
+
+        var scheduler = new CollectionScheduler(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            [new ScriptedCollector { Source = Sources.SecureScore }],
+            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, _time),
+            _pipeline,
+            new ReadyStore(),
+            new AuditOptions(),
+            _time,
+            NullLogger<CollectionScheduler>.Instance);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scheduler.DueJobsAsync(CancellationToken.None));
+        var due = await scheduler.DueJobsAsync(CancellationToken.None);
+        Assert.Contains(due, job => job.Source == Sources.SecureScore);
+    }
+
+    [Fact]
+    public void The_run_budget_is_the_time_left_until_the_deadline()
+    {
+        var started = new DateTimeOffset(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);
+        var deadline = started.AddMinutes(1);
+        Assert.Equal(TimeSpan.FromSeconds(15), CollectionScheduler.BudgetRemaining(deadline, started.AddSeconds(45)));
+        Assert.Equal(TimeSpan.Zero, CollectionScheduler.BudgetRemaining(deadline, started.AddMinutes(2)));
+    }
+
     public void Dispose()
     {
         _provider.Dispose();
@@ -228,6 +272,23 @@ public sealed class SchedulerTests : IDisposable
         public IReadOnlyList<string> RequiredPermissions => [];
         public string ProbePath => string.Empty;
         public Task<CollectorResult> CollectAsync(CollectorContext context, CancellationToken cancellationToken) => Task.FromResult(Behaviour(context));
+    }
+
+    private sealed class OnceThrowingDirectory : ITenantDirectory
+    {
+        private int _calls;
+
+        public Task<IReadOnlyList<ManagedTenant>> ListAsync(CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                throw new InvalidOperationException("directory down");
+            }
+
+            return Task.FromResult<IReadOnlyList<ManagedTenant>>([]);
+        }
+
+        public Task SetDiscoveredNameAsync(Guid id, string? name, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class NoHttp : IHttpClientFactory

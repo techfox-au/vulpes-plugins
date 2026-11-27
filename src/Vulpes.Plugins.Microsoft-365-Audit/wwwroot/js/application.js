@@ -47,9 +47,9 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
         eyeLabel(true);
         return;
       }
-      const hidden = field.type === 'text';
-      field.type = hidden ? 'password' : 'text';
-      eyeLabel(hidden);
+      const showing = field.type !== 'text';
+      field.type = showing ? 'text' : 'password';
+      eyeLabel(showing);
     });
     const payload = () => {
       if (field.readOnly) return { secret: '', remove: false };

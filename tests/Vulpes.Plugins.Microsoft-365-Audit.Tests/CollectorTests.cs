@@ -177,6 +177,43 @@ public sealed class CollectorTests
     }
 
     [Fact]
+    public async Task A_rejected_floor_equal_to_the_request_stays_on_that_day()
+    {
+        var accepted = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2026, 11, 9, 18, 0, 0, TimeSpan.Zero);
+        var time = new FakeTimeProvider(now);
+        var calls = new List<DateTimeOffset>();
+        var handler = new RoutedGraphHandler().Get(p => p.Contains("directoryAudits", StringComparison.Ordinal), r =>
+        {
+            var url = Uri.UnescapeDataString(r.RequestUri!.PathAndQuery);
+            var marker = "activityDateTime ge ";
+            var at = url.IndexOf(marker, StringComparison.Ordinal);
+            var stamp = url[(at + marker.Length)..].Split('&')[0];
+            var sent = DateTimeOffset.Parse(stamp, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+            calls.Add(sent);
+            if (sent <= accepted)
+            {
+                return FakeGraphHandler.Json(new
+                {
+                    error = new
+                    {
+                        code = "UnknownError",
+                        message = "Specified argument was out of the range of valid values. (Parameter 'Minimum allowed time for activityDateTime is 10/15/2026 12:00:00\u202fAM')",
+                    },
+                }, HttpStatusCode.BadRequest);
+            }
+
+            return RoutedGraphHandler.Page([]);
+        });
+        var overlap = TimeSpan.FromMinutes(new AuditOptions().LogOverlapMinutes);
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "directory", Watermark = accepted + overlap };
+        var result = await new DirectoryAuditsCollector().CollectAsync(TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, time: time), CancellationToken.None);
+        Assert.True(result.Complete);
+        Assert.Equal(accepted, calls[0]);
+        Assert.Equal(accepted.AddSeconds(1), calls[1]);
+    }
+
+    [Fact]
     public async Task Directory_audits_map_and_advance_watermark()
     {
         var handler = new RoutedGraphHandler().Get(p => p.Contains("directoryAudits", StringComparison.Ordinal), _ => RoutedGraphHandler.Page(

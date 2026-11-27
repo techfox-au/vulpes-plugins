@@ -1,8 +1,9 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js?v=shell195';
-import * as webauthn from './webauthn.js?v=shell454';
-import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell454';
+import * as webauthn from './webauthn.js?v=shell463';
+import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell463';
 import { VulpesPow } from './pow.js?v=pow4';
+import { safeReturnUrl } from './return-url.js?v=shell460';
 import './pwa.js?v=shell388';
 
 setRedirectOnUnauthorized(false);
@@ -11,11 +12,6 @@ const $ = (id) => document.getElementById(id);
 const errorBox = $('error');
 const params = new URLSearchParams(location.search);
 const returnUrl = safeReturnUrl(params.get('returnUrl'));
-
-function safeReturnUrl(url) {
-  if (!url || !url.startsWith('/') || url.startsWith('//') || url.startsWith('/\\')) return '/';
-  return url;
-}
 
 function showError(message) {
   if (!message) { errorBox.classList.add('hidden'); return; }

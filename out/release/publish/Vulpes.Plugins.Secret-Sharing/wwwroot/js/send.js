@@ -59,7 +59,7 @@ export async function mount(el, ctx) {
     maxWrap.hidden = !multi;
     if (!multi) max.value = '';
   });
-  max.addEventListener('input', () => { max.value = max.value.replace(/\D/g, ''); });
+  max.addEventListener('input', () => { const whole = /^\d+/.exec(max.value); max.value = whole ? whole[0] : ''; });
   password.addEventListener('input', () => {
     confirmWrap.hidden = password.value.length === 0;
     if (!password.value) confirm.value = '';

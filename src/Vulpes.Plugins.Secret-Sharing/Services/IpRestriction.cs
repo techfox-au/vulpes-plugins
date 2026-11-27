@@ -202,9 +202,27 @@ public static class IpRestriction
         ip = IPAddress.None;
         error = null;
 
+        if (host.Contains("]:", StringComparison.Ordinal))
+        {
+            error = "Invalid IP address.";
+            return false;
+        }
+
+        if (host.Length >= 2 && host[0] == '[' && host[^1] == ']')
+        {
+            host = host[1..^1];
+        }
+
         if (!IPAddress.TryParse(host, out var parsed) || parsed is null)
         {
             error = "Invalid IP address.";
+            return false;
+        }
+
+        var colon = host.LastIndexOf(':');
+        if (colon >= 0 && host.IndexOf('.', colon + 1) >= 0 && !CanonicalDottedText(host[(colon + 1)..]))
+        {
+            error = "Invalid IPv4 address (use dotted decimal, e.g. 192.168.1.1).";
             return false;
         }
 
@@ -234,6 +252,27 @@ public static class IpRestriction
         }
 
         ip = parsed;
+        return true;
+    }
+
+    private static bool CanonicalDottedText(string tail)
+    {
+        var parts = tail.Split('.');
+        if (parts.Length != 4)
+        {
+            return false;
+        }
+
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out var n)
+                || n < 0 || n > 255
+                || part != n.ToString(CultureInfo.InvariantCulture))
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 

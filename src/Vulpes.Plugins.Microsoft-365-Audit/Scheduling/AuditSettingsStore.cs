@@ -121,7 +121,7 @@ public sealed class AuditSettingsStore
         }
 
         var recordTypes = (input.PurviewRecordTypes ?? []).Select(s => s.Trim()).Where(s => s.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-        if (recordTypes.Count == 0 || recordTypes.Any(s => s.Length > 80 || s.Any(c => !char.IsLetterOrDigit(c))))
+        if (recordTypes.Count == 0 || recordTypes.Any(s => s.Length > 64 || s.Any(c => !char.IsAsciiLetterOrDigit(c))))
         {
             return "Activity record types must be a list of names.";
         }

@@ -16,6 +16,14 @@ public sealed class CollectRetrieveIpTests : IDisposable
         Assert.Null(store.CollectRetrieveAllowedIps());
         Assert.True(IpRestriction.IsClientAllowed(store.CollectRetrieveAllowedIps(), IPAddress.Parse("203.0.113.8")));
 
+        Assert.False(IpRestriction.TryNormalize("[2001:db8::1]:443", out _, out _));
+        Assert.False(IpRestriction.TryNormalize("[::1]:443", out _, out _));
+        Assert.False(IpRestriction.TryNormalize("2001:db8::192.0.2.01", out _, out _));
+        Assert.False(IpRestriction.TryNormalize("2001:db8::192.0.2.08", out _, out _));
+        Assert.True(IpRestriction.TryNormalize("2001:db8::192.0.2.1", out var dotted, out _));
+        Assert.Equal("2001:db8::c000:201", dotted);
+        Assert.True(IpRestriction.TryNormalize("[2001:db8::192.0.2.1]", out var bracketed, out _));
+        Assert.Equal("2001:db8::c000:201", bracketed);
         Assert.True(IpRestriction.TryNormalize("203.0.113.0/24, 2001:db8::1", out var canonical, out var error));
         Assert.Null(error);
         store.SaveCollectRetrieveAllowedIps(canonical);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const { valueFits, customDayBounds, filterOperators } = await import('../../src/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/common.js');
+const { valueFits, valueFitsOperator, customDayBounds, filterOperators } = await import('../../src/Vulpes.Plugins.Microsoft-365-Audit/wwwroot/js/common.js');
 
 test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '2026'), false);
@@ -342,6 +342,14 @@ test('filter values match dates and addresses the search will accept', () => {
   assert.equal(valueFits('date', '15:00 11/2026'), true);
   assert.equal(valueFits('date', 'November 2026 3 PM'), true);
   assert.equal(valueFits('date', 'November 2026 -05:00'), false);
+  assert.equal(valueFits('date', '11-2026 -5'), true);
+  assert.equal(valueFits('date', '2026/11 -5'), true);
+  assert.equal(valueFits('date', 'Nov 13-6'), true);
+  assert.equal(valueFits('date', '2026-11 3'), true);
+  assert.equal(valueFits('date', '11/13/26Z'), false);
+  assert.equal(valueFitsOperator('ip', 'gt', '192.0.2.0/24'), false);
+  assert.equal(valueFitsOperator('ip', 'equals', '192.0.2.0/24'), true);
+  assert.equal(valueFitsOperator('ip', 'gt', '192.0.2.10'), true);
   assert.equal(valueFits('date', 'November 2026 +10:00'), true);
   assert.equal(filterOperators('ip').some(([op]) => op === 'gt'), true);
   assert.equal(filterOperators('date').some(([op]) => op === 'notEquals'), true);

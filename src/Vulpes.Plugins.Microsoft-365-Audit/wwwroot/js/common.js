@@ -303,16 +303,18 @@ function normalizeDateText(value) {
   // A leading hyphen is a date separator (2026-11). Only a plus, Z, or GMT is glued on.
   // 1/1/06+10:00 has no month word or four-digit year, so the host allows that plus only after whitespace.
   const glued = new RegExp(String.raw`^(.*\d)\s*([zZ]|GMT|\+\d{1,2}(?::\d{1,2}(?::\d{1,2})?|\d{2,4})?)$`, 'i').exec(text);
-  const shortNumericPlus = /^(?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*,?\s+)?\d{1,2}[/-]\d{1,2}[/-]\d{2}\+/i.test(text);
-  if (glued && zoneFits(glued[2]) && !shortNumericPlus) text = `${glued[1]} ${glued[2]}`;
+  const shortNumericZone = /^(?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*,?\s+)?\d{1,2}[/-]\d{1,2}[/-]\d{2}(?:\+|[zZ]|GMT)/i.test(text);
+  if (glued && zoneFits(glued[2]) && !shortNumericZone) text = `${glued[1]} ${glued[2]}`;
   // -5, -5:00, -05:00, and -0500 on a finished date are offsets. A hyphen inside 2026-11-13, or the year in 11-13-1400, stays put.
   // 1/1/06-5 and 1/1/06-05:00 keep the hyphen. A two-digit numeric date does not take a one-digit hour or a glued colon offset. 1/1/06-0500 still splits.
   const minus = /^(.*\d)-(\d{1,2}:\d{1,2}|\d{4}|\d)$/.exec(text);
   const shortNumericDate = minus && /^(?:(?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?)(?:\.,?\s*|,\s*|\s+))?\d{1,2}[/-]\d{1,2}[/-]\d{2}$/i.test(minus[1]);
   const oneDigitHour = !!(minus && /^\d$/.test(minus[2]));
   const namedOrFourDigit = !!(minus && (/[A-Za-z]/.test(minus[1]) || /\d{4}/.test(minus[1])));
+  const monthDayYear = !!(minus && /^(?:[A-Za-z]+\.?\s+\d{1,2}|\d{1,2}\s+[A-Za-z]+\.?)$/.test(minus[1]) && !minus[2].includes(':'));
   if (
     minus
+    && !monthDayYear
     && !(shortNumericDate && (minus[2].includes(':') || oneDigitHour))
     && !(oneDigitHour && (monthYearOnly(minus[1]) || !namedOrFourDigit))
     && zoneFits(`-${minus[2]}`)
@@ -482,6 +484,10 @@ function timedDay(year, month, day, separator, rest) {
 // Month and year is 00:00 on day 1. A numeric offset uses that midnight. GMT does not.
 function monthYearOffset(rest, year, month) {
   if (!rest) return month >= 1 && month <= 12;
+  const bareDay = /^\d{1,2}$/.exec(String(rest).trim());
+  if (bareDay) return calendarDay(year, month, Number(bareDay[0]));
+  const signedDay = /^-\d{1,2}$/.exec(String(rest).trim());
+  if (signedDay && !String(rest).includes(':')) return calendarDay(year, month, Math.abs(Number(signedDay[0])));
   if (!/^[+-]/.test(rest)) return null;
   if (month < 1 || month > 12) return false;
   return clockOrZone(rest, year, month, 1);
@@ -653,6 +659,12 @@ function dateFits(value) {
   if (dottedMonthDay && monthIndex(dottedMonthDay[1])) {
     return calendarDay(Number(dottedMonthDay[3]), monthIndex(dottedMonthDay[1]), Number(dottedMonthDay[2]));
   }
+  const monthDayHyphenYear = /^([A-Za-z]+\.?)\s+(\d{1,2})-(\d{1,4})$/.exec(value);
+  if (monthDayHyphenYear && monthIndex(monthDayHyphenYear[1])) {
+    let year = Number(monthDayHyphenYear[3]);
+    if (monthDayHyphenYear[3].length <= 2) year = year <= 29 ? 2000 + year : 1900 + year;
+    return calendarDay(year, monthIndex(monthDayHyphenYear[1]), Number(monthDayHyphenYear[2]));
+  }
   const monthDay = /^([A-Za-z]+\.?)\s+(\d{1,2})$/.exec(value);
   if (monthDay && monthIndex(monthDay[1])) {
     // The host fills the missing year from the clock and rejects 31 April.
@@ -773,11 +785,19 @@ function wholeFits(value) {
 }
 
 export function valueFits(type, value) {
+  return valueFitsOperator(type, '', value);
+}
+
+/** Greater-than and less-than compare addresses. A network is only valid for equals and is-one-of. */
+export function valueFitsOperator(type, op, value) {
   if (type === 'date') return dateFits(value);
   if (type === 'wholenumber') return wholeFits(value);
   if (type === 'number') return value !== '' && !Number.isNaN(Number(value));
   if (type === 'boolean') return /^true$/i.test(value) || /^false$/i.test(value);
-  if (type === 'ip') return ipv4Fits(value) || ipv6Fits(value) || cidrFits(value);
+  if (type === 'ip') {
+    if ((op === 'gt' || op === 'lt') && cidrFits(value)) return false;
+    return ipv4Fits(value) || ipv6Fits(value) || cidrFits(value);
+  }
   return true;
 }
 
@@ -999,7 +1019,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
       if (!operatorsFor(type, fieldSel.value).some(([value]) => value === op)) { ctx.ui.panelNote(box, 'That operator is not valid for this field.'); return false; }
       if (!op.endsWith('xists') && values.length === 0) { ctx.ui.panelNote(box, 'A value is required.'); valueInput.classList.add('invalid'); return false; }
       if (op === 'contains' && values.some((value) => value.length > 64)) { ctx.ui.panelNote(box, 'Contains filters are limited to 64 characters.'); valueInput.classList.add('invalid'); return false; }
-      if (values.some((value) => !valueFits(type, value))) { ctx.ui.panelNote(box, `Enter a valid ${type === 'wholenumber' ? 'number' : type}.`); valueInput.classList.add('invalid'); return false; }
+      if (values.some((value) => !valueFitsOperator(type, op, value))) { ctx.ui.panelNote(box, `Enter a valid ${type === 'wholenumber' ? 'number' : type}.`); valueInput.classList.add('invalid'); return false; }
       state.filters.push({ field: fieldSel.value, operator: op, values });
       reload();
       return true;

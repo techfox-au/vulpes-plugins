@@ -49,22 +49,32 @@ export function splitMailboxList(value) {
 function domainLabels(domain) {
   const bare = domain.endsWith('.') ? domain.slice(0, -1) : domain;
   if (!bare || bare.startsWith('.') || bare.endsWith('.') || bare.includes('..')) return false;
-  return bare.split('.').every((label) => /^[A-Za-z0-9_](?:[A-Za-z0-9_-]*[A-Za-z0-9_])?$/.test(label) || /^[A-Za-z0-9_]$/.test(label));
+  return bare.split('.').every((label) => label.length > 0 && !/\s/.test(label));
 }
 
-/** The same addresses MailAddress accepts for a single field: a trailing dot is kept, a semicolon is not. */
+function domainOrLiteral(domain) {
+  if (domain.startsWith('[') && domain.endsWith(']')) {
+    const inner = domain.slice(1, -1);
+    if (/^IPv6:/i.test(inner)) return inner.slice(5).includes(':');
+    return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(inner);
+  }
+  return domainLabels(domain);
+}
+
+/** The same addresses MailAddress accepts for one field, including a domain literal, a quoted local part, and non-ASCII text. */
 export function mailAddressShape(value) {
   const text = String(value ?? '').trim();
-  if (!text || text.length > 254 || /\s/.test(text)) return false;
-  const quoted = /^"(?:[^"\\]|\\.)+"@([^@]+)$/.exec(text);
-  if (quoted) return domainLabels(quoted[1]);
-  if (/[(),:;<>[\]\\]/.test(text)) return false;
+  if (!text || text.length > 254 || text.includes('\n') || text.includes('\r')) return false;
+  const quoted = /^"((?:[^"\\]|\\.)*)"@(\[[^\]]+\]|\S+)$/.exec(text);
+  if (quoted) return domainOrLiteral(quoted[2]);
+  if (/\s/.test(text) || /[(),:;<>\\]/.test(text)) return false;
   const at = text.indexOf('@');
   if (at <= 0 || at !== text.lastIndexOf('@') || at === text.length - 1) return false;
   const local = text.slice(0, at);
+  const domain = text.slice(at + 1);
   if (local.startsWith('.') || local.includes('..')) return false;
-  if (!/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) return false;
-  return domainLabels(text.slice(at + 1));
+  if (!domain.startsWith('[') && !/^[\p{L}\p{N}!#$%&'*+/=?^_`{|}~.-]+$/u.test(local)) return false;
+  return domainOrLiteral(domain);
 }
 
 function rawMailboxTokens(value) {

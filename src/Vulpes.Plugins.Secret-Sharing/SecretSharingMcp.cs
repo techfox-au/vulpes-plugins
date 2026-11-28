@@ -193,6 +193,11 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
         }
 
         var password = Optional(args, "password") ?? "";
+        if (password.Contains('\n') || password.Contains('\r') || (label != null && (label.Contains('\n') || label.Contains('\r'))))
+        {
+            throw new ArgumentException("A send name or link password cannot contain a line break.");
+        }
+
         if (password.Length > 256)
         {
             throw new ArgumentException("A link password must be 256 characters or fewer.");
@@ -413,6 +418,11 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
     private static int? Int(JsonElement args, string name)
     {
         if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Null)
         {
             return null;
         }

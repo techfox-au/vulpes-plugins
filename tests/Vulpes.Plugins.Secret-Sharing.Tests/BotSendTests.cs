@@ -211,11 +211,16 @@ public sealed class BotSendTests
             using var document = JsonDocument.Parse(open.StructuredJson!);
             var id = document.RootElement.GetProperty("id").GetString()!;
             Assert.Null(store.SendMeta(id)!.MaxAccessCount);
+            var explicitNull = await mcp.CallAsync("create_secret", Args("""{"text":"null cap","oneTime":false,"maxAccessCount":null,"disclosureAccepted":true}"""), caller, CancellationToken.None);
+            Assert.False(explicitNull.IsError, explicitNull.Text);
+            var broken = await mcp.CallAsync("create_secret", Args("""{"text":"break","password":"ab\ncd","disclosureAccepted":true}"""), caller, CancellationToken.None);
+            Assert.True(broken.IsError);
+            Assert.Contains("line break", broken.Text, StringComparison.Ordinal);
             var rejected = await mcp.CallAsync("create_secret", Args("""{"text":"nope","oneTime":false,"maxAccessCount":100001,"disclosureAccepted":true}"""), caller, CancellationToken.None);
             Assert.True(rejected.IsError);
             Assert.Contains("1 to 100000", rejected.Text, StringComparison.Ordinal);
             Assert.Null(store.SendMeta("missing"));
-            Assert.Single(store.List("bot:token-1"));
+            Assert.Equal(2, store.List("bot:token-1").Count);
         }
         finally
         {

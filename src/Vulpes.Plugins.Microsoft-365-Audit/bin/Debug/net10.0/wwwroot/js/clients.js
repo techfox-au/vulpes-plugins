@@ -64,7 +64,7 @@ async function editClient(ctx, existing) {
   const name = h('input', { class: 'input', value: existing?.displayName || '', required: true });
   const shortName = h('input', { class: 'input', value: existing?.shortName || '', maxlength: '16', spellcheck: false });
   const directory = h('input', { class: 'input', value: existing?.directoryId || '', spellcheck: false, readOnly: !!existing?.directoryId, placeholder: '00000000-0000-0000-0000-000000000000' });
-  const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled && !existing.disabled : true, disabled: !!existing?.disabled });
+  const enabled = h('input', { type: 'checkbox', checked: existing ? existing.enabled && !existing.disabled : false, disabled: !!existing?.disabled });
   const form = h('div', { class: 'col' },
     h('div', { class: 'field' }, h('label', null, 'Display name'), name),
     h('div', { class: 'field' }, h('label', null, 'Short name'), shortName),

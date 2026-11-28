@@ -152,6 +152,63 @@ test('client loads stay one list, and a failed purge remains after save', async 
   assert.equal(notes.at(-1), 'Client saved. Purge did not finish. Search is busy.');
 });
 
+test('a new client starts with collection off', async () => {
+  unmount();
+  const posts = [];
+  const listed = deferred();
+  const ui = {
+    h,
+    clear(node) { if (node) node.children = []; },
+    table() { return element('tbody'); },
+    badge: (text) => element('span', {}, [text]),
+    errorMessage: (err) => err.message || String(err),
+    pageNote() {},
+    panelNote(panel, message) { panel.notes.push(message); },
+    modal: {
+      show({ content, actions }) {
+        content.actions = actions;
+        form = content;
+        return new Promise((resolve) => { content.resolve = resolve; });
+      },
+    },
+  };
+  let form = null;
+  const root = element('div');
+  const ctx = {
+    setTitle() {},
+    plugin: { apiBase: '/api/plugins/microsoft-365-audit' },
+    api: {
+      get: () => listed.promise,
+      post: async (url, body) => {
+        posts.push({ url, body });
+        return { id: 'new-client' };
+      },
+      put: async () => ({}),
+    },
+    ui,
+  };
+  const mounted = mount(root, ctx);
+  listed.resolve(ready([]));
+  await mounted;
+  const adding = labeled(root, 'button', 'Add client')[0].listeners.click();
+  await Promise.resolve();
+  let box = null;
+  walk(form, (node) => {
+    if (node.tag !== 'label') return;
+    const named = (node.children || []).some((child) => child?.tag === 'span' && (child.children || []).includes('Collection enabled'));
+    if (named) box = (node.children || []).find((child) => child?.tag === 'input');
+  });
+  assert.equal(box.checked, false);
+  const inputs = [];
+  walk(form, (node) => { if (node.tag === 'input' && node.props.type !== 'checkbox') inputs.push(node); });
+  inputs[0].value = 'Northwind';
+  inputs[2].value = '22222222-2222-2222-2222-222222222222';
+  await form.actions.find((action) => action.label === 'Add').onClick();
+  assert.equal(posts[0].body.enabled, false);
+  form.resolve(true);
+  await adding;
+});
+
 test('a failed mirror keeps later edits on the next add', async () => {
   unmount();
   const notes = [];

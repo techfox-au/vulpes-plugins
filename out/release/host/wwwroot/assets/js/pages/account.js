@@ -1,11 +1,19 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
-import * as webauthn from '../webauthn.js?v=shell468';
-import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, mintPasskeyKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell468';
+import * as webauthn from '../webauthn.js?v=shell469';
+import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, mintPasskeyKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell469';
 import { confirmIdentity as reauth } from '../reauth.js?v=shell463';
 
 let root;
 let flash;
+
+/** The only encryption wrap cannot be removed, even while a temporary password can still sign in. */
+export function passkeyRemovalBlocked({ passkeyId, wraps, passkeyCount, passwordActive }) {
+  const list = Array.isArray(wraps) ? wraps : [];
+  const onlyKey = list.length === 1 && list[0].kind === 'passkey' && list[0].credentialId === passkeyId;
+  const lastWayIn = passkeyCount === 1 && !passwordActive;
+  return { blocked: onlyKey || lastWayIn, onlyKey, lastWayIn };
+}
 
 export async function mount(el, ctx) {
   root = el;
@@ -190,10 +198,10 @@ async function render(ctx) {
       { title: 'Backed up', render: (p) => badge(p.isBackedUp ? 'synced' : 'device-bound', p.isBackedUp ? 'info' : '') },
       { title: '', class: 'right', render: (p) => {
         const passwordActive = me.passwordSet && me.userPasswordLoginEnabled && me.passwordLoginAvailable && (passwordWrapped || me.mustChangePassword || !passkeyWrapped);
-        const lastWayIn = passkeys.length === 1 && !passwordActive;
+        const removal = passkeyRemovalBlocked({ passkeyId: p.id, wraps, passkeyCount: passkeys.length, passwordActive });
         return h('div', { class: 'btn-group' },
           h('button', { class: 'btn sm', onClick: () => rename(ctx, p) }, 'Rename'),
-          h('button', { class: 'btn sm danger', disabled: lastWayIn, title: lastWayIn ? 'Add another passkey or a password first.' : '', onClick: () => remove(ctx, p) }, 'Remove'));
+          h('button', { class: 'btn sm danger', disabled: removal.blocked, title: removal.onlyKey ? 'This passkey holds the only copy of the encryption key.' : (removal.lastWayIn ? 'Add another passkey or a password first.' : ''), onClick: () => remove(ctx, p) }, 'Remove'));
       } },
     ],
     rows: passkeys,

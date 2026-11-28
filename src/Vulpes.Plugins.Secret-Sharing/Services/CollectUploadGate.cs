@@ -199,8 +199,12 @@ public sealed class CollectUploadGate : IStartupFilter
             return true;
         }
 
-        return name.Length > MaxFilenameLength;
+        return FileNameText(name).Length > MaxFilenameLength;
     }
+
+    /// <summary>Removes characters that are whitespace for either the page or .NET, including a mark in the middle of the name.</summary>
+    internal static string FileNameText(string value) =>
+        value.Replace("\uFEFF", "", StringComparison.Ordinal).Replace("\u0085", "", StringComparison.Ordinal).Trim();
 
     private static bool TryDecodeFilename(string header, out string name)
     {
@@ -224,13 +228,15 @@ public sealed class CollectUploadGate : IStartupFilter
 
     private static bool IsCollectUpload(PathString path)
     {
-        var parts = Parts(path);
-        return parts.Length == 6
-            && parts[0].Equals("api", StringComparison.OrdinalIgnoreCase)
-            && parts[1].Equals("plugins", StringComparison.OrdinalIgnoreCase)
-            && parts[2].Equals("secret-sharing", StringComparison.OrdinalIgnoreCase)
-            && parts[3].Equals("public", StringComparison.OrdinalIgnoreCase)
-            && parts[4].Equals("collects", StringComparison.OrdinalIgnoreCase);
+        // Do not trim the id. A whitespace-only id is still the upload route, and an empty segment stays one too.
+        var parts = (path.Value ?? "").TrimEnd('/').Split('/');
+        return parts.Length >= 7
+            && parts[1].Equals("api", StringComparison.OrdinalIgnoreCase)
+            && parts[2].Equals("plugins", StringComparison.OrdinalIgnoreCase)
+            && parts[3].Equals("secret-sharing", StringComparison.OrdinalIgnoreCase)
+            && parts[4].Equals("public", StringComparison.OrdinalIgnoreCase)
+            && parts[5].Equals("collects", StringComparison.OrdinalIgnoreCase)
+            && parts.Skip(6).Any(part => part.Length > 0);
     }
 
     /// <summary>The id the route binds. A space stays. An empty segment, including a doubled slash, is not an id.</summary>
@@ -251,9 +257,10 @@ public sealed class CollectUploadGate : IStartupFilter
             }
         }
 
-        return Uri.UnescapeDataString(parts[6]);
+        // The path is already decoded once. A second unescape would turn abc%20 into "abc " and spend a different id's proof.
+        return parts[6];
     }
 
-    private static string[] Parts(PathString path) =>
-        (path.Value ?? "").Trim().TrimEnd('/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    /// <summary>A trailing slash is not the upload the handler should accept. The id segment itself can contain spaces.</summary>
+    internal static bool HandlerConsumesProof(PathString path) => !(path.Value ?? "").EndsWith('/');
 }

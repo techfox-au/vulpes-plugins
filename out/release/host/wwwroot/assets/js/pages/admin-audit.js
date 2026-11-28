@@ -1,5 +1,14 @@
 import { h, fmt, table, clear, errorMessage } from '../ui.js?v=shell104';
 
+export const auditActionLimit = 80;
+export const auditActorLimit = 256;
+
+export function auditFilterError(action, actor) {
+  if (String(action ?? '').trim().length > auditActionLimit) return 'Action prefix is too long.';
+  if (String(actor ?? '').trim().length > auditActorLimit) return 'Actor is too long.';
+  return '';
+}
+
 let root;
 let generation = 0;
 let renderToken = 0;
@@ -64,12 +73,18 @@ async function render(ctx, state) {
   clear(host);
   const filterAction = h('input', { class: 'input sm', placeholder: 'Action prefix (e.g. auth., user.)', value: state.action || '' });
   const filterActor = h('input', { class: 'input sm', placeholder: 'Actor', value: state.actor || '' });
+  const problem = auditFilterError(state.action, state.actor);
   const apply = () => render(ctx, { page: 1, action: filterAction.value.trim(), actor: filterActor.value.trim() });
   for (const i of [filterAction, filterActor]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); });
 
   // Host audit trail: admin and authentication events, not Microsoft 365 activity (docs/security.md).
   host.append(h('div', { class: 'page-header' }, h('h1', null, 'Audit trail'),
     h('div', { class: 'toolbar nowrap' }, filterAction, filterActor, h('button', { class: 'btn', onClick: apply }, 'Filter'))));
+
+  if (problem) {
+    host.append(h('div', { class: 'alert danger' }, problem));
+    return;
+  }
 
   try {
     const [data, owned] = await Promise.all([

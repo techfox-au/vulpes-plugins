@@ -821,7 +821,7 @@
           "build/net8.0/xunit.runner.visualstudio.props": {}
         }
       },
-      "Vulpes.Host/1.0.140": {
+      "Vulpes.Host/1.0.141": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
@@ -1843,7 +1843,7 @@
         "xunit.runner.visualstudio.nuspec"
       ]
     },
-    "Vulpes.Host/1.0.140": {
+    "Vulpes.Host/1.0.141": {
       "type": "project",
       "path": "../../../vulpes/src/Vulpes.Host/Vulpes.Host.csproj",
       "msbuildProject": "../../../vulpes/src/Vulpes.Host/Vulpes.Host.csproj"
@@ -1868,7 +1868,7 @@
     "net10.0": [
       "Microsoft.AspNetCore.Mvc.Testing >= 10.0.14",
       "Microsoft.NET.Test.Sdk >= 18.11.0",
-      "Vulpes.Host >= 1.0.140",
+      "Vulpes.Host >= 1.0.141",
       "Vulpes.PluginPacker >= 1.0.0",
       "Vulpes.Plugins.Secret-Sharing >= 1.0.52",
       "xunit >= 2.9.3",

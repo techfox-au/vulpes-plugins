@@ -1,7 +1,15 @@
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell409';
-import { confirmIdentity } from '../reauth.js?v=shell468';
+import { confirmIdentity } from '../reauth.js?v=shell469';
 
 let root;
+
+/** Revoke stays disabled when the passkey is the only sign-in method or the only encryption wrap. */
+export function passkeyRevokeBlocked(user, passkey, passkeyCount) {
+  const passwordActive = user?.passwordSet === true && user?.passwordLoginEnabled === true && user?.passwordLoginAvailable !== false;
+  const lastWayIn = passkeyCount === 1 && !passwordActive;
+  const onlyKey = passkey?.holdsOnlyKey === true;
+  return { blocked: lastWayIn || onlyKey, lastWayIn, onlyKey };
+}
 let generation = 0;
 let renderToken = 0;
 export async function mount(el, ctx) {
@@ -165,9 +173,10 @@ async function openUser(ctx, id, note) {
       { title: 'Added', render: (p) => fmt.date(p.createdAt) },
       { title: 'Transports', render: (p) => (p.transports || []).join(', ') },
       { title: '', class: 'right', render: (p) => {
-        const passwordActive = user.passwordSet && user.passwordLoginEnabled;
-        const lastWayIn = passkeys.length === 1 && !passwordActive;
-        return h('button', { class: 'btn sm danger', disabled: lastWayIn, title: lastWayIn ? 'This is the only way to sign in.' : '', onClick: async () => {
+        const blocked = passkeyRevokeBlocked(user, p, passkeys.length);
+        const onlyKey = blocked.onlyKey;
+        const lastWayIn = blocked.lastWayIn;
+        return h('button', { class: 'btn sm danger', disabled: lastWayIn || onlyKey, title: onlyKey ? 'This passkey holds the only copy of the encryption key.' : (lastWayIn ? 'This is the only way to sign in.' : ''), onClick: async () => {
         if (!(await modal.confirm('Revoke passkey', `Revoke "${p.name}"? The user's sessions are also revoked.`, { danger: true, confirmLabel: 'Revoke' }))) return;
         try { await ctx.api.delete(`/api/admin/users/${encodeURIComponent(id)}/passkeys/${encodeURIComponent(p.id)}`); openUser(ctx, id, { message: 'Passkey revoked.', kind: 'success' }); } catch (err) { panelNote(body, errorMessage(err)); }
       } }, 'Revoke'); } },

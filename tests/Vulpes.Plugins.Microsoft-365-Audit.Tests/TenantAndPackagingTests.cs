@@ -142,6 +142,18 @@ public sealed class TenantServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_new_client_syncs_with_collection_off()
+    {
+        var service = Service();
+        var id = Guid.NewGuid();
+        await service.SyncFromDirectoryAsync(
+            [new ManagedTenant(id, "Contoso", Guid.NewGuid().ToString(), false, null)],
+            new EntraApplicationCredential(Guid.NewGuid().ToString(), "secret", "Global", "secret", null, null),
+            CancellationToken.None);
+        Assert.False(Assert.Single(_db.Tenants).Enabled);
+    }
+
+    [Fact]
     public async Task A_disabled_client_syncs_with_collection_off()
     {
         var service = Service();

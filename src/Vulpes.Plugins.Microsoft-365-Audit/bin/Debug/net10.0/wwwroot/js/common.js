@@ -405,6 +405,13 @@ function calendarOf(value) {
     const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
     if (parts && clockOrZone(ahead[5], parts.year, parts.month, parts.day)) return parts;
   }
+  const bareMonthDay = /^([A-Za-z]+\.?)\s+(\d{1,2})$/.exec(text);
+  if (bareMonthDay && monthIndex(bareMonthDay[1])) {
+    const year = new Date().getFullYear();
+    const month = monthIndex(bareMonthDay[1]);
+    const day = Number(bareMonthDay[2]);
+    if (calendarDay(year, month, day)) return { year, month, day };
+  }
   const behind = /^(\d{1,2})(?:\s*\.\s*|,?\s+)([A-Za-z]+\.?)(?:,\s*|\s+|\s*\.\s*|-)(\d{1,4})(?:\s.*)?$/.exec(text);
   if (behind && monthIndex(behind[2])) {
     const parts = spacedParts(behind[1], behind[2], behind[3]);
@@ -496,6 +503,12 @@ function dateFits(value) {
     const fits = monthYearOffset(yearMonthSlash[3], Number(yearMonthSlash[1]), Number(yearMonthSlash[2]));
     if (fits !== null) return fits;
   }
+  const monthSlashYear = /^(\d{1,2})\/(\d{4})$/.exec(value);
+  if (monthSlashYear) {
+    const month = Number(monthSlashYear[1]);
+    const year = Number(monthSlashYear[2]);
+    return month >= 1 && month <= 12 && year >= 1 && year <= 9999;
+  }
   const monthDashYear = /^(\d{1,2})-(\d{4})(?:\s+(\S.*))?$/.exec(value);
   if (monthDashYear) {
     const fits = monthYearOffset(monthDashYear[3], Number(monthDashYear[2]), Number(monthDashYear[1]));
@@ -510,7 +523,8 @@ function dateFits(value) {
     // On a three-digit year the host accepts only "3 PM", not "3PM" or "15:00".
     const threeDigitYear = /^\d{3}(?!\d)\s+[A-Za-z]+\.?\s+\d{1,2}(?!\d)/.test(datePart);
     const bareMeridian = /^\d{1,2}\s+[ap]m$/i.test(clockText);
-    if (clockFits(clockText) && dateFits(datePart) && !(threeDigitYear && !bareMeridian)) {
+    // A clock on a yearless month and day is not a host date. Friday, November 13 still is.
+    if (clockFits(clockText) && dateFits(datePart) && !(threeDigitYear && !bareMeridian) && !/^([A-Za-z]+\.?)\s+\d{1,2}$/.test(datePart)) {
       const when = calendarOf(datePart);
       if (when && calendarDay(when.year, when.month, when.day)) return instantFits(when.year, when.month, when.day, clockText);
     }
@@ -600,16 +614,28 @@ function dateFits(value) {
   }
   const named = namedDay(value);
   if (named !== null) return named;
+  // "13 May" is 1 May 2013 on the host. "May 13" is that month and day. Both are dates there.
+  const bareYearMonth = /^(\d{1,4})\s+([A-Za-z]+\.?)$/.exec(value);
+  if (bareYearMonth && monthIndex(bareYearMonth[2])) {
+    const year = Number(bareYearMonth[1]);
+    return year >= 1 && year <= 9999;
+  }
+  const monthDay = /^([A-Za-z]+\.?)\s+(\d{1,2})$/.exec(value);
+  if (monthDay && monthIndex(monthDay[1])) {
+    // The host fills the missing year from the clock and rejects 31 April.
+    return calendarDay(new Date().getFullYear(), monthIndex(monthDay[1]), Number(monthDay[2]));
+  }
   const rfc = rfc1123(value);
   if (rfc !== null) return rfc;
-  // Fri., is the same abbreviation as Fri. One of . or , would leave the comma on the date.
-  const lead = /^((?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?))(?:\.,?\s*|,\s*|\s+)(.+)$/i.exec(value);
+  // Fri., is the same abbreviation as Fri before a named date. A dot before a numeric date is not a host date: Wed., 11/13/30.
+  const lead = /^((?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?))(\.,?\s*|,\s*|\s+)(.+)$/i.exec(value);
   if (lead) {
-    if (!dateFits(lead[2])) return false;
-    const found = calendarOf(lead[2]);
+    if (lead[2].includes('.') && /^\d{1,2}[/-]\d{1,2}[/-]\d{2}(?!\d)/.test(lead[3])) return false;
+    if (!dateFits(lead[3])) return false;
+    const found = calendarOf(lead[3]);
     if (!found || !calendarDay(found.year, found.month, found.day)) return false;
     const names = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
-    return names[lead[1].toLowerCase()] === datedWeekday(found.year, found.month, found.day, lead[2]);
+    return names[lead[1].toLowerCase()] === datedWeekday(found.year, found.month, found.day, lead[3]);
   }
   return false;
 }

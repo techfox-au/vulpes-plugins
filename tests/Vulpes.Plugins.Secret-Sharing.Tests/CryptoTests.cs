@@ -224,7 +224,13 @@ public sealed class IpRestrictionTests
     [Fact]
     public void Normalizes_and_matches_addresses_and_cidrs()
     {
-        Assert.True(IpRestriction.TryNormalize(" 203.0.113.10, 192.168.1.20/24 ", out var canonical, out var error));
+        Assert.True(IpRestriction.TryNormalize("192.0.2.1\u0085", out var canonical, out var error));
+        Assert.Equal("192.0.2.1", canonical);
+        Assert.True(IpRestriction.TryNormalize("\uFEFF192.0.2.1", out canonical, out error));
+        Assert.Equal("192.0.2.1", canonical);
+        Assert.True(IpRestriction.TryNormalize("\uFEFF", out canonical, out error));
+        Assert.Null(canonical);
+        Assert.True(IpRestriction.TryNormalize(" 203.0.113.10, 192.168.1.20/24 ", out canonical, out error));
         Assert.Null(error);
         Assert.Equal("203.0.113.10,192.168.1.0/24", canonical);
         Assert.True(IpRestriction.IsClientAllowed(canonical, System.Net.IPAddress.Parse("203.0.113.10")));

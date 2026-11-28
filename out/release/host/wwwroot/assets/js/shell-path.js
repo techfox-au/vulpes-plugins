@@ -1,6 +1,6 @@
 import { safeReturnUrl } from './return-url.js';
 
-const CORE_PATHS = new Set(['/', '/account', '/alerts', '/admin/users', '/admin/plugins', '/admin/settings', '/admin/audit', '/admin/console']);
+const CORE_PATHS = new Set(['/', '/account', '/alerts', '/admin/users', '/admin/plugins', '/admin/settings', '/admin/audit', '/admin/console', '/admin/tenants']);
 
 // Core pages are exact paths. A bookmark such as /#/alerts/ must not become a missing /alerts/.
 // The server matches /Alerts. The shell table is lowercase, so a core path is rewritten to that key.
@@ -11,6 +11,14 @@ export function canonicalShellPath(path) {
   const absolute = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   const lower = absolute.toLowerCase();
   return CORE_PATHS.has(lower) ? lower : absolute;
+}
+
+/** A click stays in the shell when the canonical path is a core page. /Alerts and /account/ are those pages. */
+export function isShellClick(path) {
+  const pathOnly = String(path || '').split('?')[0].split('#')[0];
+  const canonical = canonicalShellPath(pathOnly);
+  return canonical === '/' || canonical === '/account' || canonical === '/alerts'
+    || canonical.startsWith('/admin/') || pathOnly.startsWith('/p/');
 }
 
 // Old bookmarks used /#/alerts. #//host is another origin. A backslash is a slash here,

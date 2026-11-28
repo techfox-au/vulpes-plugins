@@ -1,6 +1,20 @@
 // DOM-building UI toolkit. Everything is created with createElement/textContent;
 // untrusted data is never interpolated into HTML strings.
 
+/** A form Save returns this while the submit listener is still running, so the button stays disabled. */
+export function modalActionStaysDisabled(result) {
+  return result === 'stay';
+}
+
+import { mailAddressShape } from './mailboxes.js';
+export { mailAddressShape };
+
+/** The top dialog. querySelector finds the first card, which is the one underneath. */
+export function activeModal(cards) {
+  const list = cards ? [...cards] : [];
+  return list.length ? list[list.length - 1] : null;
+}
+
 export function h(tag, props, ...children) {
   const el = document.createElement(tag);
   if (props) {
@@ -291,8 +305,8 @@ export const modal = {
               finish(false);
               throw err;
             }
-            if (result === false) {
-              finish(false);
+            if (result === false || modalActionStaysDisabled(result)) {
+              if (result === false) finish(false);
               return;
             }
           }
@@ -319,7 +333,7 @@ export const modal = {
   },
   confirm(title, message, { danger = false, confirmLabel = 'Confirm' } = {}) {
     const pending = modal.show({ title, content: h('p', null, message), actions: [{ label: 'Cancel', value: false }, { label: confirmLabel, kind: danger ? 'danger' : 'primary', value: true }] });
-    document.querySelector('.modal-card .btn.primary, .modal-card .btn.danger')?.focus();
+    activeModal(document.querySelectorAll('.modal-card'))?.querySelector('.btn.primary, .btn.danger')?.focus();
     return pending.then((v) => v === true);
   },
   /** Prompt with a form; `fields` = [{ name, label, type, value, options, help, required }]. Resolves to values or undefined. */
@@ -355,6 +369,10 @@ export const modal = {
         input.focus();
       };
       let closeFn;
+      const enableSave = () => {
+        const button = form.closest('.modal-card')?.querySelector('.modal-footer .btn.primary');
+        if (button) button.disabled = false;
+      };
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         for (const input of Object.values(inputs)) input.classList.remove('invalid');
@@ -363,6 +381,7 @@ export const modal = {
         for (const f of fields) {
           if (f.required && !String(values[f.name] ?? '').trim()) {
             showFieldError(f.name, `${f.label} is required.`);
+            enableSave();
             return;
           }
         }
@@ -370,9 +389,36 @@ export const modal = {
           if (f.type !== 'email') continue;
           const value = String(values[f.name] ?? '').trim();
           values[f.name] = value;
-          if (value && !inputs[f.name].checkValidity()) {
+          if (value && !mailAddressShape(value)) {
             showFieldError(f.name, 'Email is not a valid address.');
+            enableSave();
             return;
+          }
+        }
+        for (const f of fields) {
+          const value = String(values[f.name] ?? '').trim();
+          if (!value) continue;
+          if (f.type === 'number') {
+            const number = Number(value);
+            const min = f.min === undefined ? null : Number(f.min);
+            const max = f.max === undefined ? null : Number(f.max);
+            if (!Number.isFinite(number) || (min !== null && number < min) || (max !== null && number > max)) {
+              showFieldError(f.name, `${f.label} must be a number.`);
+              enableSave();
+              return;
+            }
+          }
+          if (f.type === 'date') {
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+            const year = match ? Number(match[1]) : 0;
+            const month = match ? Number(match[2]) : 0;
+            const day = match ? Number(match[3]) : 0;
+            const stamped = match ? new Date(Date.UTC(year, month - 1, day)) : null;
+            if (!stamped || stamped.getUTCFullYear() !== year || stamped.getUTCMonth() !== month - 1 || stamped.getUTCDate() !== day) {
+              showFieldError(f.name, `${f.label} must be a date.`);
+              enableSave();
+              return;
+            }
           }
         }
         if (onSubmit) {
@@ -380,6 +426,7 @@ export const modal = {
             const result = await onSubmit(values);
             closeFn(result === undefined ? values : result);
           } catch (err) {
+            enableSave();
             if (err?.code === 'reauth_cancelled') return;
             const message = errorMessage(err);
             const emailField = fields.find((f) => f.type === 'email');
@@ -390,8 +437,8 @@ export const modal = {
         }
         closeFn(values);
       });
-      modal.show({ title, content: form, wide, actions: [{ label: 'Cancel', value: undefined }, { label: submitLabel, kind: 'primary', onClick: () => { form.requestSubmit(); return false; } }] }).then(resolve);
-      closeFn = (v) => { document.querySelector('.modal-card')?.closeModal(v); };
+      modal.show({ title, content: form, wide, actions: [{ label: 'Cancel', value: undefined }, { label: submitLabel, kind: 'primary', onClick: () => { form.requestSubmit(); return 'stay'; } }] }).then(resolve);
+      closeFn = (v) => { activeModal(document.querySelectorAll('.modal-card'))?.closeModal(v); };
       setTimeout(() => form.querySelector('input:not([type="hidden"]), textarea, .dropdown-button')?.focus(), 30);
     });
   },

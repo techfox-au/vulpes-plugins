@@ -1,9 +1,9 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
-import { canonicalShellPath, legacyHashPath, hashChangeTarget } from './shell-path.js?v=shell468';
+import { canonicalShellPath, isShellClick, legacyHashPath, hashChangeTarget } from './shell-path.js?v=shell469';
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
 import { navLinkActive, secretsEntry } from './nav-active.js?v=shell454';
-import { confirmIdentity } from './reauth.js?v=shell468';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell468';
+import { confirmIdentity } from './reauth.js?v=shell469';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell469';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -12,12 +12,12 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell468'),
-  '/account': () => import('./pages/account.js?v=shell468'),
-  '/alerts': () => import('./pages/alerts.js?v=shell468'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell468'),
+  '/': () => import('./pages/home.js?v=shell469'),
+  '/account': () => import('./pages/account.js?v=shell469'),
+  '/alerts': () => import('./pages/alerts.js?v=shell469'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell469'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell463'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell468'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell469'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
@@ -29,8 +29,7 @@ function parseLocation() {
 }
 
 function isShellPath(path) {
-  return path === '/' || path === '/account' || path === '/alerts'
-    || path.startsWith('/admin/') || path.startsWith('/p/');
+  return isShellClick(path);
 }
 
 export function navigate(path, options = {}) {
@@ -345,7 +344,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell468`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell469`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
@@ -477,7 +476,7 @@ async function boot() {
 
 async function clearHomeCache() {
   try {
-    const { homeCacheKeysToClear } = await import('./pages/home.js?v=shell468');
+    const { homeCacheKeysToClear } = await import('./pages/home.js?v=shell469');
     const keys = [];
     for (let i = 0; i < sessionStorage.length; i += 1) {
       const key = sessionStorage.key(i);
@@ -499,6 +498,11 @@ document.addEventListener('click', (event) => {
   try { url = new URL(href, location.origin); } catch { return; }
   if (url.origin !== location.origin || !isShellPath(url.pathname)) return;
   event.preventDefault();
+  const legacy = legacyHashPath(url.hash);
+  if ((url.pathname === '/' || url.pathname === '') && legacy) {
+    navigate(canonicalShellPath(legacy));
+    return;
+  }
   navigate(url.pathname + url.search);
 });
 

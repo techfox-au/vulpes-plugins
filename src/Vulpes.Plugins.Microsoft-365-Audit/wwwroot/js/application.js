@@ -1,3 +1,13 @@
+/** The same forms Guid.TryParse accepts, written as a hyphenated id for the consent URL. */
+export function applicationGuid(value) {
+  const text = String(value ?? '').trim();
+  const wrapped = text.replace(/^\{(.+)\}$/, '$1').replace(/^\((.+)\)$/, '$1');
+  const hex = wrapped.replace(/-/g, '');
+  if (!/^[0-9a-f]{32}$/i.test(hex)) return '';
+  const lower = hex.toLowerCase();
+  return `${lower.slice(0, 8)}-${lower.slice(8, 12)}-${lower.slice(12, 16)}-${lower.slice(16, 20)}-${lower.slice(20)}`;
+}
+
 function noteRoot(node) {
   return node.closest('.stack') || node;
 }
@@ -81,10 +91,9 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
   const redirectInput = h('input', { class: 'input', type: 'url', spellcheck: false, autocomplete: 'off', placeholder: 'https://invoice.techfox.au', 'aria-label': 'Redirect URI' });
   const openConsent = h('a', { class: 'btn sm', target: '_blank', rel: 'noopener noreferrer', hidden: true }, 'Open');
   const copyConsent = h('button', { class: 'btn sm', type: 'button' }, 'Copy');
-  const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const paintConsent = () => {
-    const clientId = clientIdInput.value.trim();
-    const directoryId = directoryInput.value.trim();
+    const clientId = applicationGuid(clientIdInput.value);
+    const directoryId = applicationGuid(directoryInput.value);
     const login = cloud.value === 'USGov' ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com';
     const graph = cloud.value === 'USGov' ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com';
     let reply = '';
@@ -92,7 +101,7 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
       const parsed = new URL(redirectInput.value.trim());
       if (parsed.protocol === 'https:') reply = parsed.href.replace(/\/$/, '');
     } catch { /* blank until the redirect is https */ }
-    const ready = guid.test(clientId) && guid.test(directoryId) && reply;
+    const ready = clientId && directoryId && reply;
     const url = ready
       ? `${login}/${directoryId}/v2.0/adminconsent?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(graph + '/.default')}&redirect_uri=${encodeURIComponent(reply)}`
       : '';
@@ -111,7 +120,7 @@ function applicationCard(ctx, app, permissions, tenants, host, rerender) {
     catch (err) { panelNote(card, errorMessage(err)); }
   });
   paintConsent();
-  const savedClients = (tenants || []).filter((t) => guid.test(t.directoryId || '') && !t.disabled).sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
+  const savedClients = (tenants || []).filter((t) => applicationGuid(t.directoryId || '') && !t.disabled).sort((left, right) => (left.displayName || '').localeCompare(right.displayName || '', undefined, { sensitivity: 'base' }));
   const savedClient = savedClients.length
     ? dropdown([['', 'Choose a saved client'], ...savedClients.map((t) => [t.directoryId, t.displayName])], { value: '', ariaLabel: 'Saved client' })
     : null;

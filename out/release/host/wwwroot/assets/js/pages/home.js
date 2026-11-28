@@ -1,6 +1,6 @@
 import { showAllAlerts } from '../home-role.js?v=shell462';
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell468';
+import { requireUserDataKey } from '../data-key.js?v=shell469';
 
 let status = null;
 let shareTimer = null;
@@ -108,13 +108,20 @@ function offerMatches(pluginId, offerName) {
   return offerPackageKey(offerName) === String(pluginId || '').toLowerCase();
 }
 
+let missedFocusId = '';
+
 function applyFocus(card, giveUp) {
+  if (focusNoteClearsWhenItemReturns(!!missedFocusId, !!card.querySelector('.share-item[data-id="' + CSS.escape(missedFocusId) + '"]'))) {
+    missedFocusId = '';
+    focusNote = '';
+  }
   if (focusNote) panelNote(card, focusNote, 'warning');
   if (!pendingFocus) return;
   const item = card.querySelector('.share-item[data-id="' + CSS.escape(pendingFocus) + '"]');
   if (!item) {
     // A cached paint must not drop the id before the network list is on screen.
     if (!giveUp || !card.querySelector('.share-list, .share-empty')) return;
+    missedFocusId = pendingFocus;
     focusNote = 'That item is not on your dashboard (deleted, expired, or not yours).';
     panelNote(card, focusNote, 'warning');
     pendingFocus = '';
@@ -123,15 +130,30 @@ function applyFocus(card, giveUp) {
   }
   focusNote = '';
   item.classList.add('share-item-focus');
-  if (focusScroll) {
+  // The cached paint scrolls and leaves the id armed. The network paint clears it even when the scroll already happened.
+  const plan = focusAfterPaint(focusScroll, giveUp);
+  if (plan.scroll) {
     item.scrollIntoView({ block: 'center' });
+    focusScroll = false;
+  }
+  if (plan.clearDelay > 0) {
     const id = pendingFocus;
     const focusGen = generation;
-    focusScroll = false;
-    // The cached paint must leave the id armed until the network list is on screen.
-    const delay = focusClearDelay(giveUp);
-    if (delay > 0) setTimeout(() => { if (focusGen !== generation || pendingFocus !== id) return; pendingFocus = ''; }, delay);
+    setTimeout(() => { if (focusGen !== generation || pendingFocus !== id) return; pendingFocus = ''; }, plan.clearDelay);
   }
+}
+
+/** A quiet refresh can skip the paint only when that list is already on screen. */
+export function focusNoteClearsWhenItemReturns(hadMiss, itemPresent) {
+  return hadMiss === true && itemPresent === true;
+}
+
+export function shareRefreshSkipsPaint(quiet, sameAsCache, alreadyPainted) {
+  return quiet === true && sameAsCache === true && alreadyPainted === true;
+}
+
+export function focusAfterPaint(focusScroll, networkPaint) {
+  return { scroll: focusScroll === true, clearDelay: focusClearDelay(networkPaint) };
 }
 
 export function focusClearDelay(networkPaint) {
@@ -155,7 +177,9 @@ async function renderShares(ctx, card, quiet, preloaded) {
     const data = preloaded || await ctx.api.get('/api/plugins/secret-sharing/home');
     if (gen !== generation) return;
     if (!preloaded) {
-      if (quiet && homeSame(homeRead('shares'), data)) {
+      const alreadyPainted = !!card.querySelector('.share-list, .share-empty');
+      if (shareRefreshSkipsPaint(quiet, homeSame(homeRead('shares'), data), alreadyPainted)) {
+        panelNote(card, '');
         applyFocus(card, true);
         return;
       }
@@ -522,7 +546,10 @@ async function loadPlugins(ctx, card, sharesCard, gen, assignTimer, cachedShareP
       homeWrite('plugins', pack);
       paintPlugins(card, plugins, admin, status || homeRead('status'));
     }
-    if (!plugins.some((plugin) => plugin.id === 'secret-sharing')) return;
+    if (!plugins.some((plugin) => plugin.id === 'secret-sharing')) {
+      sharesCard.hidden = true;
+      return;
+    }
     try { await cachedSharePaint; } catch { /* the cached paint already showed its error */ }
     if (gen !== generation) return;
     if (!shareTimer) {

@@ -1,7 +1,7 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
-import { setBusy, errorMessage } from './ui.js';
-import * as webauthn from './webauthn.js?v=shell468';
-import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell468';
+import { setBusy, errorMessage, mailAddressShape } from './ui.js';
+import * as webauthn from './webauthn.js?v=shell469';
+import { establishWithPassword, establishWithPasskey } from './data-key.js?v=shell469';
 import './pwa.js?v=shell388';
 
 setRedirectOnUnauthorized(false);
@@ -41,7 +41,7 @@ function validateCommon(values) {
   if (!values.token) return 'The setup token is required.';
   if (!values.username) return 'A username is required.';
   if (!values.displayName) return 'A display name is required.';
-  if (values.email && !$('email').checkValidity()) return 'Email is not a valid address.';
+  if (values.email && !mailAddressShape(values.email)) return 'Email is not a valid address.';
   return null;
 }
 

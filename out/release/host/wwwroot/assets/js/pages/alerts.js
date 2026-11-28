@@ -1,5 +1,5 @@
-import { fieldChoices, hasUnknownConditionField, nextConditions, sourceCheckboxDisabled, thresholdWindowMinutes } from '../alert-conditions.js?v=shell468';
-import { splitMailboxList } from '../mailboxes.js?v=shell468';
+import { fieldChoices, hasUnknownConditionField, nextConditions, sourceCheckboxDisabled, thresholdWindowMinutes } from '../alert-conditions.js?v=shell469';
+import { mailboxListError, splitMailboxList } from '../mailboxes.js?v=shell469';
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, jsonView, dropdown, panelNote, pageNote } from '../ui.js?v=shell409';
 import { severityKind } from './home.js';
 
@@ -261,6 +261,8 @@ async function editRule(ctx, rule) {
       ignoreOlderThanMinutes: Number(ignoreI.value),
     };
     if (!payload.name) { panelNote(form, 'A name is required.'); nameI.classList.add('invalid'); return false; }
+    const recipientError = mailboxListError(recI.value);
+    if (recipientError) { panelNote(form, recipientError); recI.classList.add('invalid'); return false; }
     if (!Number.isInteger(payload.ignoreOlderThanMinutes) || payload.ignoreOlderThanMinutes < ignoreMin || payload.ignoreOlderThanMinutes > ignoreMax) {
       panelNote(form, 'Ignore older than must be from 60 to 43200 minutes.');
       ignoreI.classList.add('invalid');

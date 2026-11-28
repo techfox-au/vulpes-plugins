@@ -114,7 +114,7 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
         string? filename = null;
         if (hasFile)
         {
-            filename = Optional(args, "filename")?.Trim();
+            filename = CollectUploadGate.FileNameText(Optional(args, "filename") ?? "");
             if (string.IsNullOrEmpty(filename) || filename.Length > 200)
             {
                 throw new ArgumentException("A file name is required and must be 200 characters or fewer.");
@@ -148,17 +148,17 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
             contentType = "text/plain";
         }
 
-        var label = Optional(args, "title")?.Trim();
+        var label = MarkFree(Optional(args, "title"));
         if (string.IsNullOrEmpty(label))
         {
-            label = Optional(args, "label")?.Trim();
+            label = MarkFree(Optional(args, "label"));
         }
         if (label is { Length: > 256 })
         {
             throw new ArgumentException("Send name is too long (max 256 characters).");
         }
 
-        var note = Optional(args, "privateNote")?.Trim();
+        var note = MarkFree(Optional(args, "privateNote"));
         if (note is { Length: > 5_000_000 })
         {
             throw new ArgumentException("Private note is too long.");
@@ -392,6 +392,17 @@ public sealed class SecretSharingMcp(ShareStore store, IHostEmail email, IClient
         }
 
         return value;
+    }
+
+    private static string? MarkFree(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var text = value.Replace("\uFEFF", "", StringComparison.Ordinal).Replace("\u0085", "", StringComparison.Ordinal).Trim();
+        return text.Length == 0 ? null : text;
     }
 
     private static string? Optional(JsonElement args, string name) =>

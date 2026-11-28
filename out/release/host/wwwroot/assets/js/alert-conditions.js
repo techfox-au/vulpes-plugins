@@ -12,9 +12,18 @@ export function fieldChoices(fields, current) {
   return choices;
 }
 
+// The catalog lists declared fields. data.* and labels.* are queryable when the path is safe, matching IsQueryableField.
+const openFieldPath = /^@?[A-Za-z][A-Za-z0-9_]{0,63}(\.[A-Za-z0-9_@-]{1,64}){0,8}$/;
+
+export function isOpenConditionField(path) {
+  return typeof path === 'string'
+    && (path.startsWith('data.') || path.startsWith('labels.'))
+    && openFieldPath.test(path);
+}
+
 export function hasUnknownConditionField(conditions, fields) {
   const known = new Set((fields || []).map((field) => field.path));
-  return (conditions || []).some((condition) => !known.has(condition.field));
+  return (conditions || []).some((condition) => !known.has(condition.field) && !isOpenConditionField(condition.field));
 }
 
 // Minutes typed in the threshold window. An empty box is not 10, and 0 stays 0.

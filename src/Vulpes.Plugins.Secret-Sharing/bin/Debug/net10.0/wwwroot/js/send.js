@@ -1,5 +1,6 @@
 import { requireUserDataKey } from '/assets/js/data-key.js?v=shell391';
 import { sendLinkNote } from './link-note.js?v=note1';
+import { rejectedFileName } from './filename.js?v=name1';
 
 const pub = '/plugins/secret-sharing/public';
 const FILE_LIMIT = 40 * 1024 * 1024;
@@ -13,9 +14,6 @@ function parseMaxAccess(value) {
   return n;
 }
 
-function fileNameWithinLimit(name) {
-  return name == null || name.length <= 200;
-}
 const expiryChoices = [
   ['1', '1 minute'], ['10', '10 minutes'], ['30', '30 minutes'], ['60', '1 hour'],
   ['1440', '1 day'], ['4320', '3 days'], ['10080', '7 days'], ['20160', '14 days'],
@@ -110,9 +108,9 @@ export async function mount(el, ctx) {
     let progress = null;
     try {
       const udk = await ensureUdk();
-      const label = name.value.trim();
+      const label = name.value.replace(/\u0085|\uFEFF/g, "").trim();
       if (label.length > 256) throw new Error('Send name is too long (max 256 characters).');
-      const privateNote = note.value.trim();
+      const privateNote = note.value.replace(/\u0085|\uFEFF/g, "").trim();
       if (privateNote.length > 5000000) throw new Error('Private note is too long.');
       const cidrParsed = SecretCidr.parseAllowedCidr(cidr.value);
       if (!cidrParsed.ok) throw new Error(cidrParsed.error);
@@ -129,7 +127,8 @@ export async function mount(el, ctx) {
       if (fileRadio.checked) {
         if (!chosen) throw new Error('Choose a file to encrypt.');
         if (chosen.size > FILE_LIMIT) throw new Error('File exceeds 40 MB limit.');
-        if (!fileNameWithinLimit(chosen.name)) throw new Error('File name is too long (max 200 characters).');
+        const nameError = rejectedFileName(chosen.name);
+        if (nameError) throw new Error(nameError);
       } else if (!secret.value) {
         throw new Error('Enter a secret to encrypt.');
       }

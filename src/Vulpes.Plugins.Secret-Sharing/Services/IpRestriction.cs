@@ -29,7 +29,9 @@ public static class IpRestriction
         if (string.IsNullOrWhiteSpace(input))
             return true;
 
-        var s = input.Trim();
+        var s = input.Replace("\uFEFF", "", StringComparison.Ordinal).Replace("\u0085", "", StringComparison.Ordinal).Trim();
+        if (s.Length == 0)
+            return true;
         if (s.Length > MaxInputLength)
         {
             error = "Allowed IP/CIDR list is too long.";

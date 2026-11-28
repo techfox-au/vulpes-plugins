@@ -81,9 +81,9 @@ export async function mount(el, ctx) {
       }
       const linkPassword = password.value;
       if (linkPassword && linkPassword !== confirm.value) throw new Error('Link password and confirmation do not match.');
-      const label = name.value.trim();
+      const label = name.value.replace(/\u0085|\uFEFF/g, "").trim();
       if (label.length > 256) throw new Error('Collect name is too long (max 256 characters).');
-      const privateNote = note.value.trim();
+      const privateNote = note.value.replace(/\u0085|\uFEFF/g, "").trim();
       if (privateNote.length > 5000000) throw new Error('Private note is too long.');
       const pair = SenditCrypto.generateKeyPair();
       const rawKey = new Uint8Array(pair.secretKey);

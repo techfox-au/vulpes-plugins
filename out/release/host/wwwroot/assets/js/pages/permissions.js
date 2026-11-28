@@ -1,6 +1,12 @@
 import { h, clear, errorMessage, badge, setBusy } from '../ui.js?v=shell84';
 
 let root;
+
+/** Disabled clients are omitted from this check. enabled false here means collection is off. */
+export function permissionTenantBadge(tenant) {
+  if (!tenant || tenant.enabled !== false) return '';
+  return tenant.disabled ? 'disabled' : 'collection off';
+}
 export async function mount(el, ctx) {
   root = el;
   ctx.setTitle(['Permissions diagnostic']);
@@ -36,7 +42,7 @@ async function load(ctx, button) {
     host.append(h('div', { class: 'card col' }, ...tenants.map((tenant) => {
       const missing = tenant.missing || [];
       return h('div', { class: 'subcard' },
-        h('div', { class: 'card-header' }, h('h2', null, tenant.displayName), tenant.enabled ? null : badge('disabled', 'warning')),
+        h('div', { class: 'card-header' }, h('h2', null, tenant.displayName), permissionTenantBadge(tenant) ? badge(permissionTenantBadge(tenant), 'warning') : null),
         h('p', { class: 'mono small muted' }, tenant.directoryId),
         tenant.error ? h('div', { class: 'alert danger' }, tenant.error) : null,
         !tenant.error && missing.length === 0 ? h('div', null, badge('All required permissions granted', 'success')) : null,

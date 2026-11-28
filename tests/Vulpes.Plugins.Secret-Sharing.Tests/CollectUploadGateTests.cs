@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
 using Vulpes.Plugins.SecretSharing.Data;
+using Vulpes.Plugins.SecretSharing.Endpoints;
 using Vulpes.Plugins.SecretSharing.Services;
 using Vulpes.Sdk;
 using Xunit;
@@ -87,6 +88,24 @@ public sealed class CollectUploadGateTests : IDisposable
     }
 
     [Fact]
+    public void A_mark_in_the_middle_of_a_file_name_is_removed_before_the_length_check()
+    {
+        Directory.CreateDirectory(_dir);
+        Assert.Equal(1440, ShareEndpoints.ExpiryMinutes(24, 0));
+        Assert.Equal(30, ShareEndpoints.ExpiryMinutes(24, 30));
+        Assert.Equal("notes.txt", CollectUploadGate.FileNameText("\uFEFFnotes.txt"));
+        Assert.Equal("", CollectUploadGate.FileNameText("\uFEFF"));
+        Assert.Equal("notes.txt", ShareEndpoints.StoredFileName("notes\u0085.txt", out var marked));
+        Assert.Null(marked);
+        var embedded = new string('a', 100) + "\u0085" + new string('a', 100);
+        Assert.Equal(200, ShareEndpoints.StoredFileName(embedded, out var fitted)!.Length);
+        Assert.Null(fitted);
+        Assert.False(CollectUploadGate.FilenameTooLong(new string('a', 200) + " "));
+        Assert.False(CollectUploadGate.FilenameTooLong("\uFEFF" + new string('a', 200)));
+        Assert.True(CollectUploadGate.FilenameTooLong(new string('a', 201)));
+    }
+
+    [Fact]
     public async Task An_extra_slash_or_a_padded_id_does_not_burn_the_real_collect_proof()
     {
         var database = new ShareDatabase(Path.Combine(_dir, "path-proof.db"));
@@ -109,6 +128,58 @@ public sealed class CollectUploadGateTests : IDisposable
         Assert.Equal(id + " ", CollectUploadGate.RouteId(spaced));
 
         var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
+    }
+
+    [Fact]
+    public async Task A_whitespace_collect_id_stays_inside_the_upload_gate()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "space-id.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var spaces = "/api/plugins/secret-sharing/public/collects/   ";
+
+        var gated = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, path: spaces);
+        Assert.False(gated.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, gated.MaxRequestBodySize);
+        Assert.Equal("   ", CollectUploadGate.RouteId(spaces));
+        Assert.Equal("abc%20", CollectUploadGate.RouteId(PathString.FromUriComponent("/api/plugins/secret-sharing/public/collects/abc%2520")));
+        Assert.Equal("abc%2Fdef", CollectUploadGate.RouteId(PathString.FromUriComponent("/api/plugins/secret-sharing/public/collects/abc%2Fdef")));
+        Assert.Equal("%2e%2e", CollectUploadGate.RouteId(PathString.FromUriComponent("/api/plugins/secret-sharing/public/collects/%252e%252e")));
+        Assert.Null(ShareEndpoints.StoredFileName("\u0085", out var nextLine));
+        Assert.Equal("Enter a file name.", nextLine);
+        Assert.Null(ShareEndpoints.StoredFileName("\uFEFF", out var bom));
+        Assert.Equal("Enter a file name.", bom);
+        Assert.Equal("notes.txt", ShareEndpoints.StoredFileName("\uFEFFnotes.txt", out var kept));
+        Assert.Null(kept);
+
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
+    }
+
+    [Fact]
+    public async Task A_trailing_slash_or_a_blank_file_name_does_not_burn_the_upload_proof()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "slash-name.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        var http = new DefaultHttpContext();
+        http.Request.Path = "/api/plugins/secret-sharing/public/collects/" + id + "/";
+        var slash = await ShareEndpoints.CollectUpload(id, new ShareEndpoints.UploadBody("ct", "iv", "wk", "epk", null, "note.txt", challenge.ChallengeId, nonce, hash, clock), store, pow, new ShareScanGuard(database), new QuietAudit(), http);
+        Assert.Equal(StatusCodes.Status404NotFound, (slash as IStatusCodeHttpResult)?.StatusCode);
+
+        http.Request.Path = "/api/plugins/secret-sharing/public/collects/" + id;
+        var blank = await ShareEndpoints.CollectUpload(id, new ShareEndpoints.UploadBody("ct", "iv", "wk", "epk", null, "   ", challenge.ChallengeId, nonce, hash, clock), store, pow, new ShareScanGuard(database), new QuietAudit(), http);
+        Assert.Equal(StatusCodes.Status400BadRequest, (blank as IStatusCodeHttpResult)?.StatusCode);
         Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
     }
 
@@ -429,6 +500,12 @@ public sealed class CollectUploadGateTests : IDisposable
         public bool IsReadOnly => false;
 
         public long? MaxRequestBodySize { get; set; }
+    }
+
+    private sealed class QuietAudit : IHostAuditLog
+    {
+        public Task RecordAsync(string action, string? target, string? details, string? actor = null, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class GatePowPolicy : IPowPolicy

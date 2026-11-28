@@ -150,9 +150,15 @@ public static class ShareEndpoints
             return Results.BadRequest(new { error = "validation", message = "Private note is too long." });
         }
 
-        if (body.Filename is { Length: > 200 })
+        var filename = StoredFileName(body.Filename, out var fileNameError);
+        if (fileNameError is not null)
         {
-            return Results.BadRequest(new { error = "validation", message = "Filename is too long." });
+            return Results.BadRequest(new { error = "validation", message = fileNameError });
+        }
+
+        if (ContentTypeTooLong(body.ContentType))
+        {
+            return Results.BadRequest(new { error = "validation", message = "Content type is too long." });
         }
 
         var error = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey) ?? ValidateRecipientLabel(body.RecipientLabel);
@@ -163,7 +169,7 @@ public static class ShareEndpoints
         }
 
         await RememberLiveEmail(store, accounts, user);
-        var id = store.CreateSend(user, new SendInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), TrimOrNull(body.Filename), body.OneTime, minutes, TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), maxAccess, body.PasswordProtected, body.HideTextByDefault, allowedCidr, TrimOrNull(body.RecipientLabel)));
+        var id = store.CreateSend(user, new SendInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), filename, body.OneTime, minutes, TrimOrNull(body.EncryptedLabel), TrimOrNull(body.PrivateNoteCiphertext), maxAccess, body.PasswordProtected, body.HideTextByDefault, allowedCidr, TrimOrNull(body.RecipientLabel)));
         await audit.RecordAsync("secret.send.created", id, $"oneTime={body.OneTime} passwordProtected={body.PasswordProtected}", cancellationToken: http.RequestAborted);
         return Results.Json(new { id });
     }
@@ -181,7 +187,7 @@ public static class ShareEndpoints
     {
         var user = UserId(http);
         if (user is null) return Results.Unauthorized();
-        var minutes = body.ExpiresInMinutes ?? ExpiryMinutes(body.ExpiresInHours, 0);
+        var minutes = body.ExpiresInMinutes is > 0 ? body.ExpiresInMinutes.Value : ExpiryMinutes(body.ExpiresInHours, 0);
         if (!Base64Url.IsExact(body.PublicKey, 32) || minutes is < 1 or > 64800)
         {
             return Results.BadRequest(new { error = "validation", message = "Choose an expiry between 1 minute and 45 days." });
@@ -393,13 +399,24 @@ public static class ShareEndpoints
         return error is null ? Results.NoContent() : Results.StatusCode(StatusCodes.Status403Forbidden);
     }
 
-    private static async Task<IResult> CollectUpload(string id, UploadBody body, ShareStore store, PowService pow, ShareScanGuard scan, IHostAuditLog audit, HttpContext http)
+    internal static async Task<IResult> CollectUpload(string id, UploadBody body, ShareStore store, PowService pow, ShareScanGuard scan, IHostAuditLog audit, HttpContext http)
     {
+        if (!CollectUploadGate.HandlerConsumesProof(http.Request.Path))
+        {
+            return Results.NotFound();
+        }
+
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
-        if (body.Filename is { Length: > 200 })
+        var filename = StoredFileName(body.Filename, out var fileNameError);
+        if (fileNameError is not null)
         {
-            return Results.BadRequest(new { error = "validation", message = "Filename is too long." });
+            return Results.BadRequest(new { error = "validation", message = fileNameError });
+        }
+
+        if (ContentTypeTooLong(body.ContentType))
+        {
+            return Results.BadRequest(new { error = "validation", message = "Content type is too long." });
         }
 
         if (!http.Items.ContainsKey(PowService.HttpContextPowConsumed))
@@ -409,7 +426,7 @@ public static class ShareEndpoints
         }
         var payloadError = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey);
         if (payloadError is not null) return Results.BadRequest(new { error = "payload", message = payloadError });
-        var saved = store.SaveUpload(id, new UploadInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), TrimOrNull(body.Filename)));
+        var saved = store.SaveUpload(id, new UploadInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), filename));
         if (!saved) return Miss(scan, http);
         await audit.RecordAsync("secret.collect.uploaded", id, "Upload stored.", actor: "anonymous", cancellationToken: http.RequestAborted);
         http.RequestServices.GetRequiredService<NotificationMail>().TryCollectReady(id);
@@ -611,6 +628,8 @@ public static class ShareEndpoints
 
     private static string? UserId(HttpContext http) => http.User.FindFirstValue(ClaimTypes.NameIdentifier);
 
+    private static bool ContentTypeTooLong(string? value) => value?.Trim() is { Length: > 120 };
+
     private static string Clip(string? value, string fallback, int max)
     {
         var text = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
@@ -660,11 +679,37 @@ public static class ShareEndpoints
 
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    /// <summary>An empty name is a text secret. A whitespace-only name is rejected. A longer name is rejected before a proof is spent.</summary>
+    internal static string? StoredFileName(string? value, out string? error)
+    {
+        error = null;
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        // U+FEFF is trimmed by the page and not by .NET. U+0085 is whitespace in .NET and not in JavaScript trim.
+        var stripped = CollectUploadGate.FileNameText(value);
+        if (stripped.Length == 0)
+        {
+            error = "Enter a file name.";
+            return null;
+        }
+
+        if (stripped.Length > 200)
+        {
+            error = "Filename is too long.";
+            return null;
+        }
+
+        return stripped;
+    }
+
     private sealed record KeyBody(string? WrappedUserDataKey, string? Kind, string? CredentialId, string? Wrapped);
     private sealed record NotificationBody(bool NotifyCollectReady, bool NotifySendOpened);
     private sealed record SendBody(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string? ContentType, string? Filename, bool OneTime, int ExpiresInHours, int ExpiresInMinutes, string? EncryptedLabel, string? PrivateNoteCiphertext, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, string? AllowedCidr, string? RecipientLabel);
     private sealed record CollectBody(string PublicKey, string? OwnerPrivateKeyProtected, string? EncryptedLabel, string? PrivateNoteCiphertext, bool OneTime, int ExpiresInHours, int? ExpiresInMinutes, int? MaxAccessCount, bool PasswordProtected, bool HideTextByDefault, PublicLabelBody? PublicLabel);
     private sealed record PublicLabelBody(int? V, string? Bound, string? Ciphertext, string? Iv);
-    private sealed record UploadBody(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string? ContentType, string? Filename, string? ChallengeId, string? Nonce, string? Hash, string? ClientTime);
+    internal sealed record UploadBody(string Ciphertext, string Iv, string WrappedKey, string EphemeralPublicKey, string? ContentType, string? Filename, string? ChallengeId, string? Nonce, string? Hash, string? ClientTime);
     private sealed record PowBody(string? ChallengeId, string? Nonce, string? Hash, string? ClientTime);
 }

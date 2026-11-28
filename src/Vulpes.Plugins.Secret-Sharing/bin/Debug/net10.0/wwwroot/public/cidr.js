@@ -6,7 +6,7 @@
 
   function parseAllowedCidr(input) {
     if (input == null) return { ok: true, value: null };
-    var s = String(input).trim();
+    var s = String(input).replace(/\u0085|\uFEFF/g, "").trim();
     if (!s) return { ok: true, value: null };
     if (s.length > MAX_CIDR_INPUT) return { ok: false, error: "Allowed IP/CIDR list is too long." };
     if (s.indexOf("%") >= 0) return { ok: false, error: "IPv6 zone identifiers are not allowed." };

@@ -162,6 +162,22 @@ public sealed class NormalizerEdgeCaseTests
         }), "t", null);
         Assert.Null(plainName!.UserEmail);
         Assert.Equal("admin", plainName.UserName);
+        var blankActor = Normalizers.DirectoryAudit(JsonSerializer.SerializeToElement(new JsonObject
+        {
+            ["id"] = "d3",
+            ["activityDateTime"] = "2026-10-28T23:44:01Z",
+            ["result"] = "success",
+            ["activityDisplayName"] = "Update user",
+            ["initiatedBy"] = new JsonObject
+            {
+                ["user"] = new JsonObject { ["userPrincipalName"] = "" },
+                ["app"] = new JsonObject { ["displayName"] = "Graph Explorer" },
+            },
+        }), "t", null);
+        Assert.NotNull(blankActor);
+        Assert.Null(blankActor.UserName);
+        Assert.StartsWith("Graph Explorer:", blankActor.Message, StringComparison.Ordinal);
+        Assert.Equal("Graph Explorer", blankActor.ClientAppName);
         Assert.Equal("failure", Directory("failure").Outcome);
         Assert.Equal("unknown", Directory("unknownFutureValue").Outcome);
     }

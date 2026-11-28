@@ -1,5 +1,5 @@
-import { confirmIdentity } from '../reauth.js?v=shell468';
-import { secretPayload, splitMailboxList } from '../mailboxes.js?v=shell468';
+import { confirmIdentity } from '../reauth.js?v=shell469';
+import { mailboxListError, secretPayload, splitMailboxList } from '../mailboxes.js?v=shell469';
 import { manifestQuery } from '../pwa.js?v=shell388';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
 
@@ -220,6 +220,8 @@ export async function render(ctx) {
       const password = smtpPassword.payload();
       const graph = graphSecret.payload();
       const mailgun = mailgunKey.payload();
+      const recipientError = mailboxListError(v.defaultRecipients);
+      if (recipientError) { showEmailError(smtpCard, form, recipientError); return; }
       setBusy(save, true, 'Saving…');
       try {
         await ctx.api.put('/api/admin/settings/smtp', {
@@ -239,6 +241,7 @@ export async function render(ctx) {
     test.addEventListener('click', async () => {
       const to = prompt('Send a test email to:', ctx.user.email || '');
       if (!to) return;
+      if (mailboxListError(to)) { panelNote(smtpCard, 'Email is not a valid address.'); return; }
       setBusy(test, true, 'Sending…');
       try { await ctx.api.post('/api/admin/settings/smtp/test', { to }); panelNote(smtpCard, 'Test email queued and sent.', 'success'); }
       catch (err) { panelNote(smtpCard, errorMessage(err)); } finally { setBusy(test, false); }
@@ -437,10 +440,13 @@ async function appendMcp(ctx, parent, still) {
 }
 
 export function tokenExpiryDays(expiresAt, now = Date.now()) {
-  const when = new Date(expiresAt).getTime();
-  if (Number.isNaN(when)) return null;
-  if (when <= now) return -1;
-  return Math.ceil((when - now) / 86400000);
+  const when = new Date(expiresAt);
+  const current = new Date(now);
+  if (Number.isNaN(when.getTime()) || Number.isNaN(current.getTime())) return null;
+  if (when.getTime() <= current.getTime()) return -1;
+  const whenDay = Date.UTC(when.getUTCFullYear(), when.getUTCMonth(), when.getUTCDate());
+  const nowDay = Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate());
+  return Math.round((whenDay - nowDay) / 86400000);
 }
 
 function mcpExpiry(row) {
@@ -449,7 +455,7 @@ function mcpExpiry(row) {
   const days = tokenExpiryDays(row.expiresAt);
   if (days === null) return label;
   if (days < 0) return h('span', null, label, ' ', badge('Expired', 'danger'));
-  if (days <= 10) return h('span', null, label, ' ', badge(days === 1 ? 'Expires in 1 day' : `Expires in ${days} days`, 'warning'));
+  if (days <= 10) return h('span', null, label, ' ', badge(days === 0 ? 'Expires today' : days === 1 ? 'Expires in 1 day' : `Expires in ${days} days`, 'warning'));
   return label;
 }
 
@@ -516,6 +522,7 @@ async function createMcpToken(ctx, name, revealed, card, list) {
 
 async function storeMcpToken(ctx, name, revealed, card, list) {
   const created = await ctx.api.post('/api/mcp/tokens', { name: name.value.trim() || 'Grok Bot' });
+  panelNote(card, '');
   revealed.append(h('div', { class: 'alert success' },
     h('div', null, 'Copy this token now. It is not shown again.'),
     h('code', null, created.token),

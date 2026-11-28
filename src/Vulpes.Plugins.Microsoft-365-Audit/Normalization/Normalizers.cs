@@ -109,7 +109,7 @@ public static class Normalizers
         var firstTarget = targets is { ValueKind: JsonValueKind.Array } arr && arr.GetArrayLength() > 0 ? arr[0] : (JsonElement?)null;
         var result = r.Str("result");
         var activity = r.Str("activityDisplayName");
-        var actor = user?.Str("userPrincipalName") ?? app?.Str("displayName");
+        var actor = Shown(user?.Str("userPrincipalName")) ?? Shown(app?.Str("displayName"));
         var targetName = firstTarget?.Str("userPrincipalName") ?? firstTarget?.Str("displayName");
 
         return new SecurityEvent
@@ -126,7 +126,7 @@ public static class Normalizers
             Dataset = "entra.directory",
             Severity = SeverityForDirectory(activity),
             UserId = user?.Str("id"),
-            UserName = user?.Str("userPrincipalName"),
+            UserName = Shown(user?.Str("userPrincipalName")),
             UserEmail = user?.Str("userPrincipalName") is { } upn && upn.Contains('@', StringComparison.Ordinal) ? upn : null,
             SourceIp = user?.Str("ipAddress"),
             ClientAppId = app?.Str("appId") ?? app?.Str("servicePrincipalId"),

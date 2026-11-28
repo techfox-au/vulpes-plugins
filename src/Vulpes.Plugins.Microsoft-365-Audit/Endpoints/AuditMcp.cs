@@ -252,7 +252,13 @@ public sealed class AuditMcp(AuditDbContext db, IEventSearch search, IAlertField
             var array = new JsonArray();
             foreach (var bucket in buckets)
             {
-                array.Add(new JsonObject { ["key"] = bucket.Key, ["count"] = bucket.Count });
+                var item = new JsonObject { ["key"] = bucket.Key, ["count"] = bucket.Count };
+                if (bucket.Remainder)
+                {
+                    item["remainder"] = true;
+                }
+
+                array.Add(item);
             }
 
             bucketRoot[key] = array;

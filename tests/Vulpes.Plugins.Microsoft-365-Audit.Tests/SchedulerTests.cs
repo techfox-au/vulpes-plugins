@@ -284,6 +284,35 @@ public sealed class SchedulerTests : IDisposable
     }
 
     [Fact]
+    public async Task Same_secret_arms_the_sign_in_block_and_a_changed_secret_does_not()
+    {
+        var scheduler = CreateScheduler();
+        var captured = Tenant();
+        _collector.Behaviour = _ => throw new InvalidOperationException("AADSTS7000215: Invalid client secret provided.");
+
+        await scheduler.RunJobAsync(captured, "scripted", CancellationToken.None);
+
+        Assert.True(scheduler.HasCredentialBlock(captured.Id));
+        Assert.Equal(_time.GetUtcNow().AddMinutes(15), Checkpoint().NextRunAt);
+
+        scheduler.ClearCredentialBlock(captured.Id);
+        _collector.Behaviour = _ =>
+        {
+            using var scope = _provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            var row = db.Tenants.Single();
+            row.ProtectedSecret = new FakeProtector().Protect("rotated-secret");
+            db.SaveChanges();
+            throw new InvalidOperationException("AADSTS7000215: Invalid client secret provided.");
+        };
+
+        await scheduler.RunJobAsync(captured, "scripted", CancellationToken.None);
+
+        Assert.False(scheduler.HasCredentialBlock(captured.Id));
+        Assert.Equal(_time.GetUtcNow(), Checkpoint().NextRunAt);
+    }
+
+    [Fact]
     public void The_run_budget_is_the_time_left_until_the_deadline()
     {
         var started = new DateTimeOffset(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);

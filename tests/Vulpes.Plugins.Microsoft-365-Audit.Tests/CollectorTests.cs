@@ -384,6 +384,15 @@ public sealed class CollectorTests
     }
 
     [Fact]
+    public void Purview_record_cap_keeps_a_succeeded_query_open()
+    {
+        Assert.Equal(PurviewAuditCollector.QueryDecision.Open, PurviewAuditCollector.Decide("succeeded", true));
+        Assert.Equal(PurviewAuditCollector.QueryDecision.Complete, PurviewAuditCollector.Decide("succeeded", false));
+        Assert.Equal(PurviewAuditCollector.QueryDecision.Complete, PurviewAuditCollector.Decide("succeeded", null));
+        Assert.Equal(PurviewAuditCollector.QueryDecision.Wait, PurviewAuditCollector.Decide("notStarted", false));
+    }
+
+    [Fact]
     public async Task Purview_failed_query_resets_state_and_throws()
     {
         var handler = new RoutedGraphHandler().Get(p => p.Contains("security/auditLog/queries/q-9", StringComparison.Ordinal), _ => FakeGraphHandler.Json(new { id = "q-9", status = "failed" }));

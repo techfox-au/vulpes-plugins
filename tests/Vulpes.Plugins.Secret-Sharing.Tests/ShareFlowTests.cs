@@ -63,6 +63,8 @@ public sealed class ShareFlowFixture : IDisposable
 
     public string? CollectCipher(string id) => One("SELECT Ciphertext FROM collects WHERE Id = @id", id);
 
+    public string? CollectFilename(string id) => One("SELECT Filename FROM collects WHERE Id = @id", id);
+
     public string? CollectOwnerKey(string id) => One("SELECT OwnerPrivateKeyProtected FROM collects WHERE Id = @id", id);
 
     public void Expire(string id)
@@ -361,6 +363,29 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
     }
 
     [Fact]
+    public async Task A_collect_upload_rejects_a_file_name_over_200_characters_without_consuming_the_proof()
+    {
+        using var admin = await fixture.AdminAsync();
+        var id = (await admin.JsonAsync(HttpMethod.Post, "/api/plugins/secret-sharing/collects", new { publicKey = FlowClient.CollectPublicKey(), expiresInMinutes = 60, oneTime = true })).GetProperty("id").GetString()!;
+        using var anon = await fixture.AnonymousAsync();
+        var proof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id);
+        var path = "/api/plugins/secret-sharing/public/collects/" + id;
+        var rejected = await anon.SendAsync(HttpMethod.Post, path, Upload(proof, new string('a', 201)));
+        var rejectedText = await rejected.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Contains("\"validation\"", rejectedText, StringComparison.Ordinal);
+        Assert.Contains("Filename is too long.", rejectedText, StringComparison.Ordinal);
+        Assert.Null(fixture.CollectCipher(id));
+        Assert.Null(fixture.CollectFilename(id));
+
+        var kept = new string('b', 200);
+        var accepted = await anon.SendAsync(HttpMethod.Post, path, Upload(proof, kept));
+        Assert.Equal(HttpStatusCode.NoContent, accepted.StatusCode);
+        Assert.Equal(Cipher, fixture.CollectCipher(id));
+        Assert.Equal(kept, fixture.CollectFilename(id));
+    }
+
+    [Fact]
     public async Task Blocked_collect_retrieval_does_not_burn_the_upload()
     {
         await fixture.EnableIpRestrictionsAsync();
@@ -494,6 +519,20 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
 
         return body;
     }
+
+    private static object Upload(Proof proof, string filename) => new
+    {
+        challengeId = proof.ChallengeId,
+        nonce = proof.Nonce,
+        hash = proof.Hash,
+        clientTime = proof.ClientTime,
+        ciphertext = Cipher,
+        iv = FlowClient.B64(12),
+        wrappedKey = FlowClient.B64(60),
+        ephemeralPublicKey = FlowClient.CollectPublicKey(),
+        contentType = "text/plain",
+        filename,
+    };
 
     private sealed record Proof(string ChallengeId, string Nonce, string Hash, string ClientTime)
     {

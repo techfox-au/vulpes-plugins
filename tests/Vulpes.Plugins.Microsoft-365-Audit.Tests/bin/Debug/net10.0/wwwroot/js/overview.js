@@ -1,4 +1,4 @@
-import { RANGES, kpiCard, bucketsToBarList, tenantSelect } from './common.js?v=shell391';
+import { RANGES, kpiCard, tenantSelect } from './common.js?v=shell392';
 
 let root;
 export async function mount(el, ctx) {
@@ -46,24 +46,22 @@ export async function mount(el, ctx) {
     );
 
     const link = (page, field, extra) => (item) => {
-      const tenant = state.tenant ? `&tenant=${encodeURIComponent(state.tenant)}` : '';
-      const value = item.key === '(none)' ? `${field}Missing=1` : `${field}=${encodeURIComponent(item.key)}`;
-      const tail = extra ? `&${extra}` : '';
-      ctx.navigate(`/p/${ctx.plugin.id}/${page}?${value}${tail}&range=${state.range}${tenant}`);
+      const href = overviewDrill(ctx.plugin.id, item, page, field, { tenant: state.tenant, range: state.range, extra });
+      if (href) ctx.navigate(href);
     };
     lists.append(
-      card(h, 'Top failing users', bucketsToBarList(ctx.ui, o.failures.byUser, { alt: true, onClick: link('signins', 'user', 'outcome=failure') })),
-      card(h, 'Top failing IPs', bucketsToBarList(ctx.ui, o.failures.byIp, { alt: true, onClick: link('signins', 'ip', 'outcome=failure') })),
-      card(h, 'Failure reasons', bucketsToBarList(ctx.ui, o.failures.byReason, { alt: true })),
-      card(h, 'Sign-ins by country', bucketsToBarList(ctx.ui, o.signIns.byCountry, { onClick: link('signins', 'country') })),
-      card(h, 'Sign-ins by application', bucketsToBarList(ctx.ui, o.signIns.byApp, { onClick: link('signins', 'app') })),
-      card(h, 'Activity by workload', bucketsToBarList(ctx.ui, o.activity.byWorkload, { onClick: link('activity', 'workload') })),
-      card(h, 'Top operations', bucketsToBarList(ctx.ui, o.activity.byOperation, { onClick: link('activity', 'operation') })),
-      card(h, 'Most active users', bucketsToBarList(ctx.ui, o.activity.byUser, { onClick: link('activity', 'user') })),
-      card(h, 'Directory changes', bucketsToBarList(ctx.ui, o.directory.byActivity, { onClick: link('directory', 'activity') })),
-      card(h, 'Alerts by severity', bucketsToBarList(ctx.ui, o.alerts.bySeverity, { alt: true, onClick: link('security-alerts', 'severity') })),
-      card(h, 'Risk detections by level', bucketsToBarList(ctx.ui, o.risk.byLevel, { alt: true, onClick: link('risk', 'level') })),
-      card(h, 'Collector failures', o.collectorFailures.total ? bucketsToBarList(ctx.ui, o.collectorFailures.byCollector, { alt: true, onClick: () => ctx.navigate(`/p/${ctx.plugin.id}/ingestion`) }) : h('div', { class: 'muted small' }, 'No collector failures in this period.')),
+      card(h, 'Top failing users', bars(ctx.ui, o.failures.byUser, { alt: true, onClick: link('signins', 'user', 'outcome=failure') })),
+      card(h, 'Top failing IPs', bars(ctx.ui, o.failures.byIp, { alt: true, onClick: link('signins', 'ip', 'outcome=failure') })),
+      card(h, 'Failure reasons', bars(ctx.ui, o.failures.byReason, { alt: true })),
+      card(h, 'Sign-ins by country', bars(ctx.ui, o.signIns.byCountry, { onClick: link('signins', 'country') })),
+      card(h, 'Sign-ins by application', bars(ctx.ui, o.signIns.byApp, { onClick: link('signins', 'app') })),
+      card(h, 'Activity by workload', bars(ctx.ui, o.activity.byWorkload, { onClick: link('activity', 'workload') })),
+      card(h, 'Top operations', bars(ctx.ui, o.activity.byOperation, { onClick: link('activity', 'operation') })),
+      card(h, 'Most active users', bars(ctx.ui, o.activity.byUser, { onClick: link('activity', 'user') })),
+      card(h, 'Directory changes', bars(ctx.ui, o.directory.byActivity, { onClick: link('directory', 'activity') })),
+      card(h, 'Alerts by severity', bars(ctx.ui, o.alerts.bySeverity, { alt: true, onClick: link('security-alerts', 'severity') })),
+      card(h, 'Risk detections by level', bars(ctx.ui, o.risk.byLevel, { alt: true, onClick: link('risk', 'level') })),
+      card(h, 'Collector failures', o.collectorFailures.total ? bars(ctx.ui, o.collectorFailures.byCollector, { alt: true, onClick: () => ctx.navigate(`/p/${ctx.plugin.id}/ingestion`) }) : h('div', { class: 'muted small' }, 'No collector failures in this period.')),
     );
   }
 
@@ -88,13 +86,21 @@ function secureScoreCard(ctx, rows) {
           { title: 'Client', render: (r) => r.name },
           { title: 'Score', class: 'num', render: (r) => r.current ? `${r.current} / ${r.max || '—'}` : '—' },
           { title: 'Percent', class: 'num', render: (r) => r.percent ? `${r.percent}%` : '—' },
-          { title: 'Collected', render: (r) => r.at ? fmt.date(r.at) : 'Not collected' },
+          { title: 'Collected', render: (r) => r.at ? fmt.date(r.at) : (r.unavailable ? 'Unavailable' : 'Not collected') },
         ],
         rows,
         emptyText: 'No clients.',
       })
     : h('div', { class: 'muted small' }, 'No clients are configured.');
   return card(h, 'Secure Score', body);
+}
+
+function bars(ui, buckets, opts = {}) {
+  const items = presentBuckets(buckets);
+  return ui.barList(items, {
+    alt: !!opts.alt,
+    onClick: opts.onClick ? (item) => { if (!item.remainder) opts.onClick(item); } : undefined,
+  });
 }
 
 function fmtBucket(key, hours) {
@@ -110,6 +116,37 @@ function axisTicks(buckets, hours) {
     const d = new Date(b.key);
     return !Number.isNaN(d.getTime()) && d.getHours() % 4 === 1;
   });
+}
+
+/** The terms remainder is not a stored value. `\0other` is the old sentinel. */
+export function bucketLabel(key) {
+  return key === '\0other' ? 'Other' : key;
+}
+
+/** `\0other` is not a stored value, so it is not an equals filter. `(none)` stays a missing-value drill. */
+export function bucketEqualsValue(key) {
+  return key === '\0other' ? null : key;
+}
+
+function isRemainder(bucket) {
+  return !!bucket && (bucket.remainder === true || (typeof bucket.key === 'string' && bucketEqualsValue(bucket.key) === null));
+}
+
+/** A remainder bucket is labelled Other. It is not a stored value and must not become an equals filter. */
+export function presentBuckets(buckets) {
+  return (buckets || []).map((bucket) => {
+    if (isRemainder(bucket)) return { key: bucketLabel('\0other'), count: bucket.count, remainder: true };
+    return { key: bucketLabel(bucket.key), count: bucket.count };
+  });
+}
+
+/** Null when the bar is the remainder. A missing bucket stays notExists. Anything else is an equals drill. */
+export function overviewDrill(pluginId, item, page, field, state = {}) {
+  if (!item || isRemainder(item)) return null;
+  const tenant = state.tenant ? `&tenant=${encodeURIComponent(state.tenant)}` : '';
+  const value = item.key === '(none)' ? `${field}Missing=1` : `${field}=${encodeURIComponent(item.key)}`;
+  const tail = state.extra ? `&${state.extra}` : '';
+  return `/p/${pluginId}/${page}?${value}${tail}&range=${state.range || ''}${tenant}`;
 }
 
 function alignSeries(base, other) {

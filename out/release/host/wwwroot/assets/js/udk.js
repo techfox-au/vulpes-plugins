@@ -279,18 +279,24 @@
     global.document.addEventListener("pointerdown", noteActivity, true);
     global.document.addEventListener("keydown", noteActivity, true);
   }
+
+  // This tab's touched time is not the account's. Do not delete vulpes-udk while this account is still signed in.
+  function shouldClearIdleKey({ signedIn, sameUser, idle }) {
+    if (signedIn && sameUser) return false;
+    return !signedIn || !sameUser || idle;
+  }
+
   global.setInterval(() => {
     if (!unlockedUser || idleMs == null) return;
     const rec = readSession();
-    if (!rec || idleMs === 0 || Date.now() - Number(rec.touched || 0) > idleMs) {
-      clearUserDataKey();
-      return;
-    }
+    const idle = !rec || idleMs === 0 || Date.now() - Number(rec.touched || 0) > idleMs;
     fetch("/api/session", { credentials: "same-origin", headers: { Accept: "application/json" } })
       .then((res) => res.json())
       .then((data) => {
-        const id = data && data.authenticated === true && data.user && data.user.id ? String(data.user.id) : "";
-        if (!data || data.authenticated !== true || (id && id !== unlockedUser)) clearUserDataKey();
+        const signedIn = !!(data && data.authenticated === true);
+        const id = signedIn && data.user && data.user.id ? String(data.user.id) : "";
+        const sameUser = signedIn && (id === "" || id === unlockedUser);
+        if (shouldClearIdleKey({ signedIn, sameUser, idle })) clearUserDataKey();
       })
       .catch(() => {});
   }, 60000);
@@ -306,6 +312,7 @@
     storeUserDataKey,
     loadUserDataKey,
     clearUserDataKey,
+    shouldClearIdleKey,
     encryptWithUserDataKey,
     decryptWithUserDataKey,
   };

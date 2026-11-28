@@ -1,6 +1,6 @@
 import { showAllAlerts } from '../home-role.js?v=shell462';
 import { h, badge, fmt, empty, errorMessage, icon, panelNote, modal } from '../ui.js?v=shell119';
-import { requireUserDataKey } from '../data-key.js?v=shell466';
+import { requireUserDataKey } from '../data-key.js?v=shell467';
 
 let status = null;
 let shareTimer = null;
@@ -12,9 +12,11 @@ let pendingFocus = '';
 let focusScroll = false;
 let focusNote = '';
 let generation = 0;
+let homeUserId = '';
 
 export async function mount(el, ctx) {
   const gen = ++generation;
+  homeUserId = String(ctx.user?.id || '');
   let ownedTimer = null;
   let ownedCveTimer = null;
   let ownedNewsTimer = null;
@@ -51,15 +53,20 @@ export async function mount(el, ctx) {
   const cachedCves = homeRead('cves');
   const cachedNews = homeRead('news');
   const cachedShares = homeRead('shares');
+  const paintCachedShares = !!(cachedShares && cachedPlugins?.plugins?.some((plugin) => plugin.id === 'secret-sharing'));
+  const focusOrder = shareFocusOrder(ctx.query?.focus, paintCachedShares ? cachedShares : null);
+  pendingFocus = focusOrder.focus;
+  focusScroll = focusOrder.focusScroll;
+  focusNote = '';
   if (cachedStatus) paintStatus(statusGrid, cachedStatus);
   if (cachedPlugins) paintPlugins(pluginsCard, cachedPlugins.plugins, cachedPlugins.admin, cachedStatus);
   if (cachedAlerts) paintAlerts(alertsCard, cachedAlerts, showAllAlerts(ctx.user?.roles));
   else if (!ctx.hasRole('Admin', 'Analyst')) alertsCard.lastChild.replaceWith(empty('No alerts.', 'bell'));
   if (cachedCves) paintCves(cveCard, highCard, cachedCves);
   if (cachedNews) paintNews(newsCard, cachedNews);
-  if (cachedShares && cachedPlugins?.plugins?.some((plugin) => plugin.id === 'secret-sharing')) {
-    void renderShares(ctx, sharesCard, true, cachedShares);
-  }
+  const cachedSharePaint = paintCachedShares
+    ? renderShares(ctx, sharesCard, true, cachedShares)
+    : Promise.resolve();
   const watchFeeds = () => {
     if (gen !== generation || document.hidden) return;
     renderNews(ctx, newsCard, true);
@@ -67,7 +74,7 @@ export async function mount(el, ctx) {
   };
   newsTimer = ownedNewsTimer = setInterval(watchFeeds, 60 * 1000);
   void loadStatus(ctx, statusGrid, pluginsCard, gen);
-  void loadPlugins(ctx, pluginsCard, sharesCard, gen, (timer) => { ownedTimer = timer; });
+  void loadPlugins(ctx, pluginsCard, sharesCard, gen, (timer) => { ownedTimer = timer; }, cachedSharePaint);
   void loadAlerts(ctx, alertsCard, gen);
   void renderNews(ctx, newsCard, !!cachedNews);
   void renderCves(ctx, cveCard, highCard, !!cachedCves);
@@ -101,11 +108,13 @@ function offerMatches(pluginId, offerName) {
   return offerPackageKey(offerName) === String(pluginId || '').toLowerCase();
 }
 
-function applyFocus(card) {
+function applyFocus(card, giveUp) {
   if (focusNote) panelNote(card, focusNote, 'warning');
   if (!pendingFocus) return;
   const item = card.querySelector('.share-item[data-id="' + CSS.escape(pendingFocus) + '"]');
   if (!item) {
+    // A cached paint must not drop the id before the network list is on screen.
+    if (!giveUp || !card.querySelector('.share-list, .share-empty')) return;
     focusNote = 'That item is not on your dashboard (deleted, expired, or not yours).';
     panelNote(card, focusNote, 'warning');
     pendingFocus = '';
@@ -140,7 +149,10 @@ async function renderShares(ctx, card, quiet, preloaded) {
     const data = preloaded || await ctx.api.get('/api/plugins/secret-sharing/home');
     if (gen !== generation) return;
     if (!preloaded) {
-      if (quiet && homeSame(homeRead('shares'), data)) return;
+      if (quiet && homeSame(homeRead('shares'), data)) {
+        applyFocus(card, true);
+        return;
+      }
       homeWrite('shares', data);
     }
     const items = (data.items || []).filter((item) => canCollect || item.kind !== 'collect');
@@ -162,7 +174,7 @@ async function renderShares(ctx, card, quiet, preloaded) {
       card.dataset.secretsScroll = '1';
       card.scrollIntoView({ block: 'start' });
     }
-    applyFocus(card);
+    applyFocus(card, !preloaded);
   } catch (err) {
     if (gen !== generation) return;
     const note = h('div', { class: 'alert danger' }, errorMessage(err));
@@ -257,7 +269,7 @@ function ensureCrypto() {
   if (!cryptoReady) {
     cryptoReady = loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto4')
       .then(() => window.VulpesCrypto.ready())
-      .then(() => loadScript('/assets/js/udk.js?v=udk9'))
+      .then(() => loadScript('/assets/js/udk.js?v=udk10'))
       .then(() => window.SecretUdk.ready())
       .catch((err) => {
         cryptoReady = null;
@@ -287,7 +299,7 @@ async function openCollect(ctx, card, item) {
   try {
     await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto4');
     await window.VulpesCrypto.ready();
-    await loadScript('/assets/js/udk.js?v=udk9');
+    await loadScript('/assets/js/udk.js?v=udk10');
     await window.SecretUdk.ready();
     const udk = await requireUserDataKey();
     const pack = await ctx.api.get(`/api/plugins/secret-sharing/collects/${encodeURIComponent(item.id)}/owner-key`);
@@ -493,7 +505,7 @@ async function loadStatus(ctx, grid, pluginsCard, gen) {
   }
 }
 
-async function loadPlugins(ctx, card, sharesCard, gen, assignTimer) {
+async function loadPlugins(ctx, card, sharesCard, gen, assignTimer, cachedSharePaint) {
   try {
     const pluginsPromise = ctx.api.get('/api/plugins');
     const updatesPromise = ctx.hasRole('Admin') ? ctx.api.get('/api/admin/plugins').catch(() => null) : Promise.resolve(null);
@@ -505,9 +517,8 @@ async function loadPlugins(ctx, card, sharesCard, gen, assignTimer) {
       paintPlugins(card, plugins, admin, status || homeRead('status'));
     }
     if (!plugins.some((plugin) => plugin.id === 'secret-sharing')) return;
-    pendingFocus = String(ctx.query?.focus || '').trim();
-    focusScroll = !!pendingFocus;
-    focusNote = '';
+    try { await cachedSharePaint; } catch { /* the cached paint already showed its error */ }
+    if (gen !== generation) return;
     if (!shareTimer) {
       const timer = setInterval(() => {
         if (gen !== generation) {
@@ -545,9 +556,36 @@ async function loadAlerts(ctx, card, gen) {
   }
 }
 
+const homeCachePrefix = 'vulpes-home:';
+
+export function homeCacheKey(userId, name) {
+  return homeCachePrefix + String(userId ?? '') + ':' + String(name ?? '');
+}
+
+export function homeCacheKeysToClear(keys) {
+  const drop = [];
+  for (const key of keys || []) {
+    if (typeof key === 'string' && key.startsWith(homeCachePrefix)) drop.push(key);
+  }
+  return drop;
+}
+
+// Focus is armed before the cached share paint. Refresh still focuses when the list is unchanged.
+export function shareFocusOrder(focusQuery, cachedShares) {
+  const focus = String(focusQuery ?? '').trim();
+  const hasCache = cachedShares != null;
+  const steps = [];
+  if (focus) steps.push('arm');
+  if (hasCache) steps.push('paint-cache');
+  if (focus && hasCache) steps.push('focus-cache');
+  steps.push('refresh');
+  if (focus) steps.push('focus');
+  return { focus, focusScroll: focus.length > 0, steps };
+}
+
 function homeRead(name) {
   try {
-    const text = sessionStorage.getItem('vulpes-home:' + name);
+    const text = sessionStorage.getItem(homeCacheKey(homeUserId, name));
     return text ? JSON.parse(text) : null;
   } catch {
     return null;
@@ -556,7 +594,7 @@ function homeRead(name) {
 
 function homeWrite(name, value) {
   try {
-    sessionStorage.setItem('vulpes-home:' + name, JSON.stringify(value));
+    sessionStorage.setItem(homeCacheKey(homeUserId, name), JSON.stringify(value));
   } catch {
     // The page still paints when storage is full.
   }

@@ -1,5 +1,5 @@
 // Entra ID Protection risk detections and the risk state of users and service principals (docs/audit-plugin.md).
-import { createExplorer, severityBadge, get, drillFilter } from './common.js?v=shell391';
+import { createExplorer, severityBadge, get, drillFilter } from './common.js?v=shell392';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -55,8 +55,33 @@ export async function mount(el, ctx) {
 
 export function unmount() { explorer?.destroy(); explorer = null; }
 
+const detectionOnly = [
+  'source.address',
+  'source.ip',
+  'event.action',
+  'labels.activity',
+  'labels.detectionTiming',
+  'labels.source',
+  'source.geo.country_name',
+  'source.geo.country_iso_code',
+  'source.geo.city_name',
+  'source.geo.region_name',
+];
+
 export function carriedRiskFilters(type, filters) {
-  return (filters || []).filter((filter) => filter.field !== 'labels.riskType' && !(type === 'servicePrincipal' && filter.field === 'user.name')).map((filter) => ({
+  const drop = new Set(['labels.riskType']);
+  if (type === 'servicePrincipal') {
+    drop.add('user.name');
+    drop.add('user.id');
+    drop.add('user.email');
+  } else {
+    drop.add('labels.servicePrincipalType');
+  }
+  if (type !== 'detection') {
+    for (const field of detectionOnly) drop.add(field);
+  }
+  if (type !== 'user') drop.add('labels.isDeleted');
+  return (filters || []).filter((filter) => !drop.has(filter.field)).map((filter) => ({
     field: filter.field,
     operator: filter.operator,
     values: [...(filter.values || [])],

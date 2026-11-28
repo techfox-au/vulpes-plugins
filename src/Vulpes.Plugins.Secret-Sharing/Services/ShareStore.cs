@@ -427,7 +427,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         {
             cmd.CommandText = """
                 SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, PrivateNoteCiphertext, AllowedCidr, HideTextByDefault
-                FROM secrets WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 100
+                FROM secrets WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 1000
                 """;
             cmd.Parameters.AddWithValue("@owner", ownerId);
             using var reader = cmd.ExecuteReader();
@@ -448,7 +448,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
         {
             cmd.CommandText = """
                 SELECT Id, EncryptedLabel, OneTime, CreatedAt, ExpiresAt, ConsumedAt, AccessCount, MaxAccessCount, PasswordProtected, Uploaded, OwnerPrivateKeyProtected, PrivateNoteCiphertext, PublicKey, HideTextByDefault
-                FROM collects WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 100
+                FROM collects WHERE OwnerUserId = @owner ORDER BY CreatedAt DESC LIMIT 1000
                 """;
             cmd.Parameters.AddWithValue("@owner", ownerId);
             using var reader = cmd.ExecuteReader();
@@ -466,7 +466,7 @@ public sealed class ShareStore(ShareDatabase database, IDataAtRestProtector? dat
             }
         }
 
-        return items.OrderByDescending(i => i.CreatedAt).Take(100).ToList();
+        return items.OrderByDescending(i => i.CreatedAt).ToList();
     }
 
     public bool DeleteSend(string ownerId, string id)

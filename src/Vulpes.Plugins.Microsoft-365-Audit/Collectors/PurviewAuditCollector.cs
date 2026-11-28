@@ -112,27 +112,50 @@ public sealed class PurviewAuditCollector : ICollector
         using (query)
         {
             var status = query.RootElement.Str("status") ?? "unknown";
-            switch (status)
+            if (status is "failed" or "cancelled")
             {
-                case "succeeded":
-                    return await DrainAsync(context, queryId, windowEnd, cancellationToken);
-                case "failed":
-                case "cancelled":
-                    context.SaveState([]);
-                    throw new GraphException($"Purview query {queryId} ended with status '{status}'; it will be retried next run.");
-                default:
-                    if (context.Now - createdAt > PendingTimeout)
-                    {
-                        context.SaveState([]);
-                        throw new GraphException($"Purview query {queryId} did not complete within {PendingTimeout.TotalHours} hours; a new query will be submitted.");
-                    }
-
-                    return CollectorResult.Waiting($"query {queryId} is {status}", queryId);
+                context.SaveState([]);
+                throw new GraphException($"Purview query {queryId} ended with status '{status}'; it will be retried next run.");
             }
+
+            var choice = Decide(status, RecordCapExceeded(query.RootElement));
+            if (choice == QueryDecision.Wait)
+            {
+                if (context.Now - createdAt > PendingTimeout)
+                {
+                    context.SaveState([]);
+                    throw new GraphException($"Purview query {queryId} did not complete within {PendingTimeout.TotalHours} hours; a new query will be submitted.");
+                }
+
+                return CollectorResult.Waiting($"query {queryId} is {status}", queryId);
+            }
+
+            return await DrainAsync(context, queryId, windowEnd, choice == QueryDecision.Complete, cancellationToken);
         }
     }
 
-    private static async Task<CollectorResult> DrainAsync(CollectorContext context, string queryId, DateTimeOffset? windowEnd, CancellationToken cancellationToken)
+    /// <summary>
+    /// A succeeded query finishes its window unless <c>isRecordCountLimitExceeded</c> is true.
+    /// Any other status is still waiting. A missing flag is not a cap.
+    /// </summary>
+    internal static QueryDecision Decide(string? status, bool? recordCountLimitExceeded)
+    {
+        if (status != "succeeded")
+        {
+            return QueryDecision.Wait;
+        }
+
+        return recordCountLimitExceeded == true ? QueryDecision.Open : QueryDecision.Complete;
+    }
+
+    internal enum QueryDecision
+    {
+        Wait,
+        Complete,
+        Open,
+    }
+
+    private static async Task<CollectorResult> DrainAsync(CollectorContext context, string queryId, DateTimeOffset? windowEnd, bool closeWindow, CancellationToken cancellationToken)
     {
         var prior = context.State;
         var savedNext = prior.TryGetValue(PendingNextKey, out var nextEl) && nextEl.ValueKind == JsonValueKind.String ? nextEl.GetString() : null;
@@ -140,7 +163,7 @@ public sealed class PurviewAuditCollector : ICollector
         var path = string.IsNullOrEmpty(savedNext) ? first : savedNext;
         try
         {
-            return await ReadRecordsAsync(context, queryId, windowEnd, prior, path, cancellationToken);
+            return await ReadRecordsAsync(context, queryId, windowEnd, prior, path, closeWindow, cancellationToken);
         }
         catch (GraphException ex) when (IsRejectedRecordPage(ex))
         {
@@ -156,7 +179,7 @@ public sealed class PurviewAuditCollector : ICollector
             context.SaveState(PendingState(prior, queryId, null));
             try
             {
-                return await ReadRecordsAsync(context, queryId, windowEnd, prior, first, cancellationToken);
+                return await ReadRecordsAsync(context, queryId, windowEnd, prior, first, closeWindow, cancellationToken);
             }
             catch (GraphException again) when (IsRejectedRecordPage(again))
             {
@@ -166,7 +189,7 @@ public sealed class PurviewAuditCollector : ICollector
         }
     }
 
-    private static async Task<CollectorResult> ReadRecordsAsync(CollectorContext context, string queryId, DateTimeOffset? windowEnd, Dictionary<string, JsonElement> prior, string path, CancellationToken cancellationToken)
+    private static async Task<CollectorResult> ReadRecordsAsync(CollectorContext context, string queryId, DateTimeOffset? windowEnd, Dictionary<string, JsonElement> prior, string path, bool closeWindow, CancellationToken cancellationToken)
     {
         var buffer = new List<SecurityEvent>(500);
         var totals = (Indexed: 0, Duplicates: 0, Failed: 0, Alerts: 0);
@@ -220,6 +243,11 @@ public sealed class PurviewAuditCollector : ICollector
             return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} partially drained; resuming next run") { QueryId = queryId };
         }
 
+        if (!closeWindow)
+        {
+            return LeaveCappedWindowOpen(context, queryId, prior, windowEnd, max, totals);
+        }
+
         context.SaveState([]);
         var watermark = windowEnd ?? max ?? context.Checkpoint.Watermark;
         if (watermark is { } w && (context.Checkpoint.Watermark is null || w > context.Checkpoint.Watermark))
@@ -228,6 +256,60 @@ public sealed class PurviewAuditCollector : ICollector
         }
 
         return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, true) { QueryId = queryId };
+    }
+
+    /// <summary>
+    /// The record cap stopped the query before the filter end. Resume from the newest indexed record, or keep this query.
+    /// </summary>
+    private static CollectorResult LeaveCappedWindowOpen(CollectorContext context, string queryId, Dictionary<string, JsonElement> prior, DateTimeOffset? windowEnd, DateTimeOffset? newest, (int Indexed, int Duplicates, int Failed, int Alerts) totals)
+    {
+        var resume = CappedWatermark(newest, context.Checkpoint.Watermark, windowEnd);
+        if (resume is { } next)
+        {
+            // Drop the capped query. The next one starts at this record minus the overlap, not at the filter end.
+            context.Checkpoint.Watermark = next;
+            context.SaveState([]);
+            return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} hit the record cap; resuming from the last indexed record") { QueryId = queryId };
+        }
+
+        context.SaveState(PendingState(prior, queryId, null));
+        return new CollectorResult(totals.Indexed, totals.Duplicates, totals.Failed, totals.Alerts, false, $"query {queryId} hit the record cap; the window stays open") { QueryId = queryId };
+    }
+
+    /// <summary>Newest indexed record when it is ahead of the watermark and still before the filter end.</summary>
+    private static DateTimeOffset? CappedWatermark(DateTimeOffset? newest, DateTimeOffset? watermark, DateTimeOffset? windowEnd)
+    {
+        if (newest is not { } indexed)
+        {
+            return null;
+        }
+
+        if (windowEnd is { } end && indexed >= end)
+        {
+            return null;
+        }
+
+        if (watermark is { } held && indexed <= held)
+        {
+            return null;
+        }
+
+        return indexed;
+    }
+
+    private static bool? RecordCapExceeded(JsonElement query)
+    {
+        if (query.ValueKind != JsonValueKind.Object || !query.TryGetProperty("isRecordCountLimitExceeded", out var flag))
+        {
+            return null;
+        }
+
+        return flag.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        };
     }
 
     private static Dictionary<string, object?> PendingState(Dictionary<string, JsonElement> prior, string queryId, string? next) => new()

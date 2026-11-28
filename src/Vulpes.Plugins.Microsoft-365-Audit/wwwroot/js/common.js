@@ -285,17 +285,29 @@ function normalizeDateText(value) {
   let text = String(value || '').trim().replace(/[.,]+$/g, '').trim();
   // The host drops spaces around / and around hyphens in a month name. The offset space is restored below.
   text = text.replace(/\s*\/\s*/g, '/');
-  if (text.split(/[^A-Za-z.]+/).some((token) => monthIndex(token))) text = text.replace(/\s*-\s*/g, '-');
+  if (text.split(/[^A-Za-z.]+/).some((token) => monthIndex(token))) {
+    // Nov 13 - 2026 is a year. Collapse runs after that, so the hyphen is not a glued minus on the clock.
+    text = text.replace(/([A-Za-z]+\.?)\s+(\d{1,2})\s+-\s+(\d{1,4})(?!\d)/g, '$1 $2 $3');
+    text = text.replace(/\s*-\s*/g, '-');
+  }
   // A leading hyphen is a date separator (2026-11). Only a plus, Z, or GMT is glued on.
   // 1/1/06+10:00 has no month word or four-digit year, so the host allows that plus only after whitespace.
   const glued = new RegExp(String.raw`^(.*\d)\s*([zZ]|GMT|\+\d{1,2}(?::\d{1,2}(?::\d{1,2})?|\d{2,4})?)$`, 'i').exec(text);
   const shortNumericPlus = /^(?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*,?\s+)?\d{1,2}[/-]\d{1,2}[/-]\d{2}\+/i.test(text);
   if (glued && zoneFits(glued[2]) && !shortNumericPlus) text = `${glued[1]} ${glued[2]}`;
-  // -5:00, -05:00, and -0500 on a finished date are offsets. A hyphen inside 2026-11-13, or the year in 11-13-1400, stays put.
-  // 1/1/06-05:00 keeps the hyphen. A two-digit numeric date, with an optional weekday, does not take a glued colon offset. 1/1/06-0500 still splits.
-  const minus = /^(.*\d)-(\d{1,2}:\d{1,2}|\d{4})$/.exec(text);
+  // -5, -5:00, -05:00, and -0500 on a finished date are offsets. A hyphen inside 2026-11-13, or the year in 11-13-1400, stays put.
+  // 1/1/06-5 and 1/1/06-05:00 keep the hyphen. A two-digit numeric date does not take a one-digit hour or a glued colon offset. 1/1/06-0500 still splits.
+  const minus = /^(.*\d)-(\d{1,2}:\d{1,2}|\d{4}|\d)$/.exec(text);
   const shortNumericDate = minus && /^(?:(?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?)(?:\.,?\s*|,\s*|\s+))?\d{1,2}[/-]\d{1,2}[/-]\d{2}$/i.test(minus[1]);
-  if (minus && !(shortNumericDate && minus[2].includes(':')) && zoneFits(`-${minus[2]}`) && dateFits(minus[1])) text = `${minus[1]} -${minus[2]}`;
+  const oneDigitHour = !!(minus && /^\d$/.test(minus[2]));
+  const namedOrFourDigit = !!(minus && (/[A-Za-z]/.test(minus[1]) || /\d{4}/.test(minus[1])));
+  if (
+    minus
+    && !(shortNumericDate && (minus[2].includes(':') || oneDigitHour))
+    && !(oneDigitHour && (monthYearOnly(minus[1]) || !namedOrFourDigit))
+    && zoneFits(`-${minus[2]}`)
+    && dateFits(minus[1])
+  ) text = `${minus[1]} -${minus[2]}`;
   return text.replace(/^(\d{4})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})(?=$|\s|[Tt]|[+-]|Z)/i, '$1-$2-$3');
 }
 
@@ -369,7 +381,8 @@ function calendarOf(value) {
     const year = Number(usDots[3]);
     const month = Number(usDots[1]);
     const day = Number(usDots[2]);
-    if (followed && followed.includes(':') && clockFits(followed) && calendarDay(year, month, day)) return { year, month, day };
+    // A colon clock, or a numeric offset with no clock, is that day. GMT and a bare dotted date are not.
+    if (calendarDay(year, month, day) && followed && ((zoneOnly(followed) && /^[+-]/.test(followed.trim())) || (followed.includes(':') && clockFits(followed)))) return { year, month, day };
   }
   const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})$/.exec(text);
   if (monthYear && monthIndex(monthYear[1])) return { year: Number(monthYear[2]), month: monthIndex(monthYear[1]), day: 1 };
@@ -378,7 +391,7 @@ function calendarOf(value) {
   // 100 Jan 1 is year 100. 6 Jan 1 stays day-first: one or two digits never reach this path.
   const yearFirst = /^(\d{3,4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s.*)?$/.exec(text);
   if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return { year: Number(yearFirst[1]), month: monthIndex(yearFirst[2]), day: Number(yearFirst[3]) };
-  // November 13-2026 is 13 November 2026. A hyphen hides that year from a clock; a slash does not.
+  // November 13-2026 is 13 November 2026. A glued hyphen hides that year from a clock; a slash does not.
   const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d)(,\s*|\s+|[-/])(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(text);
   if (ahead && monthIndex(ahead[1])) {
     const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
@@ -401,7 +414,7 @@ function clockOrZone(rest, year, month, day) {
 }
 
 function namedDay(value) {
-  // Same day/year separator as calendarOf. A hyphen with a clock or offset is not a date.
+  // Same day/year separator as calendarOf. A glued hyphen with a clock or offset is not a date.
   const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d)(,\s*|\s+|[-/])(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(value);
   if (ahead && monthIndex(ahead[1])) {
     const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
@@ -543,15 +556,18 @@ function dateFits(value) {
   }
   const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
   if (dots) return timedDay(Number(dots[1]), Number(dots[2]), Number(dots[3]), dots[4], dots[5]);
-  // A colon stops the host treating M.d.yyyy as a dotted number. 11.13.2026 15:00 is 2026-11-13T15:00:00Z. No clock, and month 13, stay false.
+  // A colon stops the host treating M.d.yyyy as a dotted number. 11.13.2026 15:00 is 2026-11-13T15:00:00Z.
+  // An offset and no clock is midnight. 11.13.2026 -05:00 is that midnight. A bare dotted date, and month 13, stay false.
   const usDots = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\S.*))?$/.exec(value);
   if (usDots) {
     const rest = usDots[4];
-    if (!rest || !rest.includes(':')) return false;
     const year = Number(usDots[3]);
     const month = Number(usDots[1]);
     const day = Number(usDots[2]);
-    return calendarDay(year, month, day) && clockFits(rest) && instantFits(year, month, day, rest);
+    if (!rest || !calendarDay(year, month, day)) return false;
+    if (zoneOnly(rest) && /^[+-]/.test(rest.trim())) return instantFits(year, month, day, `00:00 ${rest}`);
+    if (!rest.includes(':')) return false;
+    return clockFits(rest) && instantFits(year, month, day, rest);
   }
   const isoZone = /^(\d{4})-(\d{1,2})-(\d{1,2})\s*(Z|GMT)$/i.exec(value);
   if (isoZone) return calendarDay(Number(isoZone[1]), Number(isoZone[2]), Number(isoZone[3]));

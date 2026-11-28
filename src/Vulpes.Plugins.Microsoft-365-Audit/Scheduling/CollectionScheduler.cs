@@ -336,14 +336,24 @@ public sealed class CollectionScheduler(
                 entry.Error = checkpoint.LastError;
                 if (credential is not null)
                 {
-                    var until = finished.AddMinutes(15);
-                    checkpoint.NextRunAt = until;
-                    lock (_lock)
+                    // The call used the tenant captured when the job was queued. Read the row only after the slot is acquired and that call has failed.
+                    // A secret or certificate saved in the meantime must not start another 15-minute pause or push NextRunAt back out.
+                    if (await StoredCredentialMatchesAsync(db, tenant, cancellationToken))
                     {
-                        _credentialBlock[tenant.Id] = (until, credential);
-                    }
+                        var until = finished.AddMinutes(15);
+                        checkpoint.NextRunAt = until;
+                        lock (_lock)
+                        {
+                            _credentialBlock[tenant.Id] = (until, credential);
+                        }
 
-                    logger.LogWarning("{Source} for {Tenant} cannot sign in: {Reason} Next attempt at {Next}", source, tenant.DisplayName, credential, checkpoint.NextRunAt);
+                        logger.LogWarning("{Source} for {Tenant} cannot sign in: {Reason} Next attempt at {Next}", source, tenant.DisplayName, credential, checkpoint.NextRunAt);
+                    }
+                    else
+                    {
+                        checkpoint.NextRunAt = finished;
+                        logger.LogWarning("{Source} for {Tenant} cannot sign in with a replaced credential, so the sign-in pause was not armed", source, tenant.DisplayName);
+                    }
                 }
                 else
                 {
@@ -479,6 +489,16 @@ public sealed class CollectionScheduler(
         }
 
         return null;
+    }
+
+    /// <summary>True when the stored secret and certificate are still the ones this attempt used.</summary>
+    private static async Task<bool> StoredCredentialMatchesAsync(AuditDbContext db, Tenant attempt, CancellationToken cancellationToken)
+    {
+        var stored = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(row => row.Id == attempt.Id, cancellationToken);
+        return stored is not null
+            && string.Equals(stored.ProtectedSecret, attempt.ProtectedSecret, StringComparison.Ordinal)
+            && string.Equals(stored.ProtectedCertificate, attempt.ProtectedCertificate, StringComparison.Ordinal)
+            && string.Equals(stored.ProtectedCertificatePassword, attempt.ProtectedCertificatePassword, StringComparison.Ordinal);
     }
 
     /// <summary>Entra rejected the app credential. The same failure hits every collector, so the stack is not useful.</summary>

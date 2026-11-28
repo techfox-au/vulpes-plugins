@@ -1,8 +1,8 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
-import { canonicalShellPath, legacyHashPath } from './shell-path.js?v=shell466';
+import { canonicalShellPath, legacyHashPath, hashChangeTarget } from './shell-path.js?v=shell467';
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
 import { navLinkActive, secretsEntry } from './nav-active.js?v=shell454';
-import { confirmIdentity } from './reauth.js?v=shell466';
+import { confirmIdentity } from './reauth.js?v=shell467';
 import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
 import './pwa.js?v=shell388';
 
@@ -12,12 +12,12 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell466'),
-  '/account': () => import('./pages/account.js?v=shell466'),
-  '/alerts': () => import('./pages/alerts.js?v=shell466'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell466'),
+  '/': () => import('./pages/home.js?v=shell467'),
+  '/account': () => import('./pages/account.js?v=shell467'),
+  '/alerts': () => import('./pages/alerts.js?v=shell467'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell467'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell463'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell466'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell467'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
@@ -345,7 +345,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell466`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell467`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
@@ -431,6 +431,7 @@ function renderChrome() {
     } catch {
       /* The session cookie is already cleared. Leave the page even if the key database stays. */
     }
+    await clearHomeCache();
     invalidateSession();
     location.assign('/login');
   });
@@ -467,7 +468,25 @@ async function boot() {
   renderChrome();
   renderNav();
   window.addEventListener('popstate', route);
+  // replaceState in route drops the fragment before the first await, so this does not re-enter.
+  window.addEventListener('hashchange', () => {
+    if (hashChangeTarget(location.hash)) route();
+  });
   await route();
+}
+
+async function clearHomeCache() {
+  try {
+    const { homeCacheKeysToClear } = await import('./pages/home.js?v=shell467');
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const key = sessionStorage.key(i);
+      if (key) keys.push(key);
+    }
+    for (const key of homeCacheKeysToClear(keys)) sessionStorage.removeItem(key);
+  } catch {
+    /* storage can be blocked */
+  }
 }
 
 document.addEventListener('click', (event) => {

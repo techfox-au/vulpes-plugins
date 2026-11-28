@@ -487,6 +487,20 @@ public sealed class ShareBurnTests : IDisposable
     }
 
     [Fact]
+    public void Home_list_returns_every_live_send_past_the_old_hundred_cap()
+    {
+        var ids = new List<string>(101);
+        for (var i = 0; i < 101; i++)
+        {
+            ids.Add(_store.CreateSend("owner", Sample(oneTime: false, max: null)));
+        }
+
+        var items = _store.List("owner");
+        Assert.Equal(101, items.Count);
+        Assert.All(ids, id => Assert.Contains(items, item => item.Id == id && item.Status == "active"));
+    }
+
+    [Fact]
     public void Recipient_email_is_not_stored_without_the_data_key()
     {
         var id = _store.CreateSend("owner", new SendInput("ciphertext", "iv", "wk", "eph", "text/plain", null, true, 60, null, null, null, false, false));

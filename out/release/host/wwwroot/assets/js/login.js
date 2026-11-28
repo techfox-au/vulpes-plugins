@@ -1,7 +1,7 @@
 import { api, session, invalidateSession, setRedirectOnUnauthorized } from './api.js';
 import { setBusy, errorMessage } from './ui.js?v=shell195';
-import * as webauthn from './webauthn.js?v=shell466';
-import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell466';
+import * as webauthn from './webauthn.js?v=shell467';
+import { unlockWithPassword, unlockWithPasskey } from './data-key.js?v=shell467';
 import { VulpesPow } from './pow.js?v=pow4';
 import { safeReturnUrl } from './return-url.js?v=shell460';
 import './pwa.js?v=shell388';
@@ -21,12 +21,25 @@ function showError(message) {
 
 if (params.get('error')) showError('Sign-in failed.');
 
+/** Password sign-in off hides the password box and its button. The username stays, because passkey sign-in still asks for it. */
+export function passwordLoginControls(enabled) {
+  const passwordOn = enabled !== false;
+  return {
+    showUsername: true,
+    showPassword: passwordOn,
+    showPasswordSubmit: passwordOn,
+  };
+}
+
 async function init() {
   const s = await session(true);
   if (s.app?.name) document.title = `Sign in · ${s.app.name}`;
   if (s.authenticated) { location.replace(returnUrl); return; }
   if (s.setupRequired) $('setup-hint').classList.remove('hidden');
-  if (s.app && s.app.passwordLoginEnabled === false) $('password-form').classList.add('hidden');
+  const controls = passwordLoginControls(s.app?.passwordLoginEnabled);
+  $('username').classList.toggle('hidden', !controls.showUsername);
+  $('password-field').classList.toggle('hidden', !controls.showPassword);
+  $('password-btn').classList.toggle('hidden', !controls.showPasswordSubmit);
   const passkeyBtn = $('passkey-btn');
   if (s.app?.passkeysConfigured) {
     passkeyBtn.classList.remove('hidden');
@@ -35,7 +48,7 @@ async function init() {
       passkeyBtn.textContent = 'Passkeys are not supported in this browser';
     }
   }
-  const passwordShown = !$('password-form').classList.contains('hidden');
+  const passwordShown = controls.showPassword;
   const moreWays = !passkeyBtn.classList.contains('hidden');
   $('or-1').classList.toggle('hidden', !(passwordShown && moreWays));
   return !s.setupRequired;
@@ -56,6 +69,7 @@ const powKeeper = VulpesPow.keeper(() => api.get('/auth/login/pow', { noRedirect
 
 $('password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if ($('password-btn').classList.contains('hidden')) return;
   showError('');
   const btn = $('password-btn');
   const username = $('username').value.trim();

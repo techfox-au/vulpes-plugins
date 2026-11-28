@@ -6,10 +6,16 @@ export function canonicalShellPath(path) {
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
-// Old bookmarks used /#/alerts. #//host is another origin, so it must stay on Home.
+// Old bookmarks used /#/alerts. #//host is another origin. A backslash is a slash here,
+// so #/\host would also leave this origin and must stay on Home.
 export function legacyHashPath(hash) {
   if (typeof hash !== 'string' || !hash.startsWith('#/')) return '';
-  const next = hash.slice(1);
+  const next = hash.slice(1).replaceAll('\\', '/');
   if (!next.startsWith('/') || next.startsWith('//')) return '';
   return next;
+}
+
+// Hash-only navigations never hit popstate. An empty result means do not route again.
+export function hashChangeTarget(hash) {
+  return legacyHashPath(hash);
 }

@@ -1,5 +1,5 @@
 // Entra directory changes and provisioning (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell391';
+import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell392';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -63,9 +63,23 @@ export async function mount(el, ctx) {
 
 export function unmount() { explorer?.destroy(); explorer = null; }
 
+// Directory activity and a provisioning action share event.action but not the same values.
+// Each side also stores labels the other normalizer never sets.
+const notOnProvisioning = new Set([
+  'event.action',
+  'labels.category',
+  'labels.service',
+  'labels.targetName',
+  'labels.resultReason',
+  'source.address',
+  'source.ip',
+  'user.email',
+]);
+const notOnDirectory = new Set(['event.action', 'labels.status', 'labels.sourceSystem', 'labels.targetSystem']);
+
 export function carriedDirectoryFilters(which, filters) {
-  const drop = which === 'provisioning' ? new Set(['event.action', 'labels.category']) : null;
-  return (filters || []).filter((filter) => !drop?.has(filter.field)).map((filter) => ({
+  const drop = which === 'provisioning' ? notOnProvisioning : notOnDirectory;
+  return (filters || []).filter((filter) => !drop.has(filter.field)).map((filter) => ({
     field: filter.field,
     operator: filter.operator,
     values: [...(filter.values || [])],

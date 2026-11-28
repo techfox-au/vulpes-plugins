@@ -198,7 +198,7 @@ public static class AuditEndpoints
         }, Json);
     }
 
-    private sealed record SecureScoreRow(string Name, string TenantId, string? Current, string? Max, string? Percent, string? At);
+    internal sealed record SecureScoreRow(string Name, string TenantId, string? Current, string? Max, string? Percent, string? At, bool Unavailable = false);
 
     private static async Task<IReadOnlyList<SecureScoreRow>> SecureScoresAsync(IEventSearch search, AuditDbContext db, string? tenantId, HashSet<Guid> hidden, CancellationToken ct)
     {
@@ -209,6 +209,12 @@ public static class AuditEndpoints
             clients = clients.Where(t => t.TenantId == tenantId).ToList();
         }
 
+        return await ReadSecureScoresAsync(search, clients, ct);
+    }
+
+    /// <summary>One failed read marks that client unavailable. Later clients are still read.</summary>
+    internal static async Task<IReadOnlyList<SecureScoreRow>> ReadSecureScoresAsync(IEventSearch search, IReadOnlyList<Tenant> clients, CancellationToken ct)
+    {
         var latest = new Dictionary<string, SecureScoreRow>(StringComparer.OrdinalIgnoreCase);
         foreach (var client in clients)
         {
@@ -239,7 +245,7 @@ public static class AuditEndpoints
             }
             catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
             {
-                break;
+                latest[client.TenantId] = new SecureScoreRow(client.DisplayName, client.TenantId, null, null, null, null, Unavailable: true);
             }
         }
 
@@ -291,18 +297,26 @@ public static class AuditEndpoints
                 var newest = await search.SearchAsync(new EventQuery { PluginId = Normalizers.PluginId, Source = source.Source, Size = 1, Sort = SortDirection.Descending }, ct);
                 spans[source.Source] = (Timestamp(oldest), Timestamp(newest));
 
-                // More than 100 values is rejected by search. Skip the filter; TenantBreakdown still drops disabled directory ids.
-                var hideDisabled = hidden.Count > 0 && hidden.Count <= 100;
+                // Search rejects more than 100 values on one filter and more than 20 filters on one query.
+                var exclusion = DisabledDirectoryFilters(hidden);
+                var applied = exclusion.Count <= FilterCountLimit ? exclusion : exclusion.GetRange(0, FilterCountLimit);
                 var agg = await search.AggregateAsync(new EventAggregationQuery
                 {
                     PluginId = Normalizers.PluginId,
                     Source = source.Source,
-                    Filters = hideDisabled ? [new FieldFilter("vc.tenantId", FilterOperator.NotIn, hidden)] : [],
+                    Filters = applied,
                     Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", 50)],
                 }, ct);
                 if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
                 {
                     continue;
+                }
+
+                if (exclusion.Count > FilterCountLimit)
+                {
+                    var included = applied.Sum(filter => filter.Values.Count);
+                    var counts = await CountTenantDocumentsAsync(search, source.Source, hidden.Skip(included).ToList(), ct);
+                    buckets = OmitDisabledDocuments(buckets, counts);
                 }
 
                 // StoredBytes is the whole index. NotIn shrinks agg.Total, which would paint hidden bytes onto the rows that remain, including Other clients.
@@ -312,7 +326,10 @@ public static class AuditEndpoints
                 foreach (var bucket in buckets)
                 {
                     var share = denominator == 0 ? 0 : (double)bucket.Count / denominator * source.StoredBytes;
-                    var key = string.IsNullOrWhiteSpace(bucket.Key) || bucket.Key == "(none)" ? "\0unknown" : bucket.Key;
+                    // The search remainder key is empty, so it is not a tenant id. Keep the Other clients row.
+                    var key = bucket.Remainder
+                        ? "\0other"
+                        : string.IsNullOrWhiteSpace(bucket.Key) || bucket.Key == "(none)" ? "\0unknown" : bucket.Key;
                     AddUsage(usageRows, key, bucket.Count, share);
                 }
             }
@@ -551,6 +568,125 @@ public static class AuditEndpoints
 
         var current = rows[index];
         rows[index] = (current.Key, current.Count + count, current.Bytes + bytes);
+    }
+
+    /// <summary>Search rejects a filter with more than this many values.</summary>
+    internal const int FilterValueLimit = 100;
+
+    /// <summary>Search rejects a query with more than this many filters.</summary>
+    internal const int FilterCountLimit = 20;
+
+    /// <summary>NotIn pages of at most <see cref="FilterValueLimit"/> ids. Every disabled directory is listed.</summary>
+    internal static List<FieldFilter> DisabledDirectoryFilters(IReadOnlyList<string> directoryIds)
+    {
+        var filters = new List<FieldFilter>();
+        for (var index = 0; index < directoryIds.Count; index += FilterValueLimit)
+        {
+            var count = Math.Min(FilterValueLimit, directoryIds.Count - index);
+            var values = new string[count];
+            for (var offset = 0; offset < count; offset++)
+            {
+                values[offset] = directoryIds[index + offset];
+            }
+
+            filters.Add(new FieldFilter("vc.tenantId", FilterOperator.NotIn, values));
+        }
+
+        return filters;
+    }
+
+    /// <summary>
+    /// Drops disabled directory buckets and subtracts disabled documents that only appear inside the remainder bucket.
+    /// <paramref name="disabledCounts"/> is the directories the NotIn pages could not carry.
+    /// </summary>
+    internal static IReadOnlyList<AggregationBucket> OmitDisabledDocuments(IReadOnlyList<AggregationBucket> buckets, IReadOnlyDictionary<string, long> disabledCounts)
+    {
+        var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var bucket in buckets)
+        {
+            if (IsOtherBucket(bucket) || bucket.Key == "\0unknown" || string.IsNullOrEmpty(bucket.Key))
+            {
+                continue;
+            }
+
+            if (disabledCounts.ContainsKey(bucket.Key))
+            {
+                named.Add(bucket.Key);
+            }
+        }
+
+        long inOther = 0;
+        foreach (var pair in disabledCounts)
+        {
+            if (!named.Contains(pair.Key))
+            {
+                inOther += pair.Value;
+            }
+        }
+
+        var rows = new List<AggregationBucket>(buckets.Count);
+        foreach (var bucket in buckets)
+        {
+            if (IsOtherBucket(bucket))
+            {
+                var count = bucket.Count - inOther;
+                if (count > 0)
+                {
+                    rows.Add(count == bucket.Count ? bucket : bucket with { Count = count });
+                }
+
+                continue;
+            }
+
+            if (named.Contains(bucket.Key))
+            {
+                continue;
+            }
+
+            rows.Add(bucket);
+        }
+
+        return rows;
+    }
+
+    private static bool IsOtherBucket(AggregationBucket bucket) => bucket.Remainder || bucket.Key == "\0other";
+
+    private static async Task<Dictionary<string, long>> CountTenantDocumentsAsync(IEventSearch search, string source, List<string> directoryIds, CancellationToken ct)
+    {
+        var counts = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < directoryIds.Count; index += FilterValueLimit)
+        {
+            var count = Math.Min(FilterValueLimit, directoryIds.Count - index);
+            var values = new string[count];
+            for (var offset = 0; offset < count; offset++)
+            {
+                values[offset] = directoryIds[index + offset];
+            }
+
+            var agg = await search.AggregateAsync(new EventAggregationQuery
+            {
+                PluginId = Normalizers.PluginId,
+                Source = source,
+                Filters = [new FieldFilter("vc.tenantId", FilterOperator.In, values)],
+                Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", count)],
+            }, ct);
+            if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
+            {
+                continue;
+            }
+
+            foreach (var bucket in buckets)
+            {
+                if (bucket.Key is "\0other" or "\0unknown" || string.IsNullOrWhiteSpace(bucket.Key))
+                {
+                    continue;
+                }
+
+                counts[bucket.Key] = bucket.Count;
+            }
+        }
+
+        return counts;
     }
 
     /// <summary>One statistics row per directory. A disabled client is omitted by directory id, so a same-named enabled client stays.</summary>

@@ -103,7 +103,7 @@ async function mountRetrieveIps(root, ctx) {
     return;
   }
 
-  const list = h('textarea', { class: 'input', rows: '4', spellcheck: 'false', placeholder: 'Blank or * allows any address. Example: 203.0.113.10, 198.51.100.0/24' });
+  const list = h('textarea', { class: 'input', rows: '4', spellcheck: false, placeholder: 'Blank or * allows any address. Example: 203.0.113.10, 198.51.100.0/24' });
   list.value = current.allowedIps || '';
   const save = h('button', { class: 'btn primary', type: 'button' }, 'Save');
   const note = h('div');

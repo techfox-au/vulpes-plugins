@@ -397,6 +397,11 @@ public static class ShareEndpoints
     {
         if (FailureBudget(scan, http) is { } limited) return limited;
         if (!Plausible(id)) return Miss(scan, http);
+        if (body.Filename is { Length: > 200 })
+        {
+            return Results.BadRequest(new { error = "validation", message = "Filename is too long." });
+        }
+
         if (!http.Items.ContainsKey(PowService.HttpContextPowConsumed))
         {
             var error = pow.TryConsume("collect", id, body.ChallengeId, body.Nonce, body.Hash, PowBrowser.Current(http), body.ClientTime);
@@ -404,7 +409,7 @@ public static class ShareEndpoints
         }
         var payloadError = ValidatePayload(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey);
         if (payloadError is not null) return Results.BadRequest(new { error = "payload", message = payloadError });
-        var saved = store.SaveUpload(id, new UploadInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), ClipOrNull(body.Filename, 200)));
+        var saved = store.SaveUpload(id, new UploadInput(body.Ciphertext, body.Iv, body.WrappedKey, body.EphemeralPublicKey, Clip(body.ContentType, "application/octet-stream", 120), TrimOrNull(body.Filename)));
         if (!saved) return Miss(scan, http);
         await audit.RecordAsync("secret.collect.uploaded", id, "Upload stored.", actor: "anonymous", cancellationToken: http.RequestAborted);
         http.RequestServices.GetRequiredService<NotificationMail>().TryCollectReady(id);
@@ -654,12 +659,6 @@ public static class ShareEndpoints
     }
 
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static string? ClipOrNull(string? value, int max)
-    {
-        var text = TrimOrNull(value);
-        return text is null || text.Length <= max ? text : text[..max];
-    }
 
     private sealed record KeyBody(string? WrappedUserDataKey, string? Kind, string? CredentialId, string? Wrapped);
     private sealed record NotificationBody(bool NotifyCollectReady, bool NotifySendOpened);

@@ -1,7 +1,7 @@
 import { invalidateSession } from '../api.js';
 import { h, badge, fmt, table, modal, setBusy, errorMessage, formValues, clear, kv, panelNote, pageNote, avatar, dropdown } from '../ui.js?v=shell184';
-import * as webauthn from '../webauthn.js?v=shell466';
-import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, mintPasskeyKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell466';
+import * as webauthn from '../webauthn.js?v=shell467';
+import { preparePasswordWrap, preparePasskeyWrap, commitPasswordWrap, mintPasswordKey, mintPasskeyKey, unlockWithPasskey, dropPasskey } from '../data-key.js?v=shell467';
 import { confirmIdentity as reauth } from '../reauth.js?v=shell463';
 
 let root;

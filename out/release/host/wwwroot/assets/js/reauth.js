@@ -1,6 +1,6 @@
 import { h, modal, setBusy, errorMessage } from './ui.js?v=shell231';
-import * as webauthn from './webauthn.js?v=shell466';
-import { unlockWithPasskey } from './data-key.js?v=shell466';
+import * as webauthn from './webauthn.js?v=shell467';
+import { unlockWithPasskey } from './data-key.js?v=shell467';
 
 /** A successful reauth response confirms identity. An encryption unlock throw after that response does not undo it. */
 export function identityConfirmed(reauthOk, unlockThrew) {

@@ -1,4 +1,5 @@
-import { confirmIdentity } from '../reauth.js?v=shell466';
+import { confirmIdentity } from '../reauth.js?v=shell467';
+import { manifestQuery } from '../pwa.js?v=shell388';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
 
 let root;
@@ -44,12 +45,13 @@ async function openPrivatePlugins() {
   });
 }
 
-function emailFieldName(message) {
+export function emailFieldName(message) {
   if (/graph directory/i.test(message)) return 'graphTenantId';
   if (/graph application/i.test(message)) return 'graphClientId';
   if (/graph client secret/i.test(message)) return 'graphClientSecret';
   if (/graph sender/i.test(message)) return 'graphSender';
   if (/mailgun from/i.test(message)) return 'mailgunFrom';
+  if (/mailgun api key/i.test(message)) return 'mailgunApiKey';
   if (/from address/i.test(message)) return 'fromAddress';
   if (/recipient/i.test(message)) return 'defaultRecipients';
   if (/domain/i.test(message)) return 'mailgunDomain';
@@ -90,6 +92,13 @@ export function themeOptions(themes, active) {
   return { options, value: active || 'gorelo' };
 }
 
+// generation is this request. latest is the newest choice, including a click back to the saved theme.
+export function themeUseResult(generation, latest, ok, saved, chosen) {
+  if (generation !== latest) return { commit: false, rollback: false, active: saved };
+  if (!ok) return { commit: false, rollback: true, active: saved };
+  return { commit: true, rollback: false, active: chosen };
+}
+
 export async function render(ctx) {
   const token = ++renderToken;
   const gen = generation;
@@ -117,6 +126,7 @@ export async function render(ctx) {
     const secretField = (key, configured) => {
       const field = h('input', {
         class: 'input',
+        name: key,
         type: configured ? 'password' : 'text',
         value: configured ? mask : '',
         autocomplete: 'off',
@@ -356,20 +366,36 @@ export async function render(ctx) {
     const chosen = themeOptions(themes.themes, themes.active);
     const control = dropdown(chosen.options, { value: chosen.value, name: 'theme', ariaLabel: 'Theme' });
     infoCard.append(h('div', { class: 'field mt' }, h('label', null, 'Theme'), control));
+    let themeChoice = 0;
     control.addEventListener('change', async () => {
-      const id = control.querySelector('input[name="theme"]')?.value;
+      const id = control.value;
+      const choice = ++themeChoice;
       if (!id || id === themes.active) return;
+      const saved = themes.active;
       try {
         await ctx.api.post(`/api/admin/settings/themes/${encodeURIComponent(id)}/use`, {});
-        themes.active = id;
+        const decision = themeUseResult(choice, themeChoice, true, saved, id);
+        if (!decision.commit) return;
+        themes.active = decision.active;
         const link = document.querySelector('link[rel="stylesheet"][href^="/theme.css"]');
         if (link) link.href = '/theme.css?' + Date.now();
-        document.querySelectorAll('link[rel="icon"]').forEach((icon) => {
-          const path = icon.getAttribute('href')?.split('?')[0];
-          if (path) icon.setAttribute('href', path + '?v=' + Date.now());
+        const bar = getComputedStyle(document.documentElement).colorScheme === 'light' ? '#ffffff' : '#000000';
+        const query = manifestQuery(decision.active, bar);
+        const manifest = document.querySelector('link[rel="manifest"]');
+        if (manifest) manifest.href = '/manifest.webmanifest?' + query;
+        document.querySelectorAll('link[rel="icon"]').forEach((iconLink) => {
+          const iconPath = iconLink.getAttribute('href')?.split('?')[0];
+          if (iconPath) iconLink.setAttribute('href', iconPath + '?v=' + Date.now());
+        });
+        document.querySelectorAll('link[rel="apple-touch-icon"]').forEach((iconLink) => {
+          const iconPath = iconLink.getAttribute('href')?.split('?')[0];
+          if (iconPath) iconLink.setAttribute('href', iconPath + '?' + query);
         });
         panelNote(infoCard, 'Theme saved.', 'success');
       } catch (err) {
+        const decision = themeUseResult(choice, themeChoice, false, saved, id);
+        if (!decision.rollback) return;
+        control.value = decision.active;
         panelNote(infoCard, errorMessage(err));
       }
     });

@@ -144,7 +144,7 @@ export async function register({ optionsUrl, finishUrl, optionsBody = {}, extra 
   const presented = withReportedPrf(credential, prf);
   let dataKey = null;
   if (finishUrl === '/auth/enroll/passkey') {
-    dataKey = await import('./data-key.js?v=shell466');
+    dataKey = await import('./data-key.js?v=shell467');
     dataKey.armEnrollment(extra?.token || null);
   }
   try {

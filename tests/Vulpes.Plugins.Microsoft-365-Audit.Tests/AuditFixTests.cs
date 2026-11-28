@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Endpoints;
 using Vulpes.Sdk;
 using Xunit;
@@ -319,6 +320,31 @@ public sealed class AuditFixTests
     }
 
     [Fact]
+    public async Task Statistics_labels_a_remainder_bucket_as_other_clients()
+    {
+        var northwind = Guid.NewGuid().ToString();
+        var search = new RecordingSearch
+        {
+            Usage = Usage(("signins", 10, 1000)),
+            OnAggregate = _ => new EventAggregationResult(10, new Dictionary<string, IReadOnlyList<AggregationBucket>>
+            {
+                ["tenants"] = [new AggregationBucket(northwind, 7), new AggregationBucket(string.Empty, 3) { Remainder = true }],
+            }),
+        };
+
+        var (statusCode, body) = await ReadResultAsync(await AuditEndpoints.StatisticsAsync(
+            search,
+            new EmptyCatalog(),
+            new ClientDirectory([new ManagedTenant(Guid.NewGuid(), "Northwind", northwind, true, null)]),
+            CancellationToken.None));
+
+        Assert.Equal(200, statusCode);
+        var tenants = TenantsOf(body);
+        Assert.Equal((7L, 700L), Counts(tenants, "Northwind"));
+        Assert.Equal((3L, 300L), Counts(tenants, "Other clients"));
+    }
+
+    [Fact]
     public async Task Statistics_with_no_disabled_directory_still_scales_by_the_hit_total()
     {
         var northwind = Guid.NewGuid().ToString();
@@ -345,7 +371,7 @@ public sealed class AuditFixTests
     }
 
     [Fact]
-    public async Task Statistics_skips_the_notin_filter_when_more_than_100_directories_are_disabled()
+    public async Task Statistics_pages_the_notin_filter_when_more_than_100_directories_are_disabled()
     {
         var enabledId = Guid.NewGuid().ToString();
         var hiddenIds = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid().ToString()).ToList();
@@ -365,11 +391,123 @@ public sealed class AuditFixTests
 
         Assert.Equal(200, statusCode);
         var query = Assert.Single(search.AggregateQueries);
-        Assert.DoesNotContain(query.Filters, filter => filter.Operator == FilterOperator.NotIn);
+        Assert.Equal(2, query.Filters.Count);
+        Assert.All(query.Filters, filter =>
+        {
+            Assert.Equal(FilterOperator.NotIn, filter.Operator);
+            Assert.Equal("vc.tenantId", filter.Field);
+            Assert.InRange(filter.Values.Count, 1, 100);
+        });
+        Assert.Equal(101, query.Filters.Sum(filter => filter.Values.Count));
+        Assert.Equal(hiddenIds, query.Filters.SelectMany(filter => filter.Values).ToList());
         var tenants = TenantsOf(body);
         Assert.Equal((60L, 6000L), Counts(tenants, "Enabled Co"));
         Assert.Equal((10L, 1000L), Counts(tenants, "Other clients"));
         Assert.DoesNotContain(tenants, row => row?["documents"] is { } documents && Number(documents) == 30);
+    }
+
+    [Fact]
+    public void Disabled_directory_filters_page_after_100_ids()
+    {
+        var ids = Enumerable.Range(0, 101).Select(index => $"id-{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}").ToList();
+        var filters = AuditEndpoints.DisabledDirectoryFilters(ids);
+        Assert.Equal(2, filters.Count);
+        Assert.Equal(100, filters[0].Values.Count);
+        Assert.Equal("id-100", Assert.Single(filters[1].Values));
+        Assert.All(filters, filter =>
+        {
+            Assert.Equal(FilterOperator.NotIn, filter.Operator);
+            Assert.Equal("vc.tenantId", filter.Field);
+            Assert.InRange(filter.Values.Count, 1, 100);
+        });
+        Assert.Equal(ids, filters.SelectMany(filter => filter.Values).ToList());
+        Assert.Empty(AuditEndpoints.DisabledDirectoryFilters([]));
+        Assert.Equal(100, Assert.Single(AuditEndpoints.DisabledDirectoryFilters(ids.Take(100).ToList())).Values.Count);
+    }
+
+    [Fact]
+    public void Omit_disabled_documents_keeps_them_out_of_other_clients()
+    {
+        var legacy = AuditEndpoints.OmitDisabledDocuments(
+            [new AggregationBucket("hidden", 5), new AggregationBucket("\0other", 10)],
+            new Dictionary<string, long> { ["hidden"] = 5, ["rest"] = 3 });
+        var other = Assert.Single(legacy);
+        Assert.Equal("\0other", other.Key);
+        Assert.Equal(7, other.Count);
+
+        var rows = AuditEndpoints.OmitDisabledDocuments(
+            [
+                new AggregationBucket("enabled", 60),
+                new AggregationBucket("hidden-top", 30),
+                new AggregationBucket(string.Empty, 10) { Remainder = true },
+            ],
+            new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hidden-top"] = 30,
+                ["hidden-rest"] = 4,
+            });
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(("enabled", 60L), (rows[0].Key, rows[0].Count));
+        Assert.True(rows[1].Remainder);
+        Assert.Equal(6, rows[1].Count);
+    }
+
+    [Fact]
+    public async Task Secure_score_read_failure_marks_that_client_and_continues()
+    {
+        const string failed = "failed-directory";
+        const string later = "later-directory";
+        var search = new RecordingSearch
+        {
+            OnSearch = query =>
+            {
+                var id = Assert.Single(Assert.Single(query.Filters).Values);
+                if (id == failed)
+                {
+                    throw new ArgumentException("score index missing");
+                }
+
+                if (id == later)
+                {
+                    var document = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                    {
+                        ["@timestamp"] = "2026-11-01T00:00:00Z",
+                        ["labels"] = new Dictionary<string, string>
+                        {
+                            ["currentScore"] = "10",
+                            ["maxScore"] = "20",
+                            ["percent"] = "50",
+                        },
+                    });
+                    return new EventSearchResult([new EventHit("1", document, [])], 1, true);
+                }
+
+                return new EventSearchResult([], 0, true);
+            },
+        };
+
+        var rows = await AuditEndpoints.ReadSecureScoresAsync(
+            search,
+            [
+                new Tenant { DisplayName = "A Failed", TenantId = failed, ClientId = "c" },
+                new Tenant { DisplayName = "B Empty", TenantId = "empty", ClientId = "c" },
+                new Tenant { DisplayName = "C Later", TenantId = later, ClientId = "c" },
+            ],
+            CancellationToken.None);
+
+        Assert.Equal(3, rows.Count);
+        Assert.True(rows[0].Unavailable);
+        Assert.Null(rows[0].Current);
+        Assert.Equal("A Failed", rows[0].Name);
+        Assert.False(rows[1].Unavailable);
+        Assert.Null(rows[1].At);
+        Assert.Null(rows[1].Current);
+        Assert.False(rows[2].Unavailable);
+        Assert.Equal("10", rows[2].Current);
+        Assert.Equal("20", rows[2].Max);
+        Assert.Equal("50", rows[2].Percent);
+        Assert.Equal("2026-11-01T00:00:00Z", rows[2].At);
+        Assert.Equal("C Later", rows[2].Name);
     }
 
     [Fact]
@@ -521,6 +659,8 @@ public sealed class AuditFixTests
 
         public string? FailSource { get; init; }
 
+        public Func<EventQuery, EventSearchResult>? OnSearch { get; init; }
+
         public bool IsAvailable => true;
 
         public Task<EventSearchResult> SearchAsync(EventQuery query, CancellationToken cancellationToken)
@@ -528,6 +668,11 @@ public sealed class AuditFixTests
             Filters = query.Filters.Count;
             Applied = query.Filters;
             Sort = query.Sort;
+            if (OnSearch is not null)
+            {
+                return Task.FromResult(OnSearch(query));
+            }
+
             if (SearchFailure is not null && (FailSource is null || string.Equals(query.Source, FailSource, StringComparison.Ordinal)))
             {
                 throw SearchFailure;

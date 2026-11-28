@@ -560,6 +560,36 @@ public static class J
     public static JsonElement? Obj(this JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.Object or JsonValueKind.Array ? v : null;
 
+    /// <summary>An object, or the first object in a one-element array. Graph sends some identities either way.</summary>
+    public static JsonElement? Record(this JsonElement e, string name)
+    {
+        var value = e.Obj(name);
+        if (value is not { } element)
+        {
+            return null;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            return element;
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object)
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
     public static DateTimeOffset? Date(this JsonElement e, string name)
     {
         var text = e.Str(name);

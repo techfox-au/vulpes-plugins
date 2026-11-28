@@ -192,7 +192,10 @@
       if (limit === 0) await clearUserDataKey();
       return;
     }
-    if (limit === 0 || (sessionUserId && sessionUserId !== String(rec.userId)) || Date.now() - Number(rec.touched || 0) > limit) {
+    const idle = Date.now() - Number(rec.touched || 0) > limit;
+    const signedIn = limit !== 0;
+    const sameUser = !sessionUserId || sessionUserId === String(rec.userId);
+    if (shouldClearIdleKey({ signedIn, sameUser, idle })) {
       await clearUserDataKey();
       return;
     }

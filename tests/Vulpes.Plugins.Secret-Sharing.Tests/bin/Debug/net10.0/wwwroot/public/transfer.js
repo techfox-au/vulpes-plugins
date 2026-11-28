@@ -50,6 +50,10 @@
           xhr.setRequestHeader("X-Sendit-Pow-Nonce", String(body.nonce));
           if (body.hash) xhr.setRequestHeader("X-Sendit-Pow-Hash", body.hash);
           if (body.clientTime) xhr.setRequestHeader("X-Sendit-Pow-Time", body.clientTime);
+          // The upload gate reads this before it spends the proof. A long name must not burn the ticket.
+          // Header values are Latin-1. Percent-encoding is how the UTF-8 filename crosses that limit.
+          var fileHeader = body.filename == null ? "" : String(body.filename);
+          if (!/[\r\n\0]/.test(fileHeader)) xhr.setRequestHeader("X-Sendit-Filename", encodeURIComponent(fileHeader));
         }
         if (typeof onUploadProgress === "function") {
           xhr.upload.onprogress = function (ev) {

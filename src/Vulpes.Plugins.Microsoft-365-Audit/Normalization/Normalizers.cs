@@ -154,7 +154,7 @@ public static class Normalizers
         var status = r.Obj("provisioningStatusInfo")?.Str("status") ?? r.Obj("statusInfo")?.Str("status");
         var target = r.Obj("targetIdentity");
         var source = r.Obj("sourceIdentity");
-        var sp = r.Obj("servicePrincipal");
+        var sp = r.Record("servicePrincipal");
         return new SecurityEvent
         {
             PluginId = PluginId,
@@ -169,10 +169,10 @@ public static class Normalizers
             Dataset = "entra.provisioning",
             Severity = "informational",
             UserId = target?.Str("id"),
-            UserName = target?.Str("displayName") ?? source?.Str("displayName"),
+            UserName = Shown(target?.Str("displayName")) ?? Shown(source?.Str("displayName")),
             ClientAppId = sp?.Str("id"),
             ClientAppName = sp?.Str("displayName"),
-            Message = J.Truncate($"{sp?.Str("displayName") ?? "Provisioning"}: {r.Str("provisioningAction") ?? r.Str("action")} {target?.Str("displayName")} ({status})", 1000),
+            Message = J.Truncate($"{Shown(sp?.Str("displayName")) ?? "Provisioning"}: {r.Str("provisioningAction") ?? r.Str("action")} {Shown(target?.Str("displayName")) ?? Shown(source?.Str("displayName"))} ({status})", 1000),
             Labels = Labels(("status", status), ("targetType", target?.Str("identityType")), ("sourceSystem", r.Obj("sourceSystem")?.Str("displayName")), ("targetSystem", r.Obj("targetSystem")?.Str("displayName"))),
             Data = r,
         };
@@ -252,8 +252,8 @@ public static class Normalizers
         {
             foreach (var item in evidence.EnumerateArray())
             {
-                upn ??= item.Obj("userAccount")?.Str("userPrincipalName");
-                ip ??= item.Str("ipAddress");
+                upn ??= Shown(item.Obj("userAccount")?.Str("userPrincipalName")) ?? Shown(item.Str("recipientEmailAddress")) ?? Shown(item.Str("primaryAddress"));
+                ip ??= Shown(item.Str("ipAddress")) ?? Shown(item.Str("senderIp"));
             }
         }
 
@@ -584,6 +584,8 @@ public static class Normalizers
     }
 
     /// <summary>Graph directoryAudits uses success, failure, and timeout. A timeout is a change that did not finish.</summary>
+    private static string? Shown(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
     private static string? DirectoryOutcome(string? result)
     {
         if (result is null)

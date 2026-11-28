@@ -1,4 +1,5 @@
 import { fieldChoices, hasUnknownConditionField, nextConditions, sourceCheckboxDisabled, thresholdWindowMinutes } from '../alert-conditions.js?v=shell468';
+import { splitMailboxList } from '../mailboxes.js?v=shell468';
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, jsonView, dropdown, panelNote, pageNote } from '../ui.js?v=shell409';
 import { severityKind } from './home.js';
 
@@ -24,7 +25,7 @@ export function unmount(gen) {
 
 const MULTI_VALUE = new Set(['in', 'notIn', 'cidr', 'notCidr']);
 
-/** One value stays one value. Commas separate only the operators that accept a list. */
+/** One value stays one value. Commas separate only the operators that accept a list, and a quoted comma stays inside the value. */
 export function conditionValues(operator, text) {
   if (operator === 'exists' || operator === 'notExists') return [];
   const raw = text ?? '';
@@ -32,7 +33,48 @@ export function conditionValues(operator, text) {
     const trimmed = raw.trim();
     return trimmed ? [trimmed] : [];
   }
-  return raw.split(',').map((part) => part.trim()).filter(Boolean);
+  return splitConditionList(raw);
+}
+
+export function formatConditionList(values) {
+  return (values || []).map((value) => {
+    const text = String(value ?? '');
+    if (!text.includes(',') && !text.includes('"')) return text;
+    return `"${text.replaceAll('"', '""')}"`;
+  }).join(', ');
+}
+
+export function splitConditionList(text) {
+  const raw = String(text ?? '');
+  const parts = [];
+  let current = '';
+  let quote = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote) {
+      if (ch === '"') {
+        if (raw[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else quote = false;
+      } else current += ch;
+      continue;
+    }
+    if (ch === '"') {
+      quote = true;
+      continue;
+    }
+    if (ch === ',') {
+      const item = current.trim();
+      if (item) parts.push(item);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  const last = current.trim();
+  if (last) parts.push(last);
+  return parts;
 }
 
 /** Blank count means every match. A count of 1 is not a threshold the server will store. */
@@ -165,7 +207,7 @@ async function editRule(ctx, rule) {
   const conditionRow = (c) => {
     const fieldSel = dropdown(fieldChoices(fieldsForSources(), c.field || ''), { value: c.field || '', ariaLabel: 'Field' });
     const opSel = dropdown(OPERATORS.map(([value, label]) => ({ value, label })), { value: c.operator || 'equals', ariaLabel: 'Operator' });
-    const shown = MULTI_VALUE.has(c.operator) ? (c.values || []).join(', ') : ((c.values || [])[0] || '');
+    const shown = MULTI_VALUE.has(c.operator) ? formatConditionList(c.values) : ((c.values || [])[0] || '');
     const valueInput = h('input', { class: 'input', value: shown, placeholder: MULTI_VALUE.has(c.operator || 'equals') ? 'value(s), comma separated' : 'value' });
     const row = h('div', { class: 'form-row' }, fieldSel, opSel, valueInput, h('button', { class: 'btn ghost sm', type: 'button', onClick: () => { conditionsTouched = true; row.remove(); } }, 'Remove'));
     row.read = () => ({ field: fieldSel.value, operator: opSel.value, values: conditionValues(opSel.value, valueInput.value) });
@@ -214,7 +256,7 @@ async function editRule(ctx, rule) {
       sources: [...sourcesBox.querySelectorAll('input:checked')].map((i) => i.value), severity: sevSel.value,
       conditions: [...conditionsBox.children].map((row) => row.read()),
       threshold: null,
-      actions: { email: { recipients: recI.value.split(',').map((s) => s.trim()).filter(Boolean), subject: subjI.value.trim() || null, body: bodyI.value.trim() || null } },
+      actions: { email: { recipients: splitMailboxList(recI.value), subject: subjI.value.trim() || null, body: bodyI.value.trim() || null } },
       throttle: throtWinI.value ? { windowMinutes: Number(throtWinI.value), groupBy: throtGroupI.value.trim() || null } : null,
       ignoreOlderThanMinutes: Number(ignoreI.value),
     };

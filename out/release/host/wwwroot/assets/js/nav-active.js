@@ -8,8 +8,13 @@ export function secretsEntry(pluginId, page) {
   return null;
 }
 
+function lastQueryValue(search, name) {
+  const values = new URLSearchParams(search || '').getAll(name);
+  return values.length === 0 ? null : values[values.length - 1];
+}
+
 /** Secrets opens on the home page with ?panel=secrets. That item stays highlighted, and Home does not. */
 export function navLinkActive(href, path, search) {
-  const secretsHome = path === '/' && new URLSearchParams(search || '').get('panel') === 'secrets';
+  const secretsHome = path === '/' && lastQueryValue(search, 'panel') === 'secrets';
   return secretsHome ? href === '/p/secret-sharing/secrets' : (isHomeLink(href, path) || href === path);
 }

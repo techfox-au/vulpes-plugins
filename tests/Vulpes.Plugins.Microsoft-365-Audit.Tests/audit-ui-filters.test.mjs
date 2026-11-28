@@ -36,8 +36,8 @@ test('service principals drop user.name and other risk tabs keep it', () => {
     { field: 'client.appName', operator: 'equals', values: ['Graph'] },
   ];
   assert.deepEqual(carriedRiskFilters('servicePrincipal', filters).map((filter) => filter.field), ['labels.riskState', 'client.appName']);
-  assert.deepEqual(carriedRiskFilters('detection', filters).map((filter) => filter.field), ['user.name', 'labels.riskState', 'client.appName']);
-  assert.deepEqual(carriedRiskFilters('user', filters).map((filter) => filter.field), ['user.name', 'labels.riskState', 'client.appName']);
+  assert.deepEqual(carriedRiskFilters('detection', filters).map((filter) => filter.field), ['user.name', 'labels.riskState']);
+  assert.deepEqual(carriedRiskFilters('user', filters).map((filter) => filter.field), ['user.name', 'labels.riskState']);
 });
 
 test('provisioning keeps a clicked user and drops activity and category without drill', () => {
@@ -46,8 +46,7 @@ test('provisioning keeps a clicked user and drops activity and category without 
     { field: 'labels.category', operator: 'equals', values: ['UserManagement'] },
     { field: 'user.name', operator: 'equals', values: ['ada'] },
   ];
-  assert.deepEqual(carriedDirectoryFilters('provisioning', filters).map((filter) => filter.field), ['user.name']);
-  assert.deepEqual(carriedDirectoryFilters('provisioning', filters)[0].values, ['ada']);
+  assert.deepEqual(carriedDirectoryFilters('provisioning', filters).map((filter) => filter.field), []);
   assert.deepEqual(carriedDirectoryFilters('directory', filters).map((filter) => filter.field), ['labels.category', 'user.name']);
   assert.ok(!carriedDirectoryFilters('directory', filters).some((filter) => filter.field === 'event.action'));
 });
@@ -66,15 +65,15 @@ test('directory and provisioning drop fields the destination does not store', ()
     { field: 'client.appName', operator: 'equals', values: ['Graph'] },
     { field: 'vc.tenantName', operator: 'equals', values: ['Contoso'] },
   ];
-  assert.deepEqual(carriedDirectoryFilters('provisioning', filters).map((filter) => filter.field), ['labels.sourceSystem', 'labels.targetSystem', 'user.name', 'client.appName', 'vc.tenantName']);
-  assert.deepEqual(carriedDirectoryFilters('provisioning', filters).find((filter) => filter.field === 'user.name').values, ['ada']);
+  assert.deepEqual(carriedDirectoryFilters('provisioning', filters).map((filter) => filter.field), ['labels.sourceSystem', 'labels.targetSystem', 'client.appName', 'vc.tenantName']);
+  assert.ok(!carriedDirectoryFilters('provisioning', filters).some((filter) => filter.field === 'user.name' || filter.field === 'user.id'));
   assert.ok(!carriedDirectoryFilters('provisioning', filters).some((filter) => filter.field === 'labels.targetName' || filter.field === 'labels.service' || filter.field === 'source.address' || filter.field === 'event.action'));
   assert.deepEqual(carriedDirectoryFilters('directory', filters).map((filter) => filter.field), ['labels.targetName', 'labels.service', 'source.address', 'labels.category', 'labels.resultReason', 'user.name', 'client.appName', 'vc.tenantName']);
   assert.ok(!carriedDirectoryFilters('directory', filters).some((filter) => filter.field === 'event.action' || filter.field === 'labels.sourceSystem'));
   const toDirectory = carriedDirectoryFilters('directory', carriedDirectoryFilters('provisioning', filters));
-  assert.deepEqual(toDirectory.map((filter) => filter.field), ['user.name', 'client.appName', 'vc.tenantName']);
+  assert.deepEqual(toDirectory.map((filter) => filter.field), ['client.appName', 'vc.tenantName']);
   const toProvisioning = carriedDirectoryFilters('provisioning', carriedDirectoryFilters('directory', filters));
-  assert.ok(toProvisioning.some((filter) => filter.field === 'user.name'));
+  assert.ok(!toProvisioning.some((filter) => filter.field === 'user.name'));
   assert.ok(!toProvisioning.some((filter) => ['event.action', 'labels.targetName', 'labels.service', 'source.address'].includes(filter.field)));
 });
 
@@ -89,10 +88,11 @@ test('risk tabs keep shared risk fields and drop fields the destination does not
     { field: 'labels.servicePrincipalType', operator: 'equals', values: ['Application'] },
     { field: 'user.name', operator: 'equals', values: ['ada@contoso.com'] },
     { field: 'client.appName', operator: 'equals', values: ['Graph'] },
+    { field: 'client.appId', operator: 'equals', values: ['app-1'] },
   ];
-  assert.deepEqual(carriedRiskFilters('detection', filters).map((filter) => filter.field), ['labels.riskLevel', 'labels.riskState', 'labels.riskDetail', 'source.address', 'event.action', 'user.name', 'client.appName']);
-  assert.deepEqual(carriedRiskFilters('user', filters).map((filter) => filter.field), ['labels.riskLevel', 'labels.riskState', 'labels.riskDetail', 'user.name', 'client.appName']);
-  assert.deepEqual(carriedRiskFilters('servicePrincipal', filters).map((filter) => filter.field), ['labels.riskLevel', 'labels.riskState', 'labels.riskDetail', 'labels.servicePrincipalType', 'client.appName']);
+  assert.deepEqual(carriedRiskFilters('detection', filters).map((filter) => filter.field), ['labels.riskLevel', 'labels.riskState', 'labels.riskDetail', 'source.address', 'event.action', 'user.name']);
+  assert.deepEqual(carriedRiskFilters('user', filters).map((filter) => filter.field), ['labels.riskLevel', 'labels.riskState', 'labels.riskDetail', 'user.name']);
+  assert.deepEqual(carriedRiskFilters('servicePrincipal', filters).map((filter) => filter.field), ['labels.riskLevel', 'labels.riskState', 'labels.riskDetail', 'labels.servicePrincipalType', 'client.appName', 'client.appId']);
   assert.ok(!carriedRiskFilters('user', filters).some((filter) => filter.field === 'source.address' || filter.field === 'event.action' || filter.field === 'labels.servicePrincipalType'));
   assert.ok(!carriedRiskFilters('servicePrincipal', filters).some((filter) => filter.field === 'source.address' || filter.field === 'event.action' || filter.field === 'user.name'));
   assert.ok(carriedRiskFilters('servicePrincipal', filters).some((filter) => filter.field === 'labels.servicePrincipalType'));

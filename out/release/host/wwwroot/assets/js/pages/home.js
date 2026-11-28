@@ -128,8 +128,14 @@ function applyFocus(card, giveUp) {
     const id = pendingFocus;
     const focusGen = generation;
     focusScroll = false;
-    setTimeout(() => { if (focusGen !== generation || pendingFocus !== id) return; pendingFocus = ''; }, 2400);
+    // The cached paint must leave the id armed until the network list is on screen.
+    const delay = focusClearDelay(giveUp);
+    if (delay > 0) setTimeout(() => { if (focusGen !== generation || pendingFocus !== id) return; pendingFocus = ''; }, delay);
   }
+}
+
+export function focusClearDelay(networkPaint) {
+  return networkPaint ? 2400 : 0;
 }
 
 function shareHeader(ctx) {

@@ -145,9 +145,17 @@ function zoneOnly(rest) {
   return /^(?:z|gmt|[+-]\d)/i.test(text) && zoneFits(text);
 }
 
+// 3.45.30 PM and 3,45,30 PM are 15:45:30. The dots or commas run through the seconds field.
+function rewriteMeridianClock(text) {
+  return String(text).replace(
+    /(^|\s)(\d{1,2})[.,](\d{1,2})(?:[.,](\d{1,2}))?(?=\s*[ap]m\b)/gi,
+    (_, lead, hour, minute, second) => lead + hour + ':' + minute + (second === undefined ? '' : ':' + second),
+  );
+}
+
 function clockFits(rest) {
   // 23:59:59,999 is the same fraction as 23:59:59.999. 3.45 PM is 3:45 PM. 10 :30 is 10:30.
-  const text = String(rest).trim().replace(/(\d),(\d+)/g, '$1.$2').replace(/^(\d{1,2})\.(\d{1,2})(?=\s*[ap]m\b)/i, '$1:$2');
+  const text = rewriteMeridianClock(String(rest).trim().replace(/(\d),(\d+)/g, '$1.$2'));
   const match = new RegExp(`^(\\d{1,2})(?:\\s*:\\s*(\\d{1,2})(?:\\s*:\\s*(\\d{1,2})(?:\\.\\d+)?)?)?(?:\\s*([ap]m))?(?:\\s*(${ZONE_TOKEN}))?$`, 'i').exec(text);
   if (!match || (match[2] === undefined && !match[4])) return false;
   let hour = Number(match[1]);
@@ -282,7 +290,7 @@ function numericDashParts(monthText, dayText, yearText) {
 }
 
 function normalizeDateText(value) {
-  let text = String(value || '').trim().replace(/[.,]+$/g, '').trim();
+  let text = rewriteMeridianClock(String(value || '').trim().replace(/[.,]+$/g, '').trim());
   // The host drops spaces around / and around hyphens in a month name. The offset space is restored below.
   text = text.replace(/\s*\/\s*/g, '/');
   if (text.split(/[^A-Za-z.]+/).some((token) => monthIndex(token))) {
@@ -344,12 +352,12 @@ function calendarOf(value) {
   // A numeric year is four digits or exactly two. 1/1/100 is not a date.
   const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?:\s.*)?$/.exec(text);
   if (slash && calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2]))) return { year: expandYear(slash[3]), month: Number(slash[1]), day: Number(slash[2]) };
-  const slashNamed = /^(\d{1,4})[/.]([A-Za-z]+)[/.](\d{1,4})(?:\s.*)?$/.exec(text);
+  const slashNamed = /^(\d{1,4})(?:\s*\.\s*|\/)([A-Za-z]+)(?:\s*\.\s*|\/)(\d{1,4})(?:\s.*)?$/.exec(text);
   if (slashNamed) {
     const named = dashedNamedParts(slashNamed[1], slashNamed[2], slashNamed[3]);
     if (named) return named;
   }
-  const monthSlash = /^([A-Za-z]+)[/.](\d{1,4})[/.](\d{1,4})(?:\s.*)?$/.exec(text);
+  const monthSlash = /^([A-Za-z]+)(?:\s*\.\s*|\/)(\d{1,4})(?:\s*\.\s*|\/)(\d{1,4})(?:\s.*)?$/.exec(text);
   if (monthSlash) {
     const named = monthDashParts(monthSlash[1], monthSlash[2], monthSlash[3]);
     if (named) return named;
@@ -391,14 +399,13 @@ function calendarOf(value) {
   // 100 Jan 1 is year 100. 6 Jan 1 stays day-first: one or two digits never reach this path.
   const yearFirst = /^(\d{3,4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s.*)?$/.exec(text);
   if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return { year: Number(yearFirst[1]), month: monthIndex(yearFirst[2]), day: Number(yearFirst[3]) };
-  // November 13-2026 is 13 November 2026. A glued hyphen hides that year from a clock; a slash does not.
+  // November 13-2026 is 13 November 2026. The hyphen is the year separator, including when a clock follows.
   const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d)(,\s*|\s+|[-/])(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(text);
   if (ahead && monthIndex(ahead[1])) {
     const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
-    if (ahead[3] === '-' && ahead[5]) return null;
-    if (parts && (ahead[3] === '-' || clockOrZone(ahead[5], parts.year, parts.month, parts.day))) return parts;
+    if (parts && clockOrZone(ahead[5], parts.year, parts.month, parts.day)) return parts;
   }
-  const behind = /^(\d{1,2}),?\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s.*)?$/.exec(text);
+  const behind = /^(\d{1,2})(?:\s*\.\s*|,?\s+)([A-Za-z]+\.?)(?:,\s*|\s+|\s*\.\s*|-)(\d{1,4})(?:\s.*)?$/.exec(text);
   if (behind && monthIndex(behind[2])) {
     const parts = spacedParts(behind[1], behind[2], behind[3]);
     if (parts) return parts;
@@ -414,15 +421,13 @@ function clockOrZone(rest, year, month, day) {
 }
 
 function namedDay(value) {
-  // Same day/year separator as calendarOf. A glued hyphen with a clock or offset is not a date.
+  // Same day/year separator as calendarOf. A hyphen before the year is that year, then the clock.
   const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d)(,\s*|\s+|[-/])(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(value);
   if (ahead && monthIndex(ahead[1])) {
     const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
-    if (ahead[3] === '-' && ahead[5]) return false;
-    if (ahead[3] === '-') return !!parts;
     return !!parts && clockOrZone(ahead[5], parts.year, parts.month, parts.day);
   }
-  const behind = /^(\d{1,2}),?\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s+(.*))?$/.exec(value);
+  const behind = /^(\d{1,2})(?:\s*\.\s*|,?\s+)([A-Za-z]+\.?)(?:,\s*|\s+|\s*\.\s*|-)(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (behind && monthIndex(behind[2])) {
     const parts = spacedParts(behind[1], behind[2], behind[3]);
     return !!parts && clockOrZone(behind[4], parts.year, parts.month, parts.day);
@@ -496,7 +501,7 @@ function dateFits(value) {
     const fits = monthYearOffset(monthDashYear[3], Number(monthDashYear[2]), Number(monthDashYear[1]));
     if (fits !== null) return fits;
   }
-  if (/^\d{1,2}:\d{2}/.test(value) && clockFits(value)) return true;
+  // A bare clock is not a date. 9:30 and 15:00 stay rejected, matching the host.
   const leadClock = leadClockMatch(value);
   if (leadClock) {
     const clockText = leadClock[2] ? `${leadClock[1]} ${leadClock[2]}` : leadClock[1];
@@ -527,12 +532,12 @@ function dateFits(value) {
   // A numeric year is four digits or exactly two. 1/1/100 and Friday, 1/1/100 are not dates.
   const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?:\s+(.*))?$/.exec(value);
   if (slash) return calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2])) && clockOrZone(slash[4], expandYear(slash[3]), Number(slash[1]), Number(slash[2]));
-  const slashNamed = /^(\d{1,4})[/.]([A-Za-z]+)[/.](\d{1,4})(?:\s+(.*))?$/.exec(value);
+  const slashNamed = /^(\d{1,4})(?:\s*\.\s*|\/)([A-Za-z]+)(?:\s*\.\s*|\/)(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (slashNamed) {
     const named = dashedNamedParts(slashNamed[1], slashNamed[2], slashNamed[3]);
     if (named) return clockOrZone(slashNamed[4], named.year, named.month, named.day);
   }
-  const monthSlash = /^([A-Za-z]+)[/.](\d{1,4})[/.](\d{1,4})(?:\s+(.*))?$/.exec(value);
+  const monthSlash = /^([A-Za-z]+)(?:\s*\.\s*|\/)(\d{1,4})(?:\s*\.\s*|\/)(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (monthSlash) {
     const named = monthDashParts(monthSlash[1], monthSlash[2], monthSlash[3]);
     if (named) return clockOrZone(monthSlash[4], named.year, named.month, named.day);

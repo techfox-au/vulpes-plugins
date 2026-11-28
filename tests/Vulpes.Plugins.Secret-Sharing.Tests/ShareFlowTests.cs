@@ -370,7 +370,9 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         using var anon = await fixture.AnonymousAsync();
         var proof = await ProofAsync(anon, "/api/plugins/secret-sharing/public/collects/" + id);
         var path = "/api/plugins/secret-sharing/public/collects/" + id;
-        var rejected = await anon.SendAsync(HttpMethod.Post, path, Upload(proof, new string('a', 201)));
+        var longName = new string('a', 201);
+        var rejectedHeaders = new Dictionary<string, string>(proof.Headers) { ["X-Sendit-Filename"] = longName };
+        var rejected = await anon.SendAsync(HttpMethod.Post, path, Upload(proof, longName), rejectedHeaders);
         var rejectedText = await rejected.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
         Assert.Contains("\"validation\"", rejectedText, StringComparison.Ordinal);
@@ -379,7 +381,8 @@ public sealed class ShareFlowTests(ShareFlowFixture fixture) : IClassFixture<Sha
         Assert.Null(fixture.CollectFilename(id));
 
         var kept = new string('b', 200);
-        var accepted = await anon.SendAsync(HttpMethod.Post, path, Upload(proof, kept));
+        var keptHeaders = new Dictionary<string, string>(proof.Headers) { ["X-Sendit-Filename"] = kept };
+        var accepted = await anon.SendAsync(HttpMethod.Post, path, Upload(proof, kept), keptHeaders);
         Assert.Equal(HttpStatusCode.NoContent, accepted.StatusCode);
         Assert.Equal(Cipher, fixture.CollectCipher(id));
         Assert.Equal(kept, fixture.CollectFilename(id));

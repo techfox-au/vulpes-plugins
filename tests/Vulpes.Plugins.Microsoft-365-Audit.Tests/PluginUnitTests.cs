@@ -7,6 +7,7 @@ using Vulpes.Host.Search;
 using Vulpes.Plugins.Microsoft365Audit.Collectors;
 using Vulpes.Plugins.Microsoft365Audit.Data;
 using Vulpes.Plugins.Microsoft365Audit.Graph;
+using Vulpes.Plugins.Microsoft365Audit.Endpoints;
 using Vulpes.Plugins.Microsoft365Audit.Normalization;
 using Vulpes.Plugins.Microsoft365Audit.Scheduling;
 using Vulpes.Plugins.Microsoft365Audit.Tenants;
@@ -184,6 +185,29 @@ public sealed class NormalizerCoverageTests
         Assert.Equal("success", provisioning.Outcome);
         Assert.Equal("Workday", provisioning.ClientAppName);
         Assert.Equal("Entra ID", provisioning.Labels!["targetSystem"]);
+
+        var listed = Normalizers.Provisioning(Json("""{"id":"p2","activityDateTime":"2026-10-29T01:00:00Z","provisioningAction":"create","provisioningStatusInfo":{"status":"success"},"targetIdentity":{"id":"u","displayName":"New User","identityType":"User"},"servicePrincipal":[{"id":"sp","displayName":"Workday"}]}"""), "t", "T");
+        Assert.NotNull(listed);
+        Assert.Equal("sp", listed.ClientAppId);
+        Assert.Equal("Workday", listed.ClientAppName);
+        Assert.StartsWith("Workday:", listed.Message, StringComparison.Ordinal);
+
+        var blankTarget = Normalizers.Provisioning(Json("""{"id":"p3","activityDateTime":"2026-10-29T01:00:00Z","provisioningAction":"create","targetIdentity":{"id":"u","displayName":""},"sourceIdentity":{"displayName":"Adele Vance"},"servicePrincipal":{"id":"sp","displayName":"Workday"}}"""), "t", "T");
+        Assert.NotNull(blankTarget);
+        Assert.Equal("Adele Vance", blankTarget.UserName);
+        Assert.Contains("Adele Vance", blankTarget.Message, StringComparison.Ordinal);
+
+        var mailEvidence = Normalizers.SecurityAlert(Json("""{"id":"a1","createdDateTime":"2026-10-29T01:00:00Z","title":"Phish","severity":"high","evidence":[{"@odata.type":"#microsoft.graph.security.analyzedMessageEvidence","senderIp":"203.0.113.8","recipientEmailAddress":"bob@contoso.com"}]}"""), "t", "T");
+        Assert.NotNull(mailEvidence);
+        Assert.Equal("bob@contoso.com", mailEvidence.UserName);
+        Assert.Equal("203.0.113.8", mailEvidence.SourceIp);
+
+        var ids = Enumerable.Range(0, 120).Select(i => "dir-" + i.ToString(CultureInfo.InvariantCulture)).ToList();
+        var pages = AuditEndpoints.TermsPages(ids);
+        Assert.Equal([50, 50, 20], pages.Select(page => page.Length).ToArray());
+        Assert.Equal("dir-0", pages[0][0]);
+        Assert.Equal("dir-119", pages[2][^1]);
+        Assert.All(pages, page => Assert.InRange(page.Length, 1, 50));
 
         var incident = Normalizers.Incident(Json("""{"id":"i1","displayName":"Multi-stage incident","severity":"medium","status":"active","createdDateTime":"2026-10-29T02:00:00Z","lastUpdateDateTime":"2026-10-29T03:00:00Z","incidentWebUrl":"https://security.microsoft.com/incidents/1"}"""), "t", "T");
         Assert.NotNull(incident);

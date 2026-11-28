@@ -215,7 +215,7 @@ function ensureUdk() {
 }
 
 function loadCrypto() {
-  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk9`, 'SecretUdk')).then(() => window.SecretUdk.ready());
+  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk10`, 'SecretUdk')).then(() => window.SecretUdk.ready());
 }
 function downloadText(filename, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));

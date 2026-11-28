@@ -1,4 +1,5 @@
 import { confirmIdentity } from '../reauth.js?v=shell468';
+import { secretPayload, splitMailboxList } from '../mailboxes.js?v=shell468';
 import { manifestQuery } from '../pwa.js?v=shell388';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
 
@@ -174,12 +175,7 @@ export async function render(ctx) {
         field.type = next.type;
         label(field.type === 'text');
       });
-      const payload = () => {
-        if (field.readOnly) return { secret: '', remove: false };
-        const text = field.value.trim();
-        if (text === mask) return { secret: '', remove: false };
-        return { secret: text, remove: revealed && text.length === 0 };
-      };
+      const payload = () => secretPayload(field.value, { readOnly: field.readOnly, revealed, mask });
       return {
         line: h('div', { class: 'secret-box secret-line' }, field, h('div', { class: 'secret-box-tools' }, button)),
         payload,
@@ -234,7 +230,7 @@ export async function render(ctx) {
           removeGraphClientSecret: graph.remove,
           mailgunApiKey: mailgun.secret || null,
           removeMailgunApiKey: mailgun.remove,
-          defaultRecipients: v.defaultRecipients.split(',').map((s) => s.trim()).filter(Boolean),
+          defaultRecipients: splitMailboxList(v.defaultRecipients),
         });
         emailNotice = { message: 'Email settings saved.', kind: 'success' };
         await render(ctx);

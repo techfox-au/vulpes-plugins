@@ -654,21 +654,14 @@ public static class AuditEndpoints
     private static async Task<Dictionary<string, long>> CountTenantDocumentsAsync(IEventSearch search, string source, List<string> directoryIds, CancellationToken ct)
     {
         var counts = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-        for (var index = 0; index < directoryIds.Count; index += FilterValueLimit)
+        foreach (var values in TermsPages(directoryIds))
         {
-            var count = Math.Min(FilterValueLimit, directoryIds.Count - index);
-            var values = new string[count];
-            for (var offset = 0; offset < count; offset++)
-            {
-                values[offset] = directoryIds[index + offset];
-            }
-
             var agg = await search.AggregateAsync(new EventAggregationQuery
             {
                 PluginId = Normalizers.PluginId,
                 Source = source,
                 Filters = [new FieldFilter("vc.tenantId", FilterOperator.In, values)],
-                Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", count)],
+                Aggregations = [new AggregationSpec("tenants", AggregationKind.Terms, "vc.tenantId", values.Length)],
             }, ct);
             if (!agg.Aggregations.TryGetValue("tenants", out var buckets))
             {
@@ -687,6 +680,26 @@ public static class AuditEndpoints
         }
 
         return counts;
+    }
+
+    /// <summary>Terms aggregations keep at most 50 buckets. Each page is that size so a directory with documents is not dropped.</summary>
+    internal static List<string[]> TermsPages(IReadOnlyList<string> ids)
+    {
+        const int termsPage = 50;
+        var pages = new List<string[]>();
+        for (var index = 0; index < ids.Count; index += termsPage)
+        {
+            var count = Math.Min(termsPage, ids.Count - index);
+            var values = new string[count];
+            for (var offset = 0; offset < count; offset++)
+            {
+                values[offset] = ids[index + offset];
+            }
+
+            pages.Add(values);
+        }
+
+        return pages;
     }
 
     /// <summary>One statistics row per directory. A disabled client is omitted by directory id, so a same-named enabled client stays.</summary>

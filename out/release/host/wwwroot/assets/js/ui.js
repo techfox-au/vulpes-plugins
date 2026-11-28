@@ -244,6 +244,15 @@ export const drawer = {
   _esc(e) { if (e.key === 'Escape' && !document.querySelector('.modal-card')) drawer.close(); },
 };
 
+// The button is disabled before onClick runs. A false result, or a throw, lets the person try again.
+export function armModalAction(button) {
+  if (!button || button.disabled) return null;
+  button.disabled = true;
+  return (ok) => {
+    if (ok === false) button.disabled = false;
+  };
+}
+
 // ---------------------------------------------------------------- modal
 export const modal = {
   /** Shows a modal; resolves with the value passed to close(value) (undefined on cancel). */
@@ -271,8 +280,22 @@ export const modal = {
       for (const a of actions || [{ label: 'Close' }]) {
         const button = h('button', { class: 'btn ' + (a.kind || ''), type: a.submit ? 'submit' : 'button' }, a.label);
         button.addEventListener('click', async () => {
-          if (a.submit || button.disabled) return;
-          if (a.onClick) { const r = await a.onClick(close, button); if (r === false) return; }
+          if (a.submit) return;
+          const finish = armModalAction(button);
+          if (!finish) return;
+          if (a.onClick) {
+            let result;
+            try {
+              result = await a.onClick(close, button);
+            } catch (err) {
+              finish(false);
+              throw err;
+            }
+            if (result === false) {
+              finish(false);
+              return;
+            }
+          }
           close(a.value);
         });
         footer.append(button);

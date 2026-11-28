@@ -46,6 +46,73 @@ public sealed class CollectUploadGateTests : IDisposable
     }
 
     [Fact]
+    public async Task A_long_file_name_header_does_not_burn_the_upload_proof()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "long-name.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+
+        var blocked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, filenameHeader: new string('a', 201));
+        Assert.False(blocked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, blocked.MaxRequestBodySize);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
+    }
+
+    [Fact]
+    public async Task A_unicode_file_name_is_percent_encoded_utf8_and_keeps_the_proof_when_it_is_short()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "unicode-name.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var encoded = Uri.EscapeDataString("秘密.txt");
+        Assert.True(encoded.Length > "秘密.txt".Length);
+        Assert.False(CollectUploadGate.FilenameTooLong(encoded));
+
+        var allowed = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, filenameHeader: encoded);
+        Assert.True(allowed.Consumed);
+        Assert.Equal(PowService.LargeBodyBytes, allowed.MaxRequestBodySize);
+
+        var longEncoded = Uri.EscapeDataString(new string('密', CollectUploadGate.MaxFilenameLength + 1));
+        Assert.True(longEncoded.Length > CollectUploadGate.MaxFilenameLength);
+        Assert.True(CollectUploadGate.FilenameTooLong(longEncoded));
+    }
+
+    [Fact]
+    public async Task An_extra_slash_or_a_padded_id_does_not_burn_the_real_collect_proof()
+    {
+        var database = new ShareDatabase(Path.Combine(_dir, "path-proof.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var doubled = "/api/plugins/secret-sharing/public/collects//" + id;
+        var spaced = "/api/plugins/secret-sharing/public/collects/" + id + " ";
+
+        var extra = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, path: doubled);
+        Assert.False(extra.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, extra.MaxRequestBodySize);
+        Assert.Null(CollectUploadGate.RouteId(doubled));
+
+        var padded = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, path: spaced);
+        Assert.False(padded.Consumed);
+        Assert.Equal(id + " ", CollectUploadGate.RouteId(spaced));
+
+        var clock = PowClock.Stamp(DateTimeOffset.UtcNow);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, clock));
+    }
+
+    [Fact]
     public async Task A_lockout_leaves_a_solved_upload_proof_in_place()
     {
         var database = new ShareDatabase(Path.Combine(_dir, "lockout.db"));
@@ -278,7 +345,7 @@ public sealed class CollectUploadGateTests : IDisposable
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
-    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null, IPAddress? remote = null, ShareScanGuard? scan = null, string? forwardedFor = null, IPAddress? knownProxy = null, IReadOnlyList<IPAddress>? knownProxies = null, int? forwardLimit = null)
+    private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null, IPAddress? remote = null, ShareScanGuard? scan = null, string? forwardedFor = null, IPAddress? knownProxy = null, IReadOnlyList<IPAddress>? knownProxies = null, int? forwardLimit = null, string? filenameHeader = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(database);
@@ -322,6 +389,11 @@ public sealed class CollectUploadGateTests : IDisposable
             context.Request.Headers[PowService.HeaderNonce] = nonce;
             context.Request.Headers[PowService.HeaderHash] = hash;
             context.Request.Headers[PowService.HeaderTime] = PowClock.Stamp(DateTimeOffset.UtcNow);
+        }
+
+        if (filenameHeader is not null)
+        {
+            context.Request.Headers[CollectUploadGate.FilenameHeader] = filenameHeader;
         }
 
         var cap = new BodyCap();

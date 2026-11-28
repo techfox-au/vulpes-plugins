@@ -74,6 +74,8 @@ const notOnProvisioning = new Set([
   'source.address',
   'source.ip',
   'user.email',
+  'user.name',
+  'user.id',
 ]);
 const notOnDirectory = new Set(['event.action', 'labels.status', 'labels.sourceSystem', 'labels.targetSystem']);
 

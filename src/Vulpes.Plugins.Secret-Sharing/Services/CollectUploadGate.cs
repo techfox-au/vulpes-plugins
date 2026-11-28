@@ -14,6 +14,9 @@ namespace Vulpes.Plugins.SecretSharing.Services;
 /// </summary>
 public sealed class CollectUploadGate : IStartupFilter
 {
+    internal const string FilenameHeader = "X-Sendit-Filename";
+
+    internal const int MaxFilenameLength = 200;
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
         => app =>
         {
@@ -24,10 +27,16 @@ public sealed class CollectUploadGate : IStartupFilter
                     var scan = context.RequestServices.GetRequiredService<ShareScanGuard>();
                     var feature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
                     var trailingSlash = (context.Request.Path.Value ?? "").EndsWith('/');
+                    var routeId = RouteId(context.Request.Path);
+                    // The header is Latin-1. The page percent-encodes the UTF-8 filename so a name such as
+                    // 秘密.txt can be sent. The length is the decoded name, not the encoded header.
+                    var nameTooLong = FilenameTooLong(context.Request.Headers[FilenameHeader].ToString());
                     // A lockout must leave the solved ticket in place. CollectUpload answers 429
                     // before it would consume, and a new ticket cannot be issued until the window clears.
                     // A trailing slash is not the upload route, so it keeps the small cap and does not burn a proof.
-                    if (trailingSlash || scan.IsFailureBudgetExceeded(BudgetClientKey(context), out _))
+                    // An empty segment is not the upload route. Routing keeps a space in the id, so the proof is
+                    // spent only for that same segment. Trimming it would burn the real collect's proof.
+                    if (trailingSlash || routeId is null || nameTooLong || scan.IsFailureBudgetExceeded(BudgetClientKey(context), out _))
                     {
                         if (feature is { IsReadOnly: false }) feature.MaxRequestBodySize = PowService.SmallBodyBytes;
                     }
@@ -36,7 +45,7 @@ public sealed class CollectUploadGate : IStartupFilter
                         var pow = context.RequestServices.GetRequiredService<PowService>();
                         PowService.ReadFromHeaders(context.Request.Headers, out var challenge, out var nonce, out var hash);
                         var clientTime = context.Request.Headers[PowService.HeaderTime].ToString();
-                        var id = UploadId(context.Request.Path);
+                        var id = routeId;
                         var browser = Vulpes.Sdk.PowBrowser.Current(context);
                         var proven = challenge is not null && nonce is not null && id is not null
                             && pow.TryConsume("collect", id, challenge, nonce, hash, browser, clientTime) is null;
@@ -179,6 +188,40 @@ public sealed class CollectUploadGate : IStartupFilter
         return true;
     }
 
+    /// <summary>
+    /// A header longer than <see cref="MaxFilenameLength"/> after UTF-8 percent-decoding is rejected before the proof is spent.
+    /// A header that is not valid percent-encoding is treated the same way. An unencoded Latin-1 name is used as written.
+    /// </summary>
+    internal static bool FilenameTooLong(string header)
+    {
+        if (!TryDecodeFilename(header, out var name))
+        {
+            return true;
+        }
+
+        return name.Length > MaxFilenameLength;
+    }
+
+    private static bool TryDecodeFilename(string header, out string name)
+    {
+        if (header.IndexOf('%') < 0)
+        {
+            name = header;
+            return true;
+        }
+
+        try
+        {
+            name = Uri.UnescapeDataString(header);
+            return true;
+        }
+        catch (UriFormatException)
+        {
+            name = "";
+            return false;
+        }
+    }
+
     private static bool IsCollectUpload(PathString path)
     {
         var parts = Parts(path);
@@ -190,10 +233,25 @@ public sealed class CollectUploadGate : IStartupFilter
             && parts[4].Equals("collects", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? UploadId(PathString path)
+    /// <summary>The id the route binds. A space stays. An empty segment, including a doubled slash, is not an id.</summary>
+    internal static string? RouteId(PathString path)
     {
-        var parts = Parts(path);
-        return parts.Length == 6 ? Uri.UnescapeDataString(parts[5]) : null;
+        var value = (path.Value ?? "").TrimEnd('/');
+        var parts = value.Split('/');
+        if (parts.Length != 7)
+        {
+            return null;
+        }
+
+        for (var i = 1; i < parts.Length; i++)
+        {
+            if (parts[i].Length == 0)
+            {
+                return null;
+            }
+        }
+
+        return Uri.UnescapeDataString(parts[6]);
     }
 
     private static string[] Parts(PathString path) =>

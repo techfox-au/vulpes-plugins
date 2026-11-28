@@ -76,6 +76,8 @@ export function carriedRiskFilters(type, filters) {
     drop.add('user.email');
   } else {
     drop.add('labels.servicePrincipalType');
+    drop.add('client.appName');
+    drop.add('client.appId');
   }
   if (type !== 'detection') {
     for (const field of detectionOnly) drop.add(field);

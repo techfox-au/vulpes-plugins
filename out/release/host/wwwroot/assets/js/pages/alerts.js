@@ -1,4 +1,4 @@
-import { fieldChoices, hasUnknownConditionField, nextConditions, sourceCheckboxDisabled, thresholdWindowMinutes } from '../alert-conditions.js?v=shell467';
+import { fieldChoices, hasUnknownConditionField, nextConditions, sourceCheckboxDisabled, thresholdWindowMinutes } from '../alert-conditions.js?v=shell468';
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, jsonView, dropdown, panelNote, pageNote } from '../ui.js?v=shell409';
 import { severityKind } from './home.js';
 

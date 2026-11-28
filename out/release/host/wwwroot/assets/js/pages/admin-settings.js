@@ -1,4 +1,4 @@
-import { confirmIdentity } from '../reauth.js?v=shell467';
+import { confirmIdentity } from '../reauth.js?v=shell468';
 import { manifestQuery } from '../pwa.js?v=shell388';
 import { h, icon, errorMessage, clear, setBusy, formValues, badge, kv, dropdown, panelNote, modal, fmt, table, copyToClipboard } from '../ui.js?v=shell380';
 

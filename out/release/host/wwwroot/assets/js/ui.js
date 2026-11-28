@@ -269,11 +269,13 @@ export const modal = {
       };
       const footer = h('div', { class: 'modal-footer' });
       for (const a of actions || [{ label: 'Close' }]) {
-        footer.append(h('button', { class: 'btn ' + (a.kind || ''), type: a.submit ? 'submit' : 'button', onClick: async () => {
-          if (a.submit) return;
-          if (a.onClick) { const r = await a.onClick(close); if (r === false) return; }
+        const button = h('button', { class: 'btn ' + (a.kind || ''), type: a.submit ? 'submit' : 'button' }, a.label);
+        button.addEventListener('click', async () => {
+          if (a.submit || button.disabled) return;
+          if (a.onClick) { const r = await a.onClick(close, button); if (r === false) return; }
           close(a.value);
-        } }, a.label));
+        });
+        footer.append(button);
       }
       const card = h('div', { class: 'modal-card' + (wide ? ' wide' : '') },
         h('div', { class: 'modal-header' }, h('h2', null, title), h('button', { class: 'btn ghost sm', 'aria-label': 'Close', onClick: () => close(undefined) }, icon('x'))),

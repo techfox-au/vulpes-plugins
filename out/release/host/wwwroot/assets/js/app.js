@@ -1,9 +1,9 @@
 // Application shell: session bootstrap, navigation, path router, plugin page host.
-import { canonicalShellPath, legacyHashPath, hashChangeTarget } from './shell-path.js?v=shell467';
+import { canonicalShellPath, legacyHashPath, hashChangeTarget } from './shell-path.js?v=shell468';
 import { api, session, invalidateSession, redirectToLogin } from './api.js?v=shell420';
 import { navLinkActive, secretsEntry } from './nav-active.js?v=shell454';
-import { confirmIdentity } from './reauth.js?v=shell467';
-import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell441';
+import { confirmIdentity } from './reauth.js?v=shell468';
+import { h, clear, icon, errorMessage, ui, avatar } from './ui.js?v=shell468';
 import './pwa.js?v=shell388';
 
 const content = document.getElementById('content');
@@ -12,12 +12,12 @@ let state = { user: null, app: null, nav: null };
 let current = null; // { unmount, key }
 
 const corePages = {
-  '/': () => import('./pages/home.js?v=shell467'),
-  '/account': () => import('./pages/account.js?v=shell467'),
-  '/alerts': () => import('./pages/alerts.js?v=shell467'),
-  '/admin/users': () => import('./pages/admin-users.js?v=shell467'),
+  '/': () => import('./pages/home.js?v=shell468'),
+  '/account': () => import('./pages/account.js?v=shell468'),
+  '/alerts': () => import('./pages/alerts.js?v=shell468'),
+  '/admin/users': () => import('./pages/admin-users.js?v=shell468'),
   '/admin/plugins': () => import('./pages/admin-plugins.js?v=shell463'),
-  '/admin/settings': () => import('./pages/admin-settings.js?v=shell467'),
+  '/admin/settings': () => import('./pages/admin-settings.js?v=shell468'),
   '/admin/audit': () => import('./pages/admin-audit.js?v=shell443'),
   '/admin/console': () => import('./pages/admin-console.js?v=shell447'),
 };
@@ -345,7 +345,7 @@ async function mountPluginPage(pluginId, page, query, stale) {
   template.innerHTML = html;
   el.append(template.content);
 
-  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell467`);
+  const mod = await import(`/plugins/${pluginId}/js/${page}.js?v=shell468`);
   if (stale()) return;
   await mountSettled(mod, el, pageContext({ plugin: pluginId, page }, query, pluginId), stale, `${pluginId}/${page}`);
 }
@@ -477,7 +477,7 @@ async function boot() {
 
 async function clearHomeCache() {
   try {
-    const { homeCacheKeysToClear } = await import('./pages/home.js?v=shell467');
+    const { homeCacheKeysToClear } = await import('./pages/home.js?v=shell468');
     const keys = [];
     for (let i = 0; i < sessionStorage.length; i += 1) {
       const key = sessionStorage.key(i);

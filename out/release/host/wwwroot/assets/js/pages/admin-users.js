@@ -1,5 +1,5 @@
 import { h, badge, fmt, table, modal, drawer, errorMessage, clear, copyToClipboard, kv, panelNote, pageNote } from '../ui.js?v=shell409';
-import { confirmIdentity } from '../reauth.js?v=shell467';
+import { confirmIdentity } from '../reauth.js?v=shell468';
 
 let root;
 let generation = 0;

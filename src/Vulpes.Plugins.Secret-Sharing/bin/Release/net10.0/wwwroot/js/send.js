@@ -3,6 +3,19 @@ import { sendLinkNote } from './link-note.js?v=note1';
 
 const pub = '/plugins/secret-sharing/public';
 const FILE_LIMIT = 40 * 1024 * 1024;
+
+function parseMaxAccess(value) {
+  const text = String(value ?? '').trim();
+  if (text === '') return null;
+  if (!/^[1-9]\d*$/.test(text)) return false;
+  const n = Number(text);
+  if (n > 100000) return false;
+  return n;
+}
+
+function fileNameWithinLimit(name) {
+  return name == null || name.length <= 200;
+}
 const expiryChoices = [
   ['1', '1 minute'], ['10', '10 minutes'], ['30', '30 minutes'], ['60', '1 hour'],
   ['1440', '1 day'], ['4320', '3 days'], ['10080', '7 days'], ['20160', '14 days'],
@@ -59,7 +72,7 @@ export async function mount(el, ctx) {
     maxWrap.hidden = !multi;
     if (!multi) max.value = '';
   });
-  max.addEventListener('input', () => { const whole = /^\d+/.exec(max.value); max.value = whole ? whole[0] : ''; });
+  max.addEventListener('input', () => { if (parseMaxAccess(max.value) === false) max.value = ''; });
   password.addEventListener('input', () => {
     confirmWrap.hidden = password.value.length === 0;
     if (!password.value) confirm.value = '';
@@ -105,10 +118,10 @@ export async function mount(el, ctx) {
       if (!cidrParsed.ok) throw new Error(cidrParsed.error);
       const oneTime = mode.value !== 'false';
       let maxAccessCount = null;
-      if (!oneTime && max.value.trim()) {
-        const n = parseInt(max.value.trim(), 10);
-        if (!Number.isFinite(n) || n < 1 || n > 100000) throw new Error('Maximum access count must be a whole number from 1 to 100000.');
-        maxAccessCount = n;
+      if (!oneTime) {
+        const parsed = parseMaxAccess(max.value);
+        if (parsed === false) throw new Error('Maximum access count must be a whole number from 1 to 100000.');
+        maxAccessCount = parsed;
       }
       const linkPassword = password.value;
       if (linkPassword && linkPassword !== confirm.value) throw new Error('Link password and confirmation do not match.');
@@ -116,6 +129,7 @@ export async function mount(el, ctx) {
       if (fileRadio.checked) {
         if (!chosen) throw new Error('Choose a file to encrypt.');
         if (chosen.size > FILE_LIMIT) throw new Error('File exceeds 40 MB limit.');
+        if (!fileNameWithinLimit(chosen.name)) throw new Error('File name is too long (max 200 characters).');
       } else if (!secret.value) {
         throw new Error('Enter a secret to encrypt.');
       }
@@ -201,7 +215,7 @@ function ensureUdk() {
 }
 
 function loadCrypto() {
-  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk6`)).then(() => window.SecretUdk.ready());
+  return loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk9`, 'SecretUdk')).then(() => window.SecretUdk.ready());
 }
 function downloadText(filename, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
@@ -214,13 +228,33 @@ function downloadText(filename, text) {
   URL.revokeObjectURL(url);
 }
 
-function loadScript(src) {
-  if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+function scriptLoadDecision(tagPresent, globalReady, error) {
+  if (error) return 'remove';
+  if (tagPresent && globalReady) return 'resolve';
+  return 'load';
+}
+
+function loadScript(src, globalName) {
+  const existing = document.querySelector(`script[src="${src}"]`);
+  const globalReady = !globalName || !!window[globalName];
+  if (scriptLoadDecision(!!existing, globalReady, false) === 'resolve') return Promise.resolve();
+  if (existing) existing.remove();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Could not load encryption.'));
+    s.onload = () => {
+      const ready = !globalName || !!window[globalName];
+      if (scriptLoadDecision(true, ready, false) !== 'resolve') {
+        s.remove();
+        reject(new Error('Could not load encryption.'));
+        return;
+      }
+      resolve();
+    };
+    s.onerror = () => {
+      if (scriptLoadDecision(true, false, true) === 'remove') s.remove();
+      reject(new Error('Could not load encryption.'));
+    };
     document.head.append(s);
   });
 }

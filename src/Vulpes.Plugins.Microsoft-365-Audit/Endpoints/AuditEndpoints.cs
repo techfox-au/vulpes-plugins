@@ -316,8 +316,14 @@ public static class AuditEndpoints
                     AddUsage(usageRows, key, bucket.Count, share);
                 }
             }
-            catch (Exception ex) when (ex is ArgumentException || ex.GetType().Name == "SearchUnavailableException")
+            // A swallowed search used to return 200 and omit that source from By client while the document total still included it.
+            catch (ArgumentException ex)
             {
+                return Error(400, "validation", ex.Message);
+            }
+            catch (Exception ex) when (ex.GetType().Name == "SearchUnavailableException")
+            {
+                return Error(503, "search_unavailable", ex.Message);
             }
         }
 

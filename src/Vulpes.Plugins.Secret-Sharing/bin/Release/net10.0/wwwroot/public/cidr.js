@@ -45,6 +45,7 @@
     if (!hostPart || !prefixPart) return { ok: false, error: "CIDR must be address/prefix (e.g. 192.168.0.0/24)." };
     if (!/^\d+$/.test(prefixPart)) return { ok: false, error: "CIDR prefix must be a decimal integer." };
     var prefix = parseInt(prefixPart, 10);
+    if (String(prefix) !== prefixPart) return { ok: false, error: "CIDR prefix must be a decimal integer." };
     var host = parseStrictIp(hostPart);
     if (!host.ok) return host;
     var maxPrefix = host.family === 4 ? 32 : 128;

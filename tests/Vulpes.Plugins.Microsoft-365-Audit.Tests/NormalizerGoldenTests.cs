@@ -85,6 +85,9 @@ public sealed class NormalizerEdgeCaseTests
     [Theory]
     [InlineData("198.51.100.7:51234", "198.51.100.7")]
     [InlineData("[2001:db8::1]:443", "2001:db8::1")]
+    [InlineData("[2001:db8::1]", "2001:db8::1")]
+    [InlineData("1.2.3.4:443", "1.2.3.4")]
+    [InlineData("1.2.3.4", "1.2.3.4")]
     [InlineData("2001:db8::1", "2001:db8::1")]
     [InlineData("  ", null)]
     public void Cleans_ip_addresses_with_ports(string input, string? expected)

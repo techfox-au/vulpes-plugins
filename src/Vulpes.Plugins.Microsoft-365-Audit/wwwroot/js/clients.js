@@ -155,6 +155,14 @@ async function testClient(ctx, tenant, button) {
   }
 }
 
+export function lookbackDays(text) {
+  const raw = String(text ?? '').trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const days = Number(raw);
+  if (days < 1 || days > 180) return null;
+  return days;
+}
+
 async function collection(ctx, tenant) {
   const { h, modal, errorMessage, panelNote } = ctx.ui;
   const [detail, sources] = await Promise.all([
@@ -187,7 +195,9 @@ async function collection(ctx, tenant) {
       if (r.recordTypes && r.recordTypes.value.trim()) entry.recordTypes = r.recordTypes.value.split(',').map((s) => s.trim()).filter(Boolean);
       settings.sources[r.source] = entry;
     }
-    try { await ctx.api.put(`${ctx.plugin.apiBase}/tenants/${tenant.id}/collection`, { lookbackDays: Number(look.value || 7), settings }); }
+    const days = lookbackDays(look.value);
+    if (days == null) { panelNote(form, 'Lookback must be between 1 and 180 days.'); return false; }
+    try { await ctx.api.put(`${ctx.plugin.apiBase}/tenants/${tenant.id}/collection`, { lookbackDays: days, settings }); }
     catch (err) { panelNote(form, errorMessage(err)); return false; }
   } }] });
   if (saved) ctx.ui.pageNote(root, 'Collection saved.', 'success');

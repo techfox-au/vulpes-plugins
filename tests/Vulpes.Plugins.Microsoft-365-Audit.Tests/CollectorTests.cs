@@ -95,6 +95,54 @@ public sealed class CollectorTests
     }
 
     [Fact]
+    public void Empty_window_does_not_move_a_null_watermark_to_now_when_the_flag_is_off()
+    {
+        var now = new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
+        Assert.Null(WatermarkCollector.NextWatermark(null, true, null, now, advanceEmptyToNow: false));
+        Assert.Equal(now, WatermarkCollector.NextWatermark(null, true, null, now, advanceEmptyToNow: true));
+    }
+
+    [Fact]
+    public async Task Disabled_non_interactive_users_do_not_pin_the_cursor_and_turning_them_on_uses_lookback()
+    {
+        var now = new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
+        var time = new FakeTimeProvider(now);
+        var requests = new List<string>();
+        var handler = new RoutedGraphHandler()
+            .Get(p => p.Contains("/beta/auditLogs/signIns", StringComparison.Ordinal), r =>
+            {
+                requests.Add(Uri.UnescapeDataString(r.RequestUri!.PathAndQuery));
+                return RoutedGraphHandler.Page([]);
+            })
+            .Get(p => p.Contains("/v1.0/auditLogs/signIns", StringComparison.Ordinal), _ => RoutedGraphHandler.Page([]));
+        var checkpoint = new Checkpoint { TenantId = TestContext.Tenant.Id, Source = "signins" };
+        var off = TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, settings: new SourceSettings { IncludeNonInteractive = false }, time: time);
+
+        await new SignInsCollector().CollectAsync(off, CancellationToken.None);
+
+        Assert.False(off.State.TryGetValue("nonInteractiveWatermark", out var pinned) && pinned.ValueKind == JsonValueKind.String);
+        Assert.Equal("false", off.State["includeNonInteractive"].GetString());
+
+        var cursor = now.AddHours(-1);
+        checkpoint.StateJson = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["nonInteractiveWatermark"] = cursor.ToString("O", CultureInfo.InvariantCulture),
+            ["nonInteractiveResumeUrl"] = "https://graph.microsoft.com/beta/auditLogs/signIns?$skiptoken=old",
+            ["includeNonInteractive"] = "false",
+        });
+        requests.Clear();
+        var on = TestContext.Context(TestContext.Client(handler, time), new FakePipeline(), checkpoint, settings: new SourceSettings { IncludeNonInteractive = true }, time: time);
+        await new SignInsCollector().CollectAsync(on, CancellationToken.None);
+
+        var beta = Assert.Single(requests, r => r.Contains("/beta/", StringComparison.Ordinal));
+        Assert.Contains(OData.Timestamp(now.AddDays(-TestContext.Tenant.LookbackDays)), beta, StringComparison.Ordinal);
+        Assert.DoesNotContain(OData.Timestamp(cursor - TimeSpan.FromMinutes(new AuditOptions().LogOverlapMinutes)), beta, StringComparison.Ordinal);
+        Assert.DoesNotContain("skiptoken=old", beta, StringComparison.Ordinal);
+        Assert.Equal("true", on.State["includeNonInteractive"].GetString());
+        Assert.True(on.State.TryGetValue("nonInteractiveWatermark", out var moved) && moved.ValueKind == JsonValueKind.String);
+    }
+
+    [Fact]
     public async Task Partial_sign_in_run_keeps_the_watermark_and_the_resume_link()
     {
         var handler = new RoutedGraphHandler()
@@ -366,6 +414,21 @@ public sealed class CollectorTests
         Assert.Equal(["detection", "user", "servicePrincipal"], pipeline.Events.Select(e => e.Labels!["riskType"]).ToArray());
         Assert.All(pipeline.Events, e => Assert.Equal("risk", e.Source));
         Assert.StartsWith("detection:rd1:", pipeline.Events[0].RecordId, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Risk_note_comes_from_the_first_feed_that_did_not_finish()
+    {
+        var kept = new CollectorResult(1, 0, 0, 0, true, "started at the retention floor");
+        var partial = new CollectorResult(1, 0, 0, 0, false, "partial run: 1 records read (page budget), continuing from the saved page");
+        var failed = new CollectorResult(0, 0, 2, 0, false, "Elasticsearch rejected records; the watermark was not moved");
+        var quiet = new CollectorResult(0, 0, 0, 0, true, null);
+
+        Assert.Equal(failed.Note, RiskCollector.SelectNote(kept, failed, partial));
+        Assert.Equal(partial.Note, RiskCollector.SelectNote(partial, failed, kept));
+        Assert.Equal(kept.Note, RiskCollector.SelectNote(kept, quiet, new CollectorResult(0, 0, 0, 0, true, "later")));
+        Assert.Equal("later", RiskCollector.SelectNote(quiet, new CollectorResult(0, 0, 0, 0, true, "later"), kept));
+        Assert.Equal("index", RiskCollector.SelectNote(new CollectorResult(1, 0, 3, 0, true, "index"), quiet, failed));
     }
 
     [Fact]

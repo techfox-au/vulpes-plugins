@@ -398,6 +398,32 @@ public sealed class AuditFixTests
         Assert.Equal((10L, 1000L), Counts(TenantsOf(body), "Enabled Co"));
     }
 
+    [Fact]
+    public async Task Statistics_fails_when_one_source_search_throws()
+    {
+        var search = new RecordingSearch
+        {
+            Usage = Usage(("signins", 10, 1000), ("activity", 5, 500)),
+            OnAggregate = _ => Tenants(10, ("tenant", 10)),
+            SearchFailure = new SearchUnavailableException("activity shard missing"),
+            FailSource = "activity",
+        };
+
+        var (statusCode, body) = await ReadResultAsync(await AuditEndpoints.StatisticsAsync(
+            search,
+            new EmptyCatalog(),
+            new ClientDirectory([]),
+            CancellationToken.None));
+
+        Assert.NotEqual(200, statusCode);
+        Assert.Equal(503, statusCode);
+        var json = JsonNode.Parse(body)!;
+        Assert.Equal("search_unavailable", json["error"]!.GetValue<string>());
+        Assert.Equal("activity shard missing", json["message"]!.GetValue<string>());
+        Assert.Null(json["tenants"]);
+        Assert.Null(json["documents"]);
+    }
+
     private static JsonElement Filters(int count, string tenantId)
     {
         var filters = new JsonArray();
@@ -491,6 +517,10 @@ public sealed class AuditFixTests
 
         public Exception? GetFailure { get; init; }
 
+        public Exception? SearchFailure { get; init; }
+
+        public string? FailSource { get; init; }
+
         public bool IsAvailable => true;
 
         public Task<EventSearchResult> SearchAsync(EventQuery query, CancellationToken cancellationToken)
@@ -498,6 +528,11 @@ public sealed class AuditFixTests
             Filters = query.Filters.Count;
             Applied = query.Filters;
             Sort = query.Sort;
+            if (SearchFailure is not null && (FailSource is null || string.Equals(query.Source, FailSource, StringComparison.Ordinal)))
+            {
+                throw SearchFailure;
+            }
+
             return Task.FromResult(new EventSearchResult(Hits, Hits.Count, true));
         }
 

@@ -17,6 +17,9 @@
   let idleMs = null;
   let sessionUserId = "";
   let worker = null;
+  let workerAnswered = false;
+  let bootEpoch = 0;
+  let bootReject = null;
   let seq = 0;
   const pending = new Map();
   let gate = Promise.resolve();
@@ -26,10 +29,15 @@
 
   function call(op, payload, transfer) {
     const id = ++seq;
+    const target = worker;
     return new Promise((resolve, reject) => {
+      if (!target) {
+        reject(new Error("Encryption failed."));
+        return;
+      }
       pending.set(id, { resolve, reject });
       try {
-        worker.postMessage(Object.assign({ id, op }, payload || {}), transfer || []);
+        target.postMessage(Object.assign({ id, op }, payload || {}), transfer || []);
       } catch (err) {
         pending.delete(id);
         reject(err);
@@ -45,8 +53,12 @@
 
   function startWorker() {
     if (worker) return;
-    worker = new Worker("/assets/js/udk-worker.js?v=udk6");
-    worker.onmessage = (ev) => {
+    workerAnswered = false;
+    const current = new Worker("/assets/js/udk-worker.js?v=udk7");
+    worker = current;
+    current.onmessage = (ev) => {
+      if (worker !== current) return;
+      workerAnswered = true;
       const msg = ev.data || {};
       const waiter = pending.get(msg.id);
       if (!waiter) return;
@@ -54,9 +66,19 @@
       if (msg.ok) waiter.resolve(msg.result || {});
       else waiter.reject(new Error(msg.error || "Encryption failed."));
     };
-    worker.onerror = () => {
+    current.onerror = () => {
+      if (worker !== current) return;
+      const early = !workerAnswered;
       pending.forEach((waiter) => waiter.reject(new Error("Encryption failed.")));
       pending.clear();
+      if (!early) return;
+      worker = null;
+      try { current.terminate(); } catch { /* already gone */ }
+      bootEpoch += 1;
+      readyPromise = null;
+      const rejectBoot = bootReject;
+      bootReject = null;
+      if (rejectBoot) rejectBoot(new Error("Encryption failed."));
     };
   }
 
@@ -136,28 +158,48 @@
 
   async function ready() {
     if (!readyPromise) {
+      const epoch = bootEpoch;
+      let rejectBoot;
+      const failed = new Promise((_, reject) => { rejectBoot = reject; });
+      bootReject = rejectBoot;
       startWorker();
-      readyPromise = restore().catch(function (err) {
-        readyPromise = null;
+      const run = Promise.race([
+        failed,
+        restore(epoch).then((value) => {
+          if (bootReject === rejectBoot) bootReject = null;
+          return value;
+        }),
+      ]).catch((err) => {
+        if (readyPromise === run) readyPromise = null;
         throw err;
       });
+      readyPromise = run;
     }
     return readyPromise;
   }
 
-  async function restore() {
+  async function restore(epoch) {
     const rec = readSession();
-    if (!rec || rec.v !== 3 || !rec.userId || rec.key) {
+    if (epoch !== bootEpoch) throw new Error("Encryption failed.");
+    if (rec && (rec.v !== 3 || !rec.userId || rec.key)) {
       await clearUserDataKey();
       return;
     }
     const limit = await loadIdleMs();
+    if (epoch !== bootEpoch) throw new Error("Encryption failed.");
+    // sessionStorage is per tab. The database is shared, so a tab with no record must not delete it while this account is still signed in.
+    if (!rec) {
+      if (limit === 0) await clearUserDataKey();
+      return;
+    }
     if (limit === 0 || (sessionUserId && sessionUserId !== String(rec.userId)) || Date.now() - Number(rec.touched || 0) > limit) {
       await clearUserDataKey();
       return;
     }
-    const status = await enqueue("restore", { userId: String(rec.userId) });
-    if (!status.unlocked) {
+    if (epoch !== bootEpoch) throw new Error("Encryption failed.");
+    const restored = await enqueue("restore", { userId: String(rec.userId) });
+    if (epoch !== bootEpoch) throw new Error("Encryption failed.");
+    if (!restored.unlocked) {
       await clearUserDataKey();
       return;
     }

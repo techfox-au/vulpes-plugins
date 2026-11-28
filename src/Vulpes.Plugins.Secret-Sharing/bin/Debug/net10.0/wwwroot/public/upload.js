@@ -1,5 +1,9 @@
 import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
 
+function fileNameWithinLimit(name) {
+  return name == null || name.length <= 200;
+}
+
 (async function () {
   const FILE_LIMIT = 40 * 1024 * 1024;
   const TEXT_LIMIT = 1000000;
@@ -105,6 +109,7 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
         const picked = fileEl.files && fileEl.files[0];
         if (!picked) throw new Error('Choose a file to encrypt.');
         if (picked.size > FILE_LIMIT) throw new Error('File exceeds 40 MB limit.');
+        if (!fileNameWithinLimit(picked.name)) throw new Error('File name is too long (max 200 characters).');
       } else if (!textEl.value) {
         throw new Error('Enter a secret to encrypt.');
       }
@@ -172,6 +177,7 @@ import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
       const file = fileEl.files && fileEl.files[0];
       if (!file) throw new Error('Choose a file to encrypt.');
       if (file.size > FILE_LIMIT) throw new Error('File exceeds 40 MB limit.');
+      if (!fileNameWithinLimit(file.name)) throw new Error('File name is too long (max 200 characters).');
       return { plain: new Uint8Array(await file.arrayBuffer()), contentType: file.type || 'application/octet-stream', filename: file.name };
     }
     const text = textEl.value;

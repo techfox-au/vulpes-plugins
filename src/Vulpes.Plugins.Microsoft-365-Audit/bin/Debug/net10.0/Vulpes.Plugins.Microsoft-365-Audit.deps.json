@@ -6,7 +6,7 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "Vulpes.Plugins.Microsoft-365-Audit/1.0.70": {
+      "Vulpes.Plugins.Microsoft-365-Audit/1.0.71": {
         "dependencies": {
           "Azure.Identity": "1.21.0",
           "Microsoft.EntityFrameworkCore.Design": "10.0.14",
@@ -591,7 +591,7 @@
     }
   },
   "libraries": {
-    "Vulpes.Plugins.Microsoft-365-Audit/1.0.70": {
+    "Vulpes.Plugins.Microsoft-365-Audit/1.0.71": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

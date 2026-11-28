@@ -100,9 +100,9 @@ function instantFits(year, month, day, rest) {
   const clock = /^(\d{1,2})\s*:\s*(\d{1,2})(?:\s*:\s*(\d{1,2})(?:\.(\d+))?)?/.exec(text);
   if (!clock) return true;
   let hour = Number(clock[1]);
-  const minute = Number(clock[2]);
-  const second = clock[3] === undefined ? 0 : Number(clock[3]);
-  const fraction = clock[4] || '';
+  let minute = Number(clock[2]);
+  let second = clock[3] === undefined ? 0 : Number(clock[3]);
+  let fraction = clock[4] || '';
   const ampm = /\s*([ap]m)/i.exec(text);
   if (ampm) {
     const mark = ampm[1].toLowerCase();
@@ -114,6 +114,19 @@ function instantFits(year, month, day, rest) {
   const zone = new RegExp(`(${ZONE_TOKEN})\\s*$`, 'i').exec(text);
   const shift = zone ? zoneParts(zone[1]) : { ok: true, minutes: 0, seconds: 0 };
   if (zone && !shift.ok) return false;
+  // 00:59:59.99999995 is 01:00:00 before the offset. That +01:00 is the earliest instant.
+  if (fractionRoundsPastMax(fraction)) {
+    second += 1;
+    fraction = '';
+    if (second === 60) {
+      second = 0;
+      minute += 1;
+    }
+    if (minute === 60) {
+      minute = 0;
+      hour += 1;
+    }
+  }
   // ±hh:mm:ss keeps the offset at ±hh:mm and stores :ss on a clock that had no seconds.
   const wallSecond = clock[3] === undefined ? second + shift.seconds : second;
   const utcSeconds = (hour * 60 + minute) * 60 + wallSecond - shift.minutes * 60;
@@ -278,14 +291,17 @@ function normalizeDateText(value) {
   const glued = new RegExp(String.raw`^(.*\d)\s*([zZ]|GMT|\+\d{1,2}(?::\d{1,2}(?::\d{1,2})?|\d{2,4})?)$`, 'i').exec(text);
   const shortNumericPlus = /^(?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*,?\s+)?\d{1,2}[/-]\d{1,2}[/-]\d{2}\+/i.test(text);
   if (glued && zoneFits(glued[2]) && !shortNumericPlus) text = `${glued[1]} ${glued[2]}`;
-  // -05:00 and -0500 on a finished date are offsets. A hyphen inside 2026-11-13, or the year in 11-13-1400, stays put.
-  const minus = /^(.*\d)-(\d{2}:\d{2}|\d{4})$/.exec(text);
-  if (minus && zoneFits(`-${minus[2]}`) && dateFits(minus[1])) text = `${minus[1]} -${minus[2]}`;
+  // -5:00, -05:00, and -0500 on a finished date are offsets. A hyphen inside 2026-11-13, or the year in 11-13-1400, stays put.
+  // 1/1/06-05:00 keeps the hyphen. A two-digit numeric date, with an optional weekday, does not take a glued colon offset. 1/1/06-0500 still splits.
+  const minus = /^(.*\d)-(\d{1,2}:\d{1,2}|\d{4})$/.exec(text);
+  const shortNumericDate = minus && /^(?:(?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?)(?:\.,?\s*|,\s*|\s+))?\d{1,2}[/-]\d{1,2}[/-]\d{2}$/i.test(minus[1]);
+  if (minus && !(shortNumericDate && minus[2].includes(':')) && zoneFits(`-${minus[2]}`) && dateFits(minus[1])) text = `${minus[1]} -${minus[2]}`;
   return text.replace(/^(\d{4})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})(?=$|\s|[Tt]|[+-]|Z)/i, '$1-$2-$3');
 }
 
 function leadClockMatch(value) {
-  return new RegExp(String.raw`^(\d{1,2}(?::\d{1,2}(?::\d{1,2}(?:[.,]\d+)?)?)?(?:\s*[ap]m)?)(?:\s*(${ZONE_TOKEN}))?\s+(\S.*)$`, 'i').exec(value);
+  // 12 :00 PM and 10: 30 PM use the same spaced colon as clockFits, including before AM/PM.
+  return new RegExp(String.raw`^(\d{1,2}(?:\s*:\s*\d{1,2}(?:\s*:\s*\d{1,2}(?:[.,]\d+)?)?)?(?:\s*[ap]m)?)(?:\s*(${ZONE_TOKEN}))?\s+(\S.*)$`, 'i').exec(value);
 }
 
 function stripLeadClock(value) {
@@ -302,14 +318,19 @@ function monthYearOnly(value) {
 }
 
 function calendarOf(value) {
-  const text = stripLeadClock(normalizeDateText(value));
+  let text = stripLeadClock(normalizeDateText(value));
+  // One comma before a clock, the same split dateFits uses. A weekday then sees that day.
+  const commaClock = /^(.*\d),\s+(\S.*)$/.exec(text);
+  const commaIsClock = !!(commaClock && clockFits(commaClock[2]) && !monthYearOnly(commaClock[1]));
+  if (commaIsClock) text = commaClock[1];
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[Tt\s].*)/.exec(text);
   if (iso && calendarDay(Number(iso[1]), Number(iso[2]), Number(iso[3]))) return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) };
   const yearMonth = /^(\d{4})[-/](\d{1,2})$/.exec(text);
   if (yearMonth && Number(yearMonth[2]) >= 1 && Number(yearMonth[2]) <= 12) return { year: Number(yearMonth[1]), month: Number(yearMonth[2]), day: 1 };
   const monthDashYear = /^(\d{1,2})-(\d{4})$/.exec(text);
   if (monthDashYear && Number(monthDashYear[1]) >= 1 && Number(monthDashYear[1]) <= 12) return { year: Number(monthDashYear[2]), month: Number(monthDashYear[1]), day: 1 };
-  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s.*)?$/.exec(text);
+  // A numeric year is four digits or exactly two. 1/1/100 is not a date.
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?:\s.*)?$/.exec(text);
   if (slash && calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2]))) return { year: expandYear(slash[3]), month: Number(slash[1]), day: Number(slash[2]) };
   const slashNamed = /^(\d{1,4})[/.]([A-Za-z]+)[/.](\d{1,4})(?:\s.*)?$/.exec(text);
   if (slashNamed) {
@@ -333,23 +354,36 @@ function calendarOf(value) {
     const named = dashedNamedParts(dashedName[1], dashedName[2], dashedName[3]);
     if (named) return named;
   }
-  const numericDash = /^(\d{1,2})-(\d{1,2})-(\d{2,4})(?:\s.*)?$/.exec(text);
+  const numericDash = /^(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})(?:\s.*)?$/.exec(text);
   if (numericDash) {
     const dashed = numericDashParts(numericDash[1], numericDash[2], numericDash[3]);
     if (dashed) return dashed;
   }
   const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:$|\s.*|[Tt].*)/.exec(text);
   if (dots && calendarDay(Number(dots[1]), Number(dots[2]), Number(dots[3]))) return { year: Number(dots[1]), month: Number(dots[2]), day: Number(dots[3]) };
+  // A colon stops the host treating M.d.yyyy as a dotted number. A comma clock is that same colon. Month 13 and a bare dotted date are not a day.
+  const usDots = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\S.*))?$/.exec(text);
+  if (usDots) {
+    const rest = usDots[4];
+    const followed = commaIsClock && !rest ? commaClock[2] : rest;
+    const year = Number(usDots[3]);
+    const month = Number(usDots[1]);
+    const day = Number(usDots[2]);
+    if (followed && followed.includes(':') && clockFits(followed) && calendarDay(year, month, day)) return { year, month, day };
+  }
   const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})$/.exec(text);
   if (monthYear && monthIndex(monthYear[1])) return { year: Number(monthYear[2]), month: monthIndex(monthYear[1]), day: 1 };
   const yearMonthName = /^(\d{4})\s+([A-Za-z]+\.?)$/.exec(text);
   if (yearMonthName && monthIndex(yearMonthName[2])) return { year: Number(yearMonthName[1]), month: monthIndex(yearMonthName[2]), day: 1 };
-  const yearFirst = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s.*)?$/.exec(text);
+  // 100 Jan 1 is year 100. 6 Jan 1 stays day-first: one or two digits never reach this path.
+  const yearFirst = /^(\d{3,4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s.*)?$/.exec(text);
   if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return { year: Number(yearFirst[1]), month: monthIndex(yearFirst[2]), day: Number(yearFirst[3]) };
-  const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d),?\s*(\d{1,4})(?!\d)(?:\s.*)?$/.exec(text);
+  // November 13-2026 is 13 November 2026. A hyphen hides that year from a clock; a slash does not.
+  const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d)(,\s*|\s+|[-/])(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(text);
   if (ahead && monthIndex(ahead[1])) {
-    const parts = spacedParts(ahead[2], ahead[1], ahead[3]);
-    if (parts) return parts;
+    const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
+    if (ahead[3] === '-' && ahead[5]) return null;
+    if (parts && (ahead[3] === '-' || clockOrZone(ahead[5], parts.year, parts.month, parts.day))) return parts;
   }
   const behind = /^(\d{1,2}),?\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s.*)?$/.exec(text);
   if (behind && monthIndex(behind[2])) {
@@ -367,10 +401,13 @@ function clockOrZone(rest, year, month, day) {
 }
 
 function namedDay(value) {
-  const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d),?\s*(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(value);
+  // Same day/year separator as calendarOf. A hyphen with a clock or offset is not a date.
+  const ahead = /^([A-Za-z]+\.?),?\s*(\d{1,4})(?!\d)(,\s*|\s+|[-/])(\d{1,4})(?!\d)(?:\s+(.*))?$/.exec(value);
   if (ahead && monthIndex(ahead[1])) {
-    const parts = spacedParts(ahead[2], ahead[1], ahead[3]);
-    return !!parts && clockOrZone(ahead[4], parts.year, parts.month, parts.day);
+    const parts = spacedParts(ahead[2], ahead[1], ahead[4]);
+    if (ahead[3] === '-' && ahead[5]) return false;
+    if (ahead[3] === '-') return !!parts;
+    return !!parts && clockOrZone(ahead[5], parts.year, parts.month, parts.day);
   }
   const behind = /^(\d{1,2}),?\s+([A-Za-z]+\.?)(?:,\s*|\s+)(\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (behind && monthIndex(behind[2])) {
@@ -425,8 +462,11 @@ function dateFits(value) {
   // One comma between a date already accepted and its clock. Nov 13, 2026 stays a date: 2026 is not a clock.
   const commaClock = /^(.*\d),\s+(\S.*)$/.exec(value);
   if (commaClock && clockFits(commaClock[2]) && !monthYearOnly(commaClock[1])) {
-    const when = calendarOf(commaClock[1]);
-    if (when && calendarDay(when.year, when.month, when.day) && dateFits(commaClock[1])) return clockOrZone(commaClock[2], when.year, when.month, when.day);
+    const when = calendarOf(value);
+    // 100 Jan 1, 15:00 is not a clock on a three-digit year. Four-digit years still use the comma.
+    // 11.13.2026 is a day only when a colon clock follows. 13.11.2026 is not month 13.
+    const bareUsDots = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.test(commaClock[1]) && commaClock[2].includes(':');
+    if (when && calendarDay(when.year, when.month, when.day) && (dateFits(commaClock[1]) || bareUsDots) && !/^\d{3}(?!\d)\s+[A-Za-z]+\.?\s+\d{1,2}(?!\d)/.test(commaClock[1])) return clockOrZone(commaClock[2], when.year, when.month, when.day);
   }
   const yearMonth = /^(\d{4})-(\d{1,2})(?:\s+(\S.*))?$/.exec(value);
   if (yearMonth) {
@@ -449,7 +489,10 @@ function dateFits(value) {
     const clockText = leadClock[2] ? `${leadClock[1]} ${leadClock[2]}` : leadClock[1];
     const datePart = leadClock[3];
     // A leading clock on a month and year is the first day: 15:00 November 2026.
-    if (clockFits(clockText) && dateFits(datePart)) {
+    // On a three-digit year the host accepts only "3 PM", not "3PM" or "15:00".
+    const threeDigitYear = /^\d{3}(?!\d)\s+[A-Za-z]+\.?\s+\d{1,2}(?!\d)/.test(datePart);
+    const bareMeridian = /^\d{1,2}\s+[ap]m$/i.test(clockText);
+    if (clockFits(clockText) && dateFits(datePart) && !(threeDigitYear && !bareMeridian)) {
       const when = calendarOf(datePart);
       if (when && calendarDay(when.year, when.month, when.day)) return instantFits(when.year, when.month, when.day, clockText);
     }
@@ -468,7 +511,8 @@ function dateFits(value) {
     }
     return timedDay(year, month, day, separator, rest);
   }
-  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(.*))?$/.exec(value);
+  // A numeric year is four digits or exactly two. 1/1/100 and Friday, 1/1/100 are not dates.
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?:\s+(.*))?$/.exec(value);
   if (slash) return calendarDay(expandYear(slash[3]), Number(slash[1]), Number(slash[2])) && clockOrZone(slash[4], expandYear(slash[3]), Number(slash[1]), Number(slash[2]));
   const slashNamed = /^(\d{1,4})[/.]([A-Za-z]+)[/.](\d{1,4})(?:\s+(.*))?$/.exec(value);
   if (slashNamed) {
@@ -492,13 +536,23 @@ function dateFits(value) {
     const named = dashedNamedParts(dashedName[1], dashedName[2], dashedName[3]);
     if (named) return clockOrZone(dashedName[4], named.year, named.month, named.day);
   }
-  const dashed = /^(\d{1,2})-(\d{1,2})-(\d{2,4})(?:\s+(.*))?$/.exec(value);
+  const dashed = /^(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})(?:\s+(.*))?$/.exec(value);
   if (dashed) {
     const named = numericDashParts(dashed[1], dashed[2], dashed[3]);
     if (named) return clockOrZone(dashed[4], named.year, named.month, named.day);
   }
   const dots = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:$|([Tt\s])(.*))$/.exec(value);
   if (dots) return timedDay(Number(dots[1]), Number(dots[2]), Number(dots[3]), dots[4], dots[5]);
+  // A colon stops the host treating M.d.yyyy as a dotted number. 11.13.2026 15:00 is 2026-11-13T15:00:00Z. No clock, and month 13, stay false.
+  const usDots = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\S.*))?$/.exec(value);
+  if (usDots) {
+    const rest = usDots[4];
+    if (!rest || !rest.includes(':')) return false;
+    const year = Number(usDots[3]);
+    const month = Number(usDots[1]);
+    const day = Number(usDots[2]);
+    return calendarDay(year, month, day) && clockFits(rest) && instantFits(year, month, day, rest);
+  }
   const isoZone = /^(\d{4})-(\d{1,2})-(\d{1,2})\s*(Z|GMT)$/i.exec(value);
   if (isoZone) return calendarDay(Number(isoZone[1]), Number(isoZone[2]), Number(isoZone[3]));
   const monthYear = /^([A-Za-z]+\.?)(?:,\s*|\s+|\/)(\d{4})(?:\s+(\S.*))?$/.exec(value);
@@ -511,13 +565,24 @@ function dateFits(value) {
     const fits = monthYearOffset(yearMonthName[3], Number(yearMonthName[1]), monthIndex(yearMonthName[2]));
     if (fits !== null) return fits;
   }
-  const yearFirst = /^(\d{4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s+(.*))?$/.exec(value);
-  if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) return clockOrZone(yearFirst[4], Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]));
+  const yearFirst = /^(\d{3,4})\s+([A-Za-z]+\.?)\s+(\d{1,2})(?:\s+(.*))?$/.exec(value);
+  if (yearFirst && monthIndex(yearFirst[2]) && calendarDay(Number(yearFirst[1]), monthIndex(yearFirst[2]), Number(yearFirst[3]))) {
+    const year = Number(yearFirst[1]);
+    const month = monthIndex(yearFirst[2]);
+    const day = Number(yearFirst[3]);
+    // Three digits keep midnight, Z, or GMT. A clock or +10:00 is not a year once the host sees it.
+    if (yearFirst[1].length === 3) {
+      const rest = String(yearFirst[4] || '').trim();
+      return rest === '' || /^(?:z|gmt)$/i.test(rest);
+    }
+    return clockOrZone(yearFirst[4], year, month, day);
+  }
   const named = namedDay(value);
   if (named !== null) return named;
   const rfc = rfc1123(value);
   if (rfc !== null) return rfc;
-  const lead = /^((?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?))(?:[.,]\s*|\s+)(.+)$/i.exec(value);
+  // Fri., is the same abbreviation as Fri. One of . or , would leave the comma on the date.
+  const lead = /^((?:sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?))(?:\.,?\s*|,\s*|\s+)(.+)$/i.exec(value);
   if (lead) {
     if (!dateFits(lead[2])) return false;
     const found = calendarOf(lead[2]);
@@ -708,6 +773,17 @@ export function bucketsToBarList(ui, buckets, opts) {
   return ui.barList((buckets || []).map((b) => ({ key: b.key, count: b.count })), opts);
 }
 
+// Wildcard contains is rejected on flattened data and labels, including every sub-key. Prefix stays.
+export function filterOperators(type, field) {
+  const flattened = field === 'data' || field === 'labels' || (typeof field === 'string' && (field.startsWith('data.') || field.startsWith('labels.')));
+  const text = [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['prefix', 'starts with'], ['contains', 'contains'], ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than']];
+  if (type === 'date') return [['equals', 'equals'], ['gt', 'after'], ['lt', 'before'], ['exists', 'exists'], ['notExists', 'does not exist']];
+  if (type === 'ip') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['exists', 'exists'], ['notExists', 'does not exist']];
+  if (type === 'number' || type === 'wholenumber') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['gt', 'greater than'], ['lt', 'less than'], ['exists', 'exists'], ['notExists', 'does not exist']];
+  if (type === 'boolean') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['exists', 'exists'], ['notExists', 'does not exist']];
+  return flattened ? text.filter(([op]) => op !== 'contains') : text;
+}
+
 /** Overview drill-down: a missing-value bucket is notExists, not the literal "(none)". */
 export function drillFilter(query, key, field) {
   if (query?.[`${key}Missing`] === '1') return { field, operator: 'notExists', values: [] };
@@ -819,22 +895,17 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
     return String(state.fields.find((f) => f.path === path)?.type || 'Keyword').toLowerCase();
   }
 
-  function operatorsFor(type) {
-    const text = [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['prefix', 'starts with'], ['contains', 'contains'], ['exists', 'exists'], ['notExists', 'does not exist'], ['gt', 'greater than'], ['lt', 'less than']];
-    if (type === 'date') return [['equals', 'equals'], ['gt', 'after'], ['lt', 'before'], ['exists', 'exists'], ['notExists', 'does not exist']];
-    if (type === 'ip') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['exists', 'exists'], ['notExists', 'does not exist']];
-    if (type === 'number' || type === 'wholenumber') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['in', 'is one of (comma separated)'], ['notIn', 'is not one of'], ['gt', 'greater than'], ['lt', 'less than'], ['exists', 'exists'], ['notExists', 'does not exist']];
-    if (type === 'boolean') return [['equals', 'equals'], ['notEquals', 'does not equal'], ['exists', 'exists'], ['notExists', 'does not exist']];
-    return text;
+  function operatorsFor(type, field) {
+    return filterOperators(type, field);
   }
 
   async function addFilterDialog(preset) {
     const fieldSel = ctx.ui.dropdown(state.fields.filter((f) => !selectField(f.path)).map((f) => ({ value: f.path, label: `${f.label} (${f.path})` })), { value: preset?.field || '', ariaLabel: 'Field' });
-    const opSel = ctx.ui.dropdown(operatorsFor(fieldType(fieldSel.value)), { value: 'equals', ariaLabel: 'Operator' });
+    const opSel = ctx.ui.dropdown(operatorsFor(fieldType(fieldSel.value), fieldSel.value), { value: 'equals', ariaLabel: 'Operator' });
     const valueInput = h('input', { class: 'input', value: preset?.value || '', placeholder: 'value' });
     const syncOperator = () => {
       const type = fieldType(fieldSel.value);
-      opSel.setOptions(operatorsFor(type));
+      opSel.setOptions(operatorsFor(type, fieldSel.value));
       valueInput.placeholder = type === 'date' ? '2026-11-13T00:00:00Z' : type === 'boolean' ? 'true or false' : type === 'ip' ? '203.0.113.10' : 'value';
     };
     fieldSel.addEventListener('change', syncOperator);
@@ -846,7 +917,7 @@ export function createExplorer(el, ctx, { source, columns, sort = 'desc', defaul
       const type = fieldType(fieldSel.value);
       if (selectField(fieldSel.value)) { ctx.ui.panelNote(box, 'That field is set by a control on this page.'); return false; }
       const values = op.endsWith('xists') ? [] : (op === 'in' || op === 'notIn' ? valueInput.value.split(',').map((s) => s.trim()).filter(Boolean) : [valueInput.value.trim()]);
-      if (!operatorsFor(type).some(([value]) => value === op)) { ctx.ui.panelNote(box, 'That operator is not valid for this field.'); return false; }
+      if (!operatorsFor(type, fieldSel.value).some(([value]) => value === op)) { ctx.ui.panelNote(box, 'That operator is not valid for this field.'); return false; }
       if (!op.endsWith('xists') && values.length === 0) { ctx.ui.panelNote(box, 'A value is required.'); valueInput.classList.add('invalid'); return false; }
       if (op === 'contains' && values.some((value) => value.length > 64)) { ctx.ui.panelNote(box, 'Contains filters are limited to 64 characters.'); valueInput.classList.add('invalid'); return false; }
       if (values.some((value) => !valueFits(type, value))) { ctx.ui.panelNote(box, `Enter a valid ${type === 'wholenumber' ? 'number' : type}.`); valueInput.classList.add('invalid'); return false; }

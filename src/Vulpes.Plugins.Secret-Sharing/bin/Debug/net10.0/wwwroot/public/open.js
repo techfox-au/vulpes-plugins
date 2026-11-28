@@ -1,6 +1,10 @@
 import { VulpesPow, statusLabel } from '/assets/js/pow.js?v=pow4';
 import { openKind } from './open-kind.js?v=key6';
 
+function canRetry(sk, password) {
+  return !!sk || !!password;
+}
+
 (async function () {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
@@ -48,7 +52,7 @@ import { openKind } from './open-kind.js?v=key6';
     if (!skPackage) { fail('This secret is password-protected, but the link does not contain a wrapped key.'); return; }
     passwordWrap.classList.remove('hidden');
     revealBtn.disabled = true;
-    passwordEl.addEventListener('input', () => { if (!keyRejected) revealBtn.disabled = passwordEl.value.length === 0; });
+    passwordEl.addEventListener('input', () => { if (!keyRejected) revealBtn.disabled = !canRetry(sk, passwordEl.value); });
   } else if (!sk) {
     fail('Missing or invalid decryption key. Open the full link including the #sk= fragment.');
     return;
@@ -109,7 +113,7 @@ import { openKind } from './open-kind.js?v=key6';
     revealing = true;
     revealBtn.disabled = true;
     try {
-      if (meta.passwordProtected && !passwordEl.value) {
+      if (meta.passwordProtected && !canRetry(sk, passwordEl.value)) {
         setAlert('danger', 'Link password is required.');
         revealBtn.disabled = false;
         revealing = false;
@@ -171,6 +175,7 @@ import { openKind } from './open-kind.js?v=key6';
         renderMeta(null);
         metaBox.append(secretBox(text, hide));
       }
+      if (passwordEl) passwordEl.value = '';
     } catch (err) {
       const message = err.message || 'Could not decrypt the secret.';
       if (message === 'Incorrect decryption key.') {
@@ -186,7 +191,7 @@ import { openKind } from './open-kind.js?v=key6';
       }
       revealing = false;
       setAlert('danger', message);
-      revealBtn.disabled = meta.passwordProtected && !passwordEl.value;
+      revealBtn.disabled = meta.passwordProtected && !canRetry(sk, passwordEl.value);
     }
   }
 
@@ -195,7 +200,6 @@ import { openKind } from './open-kind.js?v=key6';
     const password = passwordEl ? passwordEl.value : '';
     if (!password) throw new Error('Link password is required.');
     sk = await SenditCrypto.unwrapSecretKeyWithPassword(skPackage, password);
-    if (passwordEl) passwordEl.value = '';
     return sk;
   }
 

@@ -2,6 +2,15 @@ import { requireUserDataKey } from '/assets/js/data-key.js?v=shell391';
 import { collectLinkNote } from './link-note.js?v=note1';
 
 const pub = '/plugins/secret-sharing/public';
+
+function parseMaxAccess(value) {
+  const text = String(value ?? '').trim();
+  if (text === '') return null;
+  if (!/^[1-9]\d*$/.test(text)) return false;
+  const n = Number(text);
+  if (n > 100000) return false;
+  return n;
+}
 const expiryChoices = [
   ['1', '1 minute'],
   ['10', '10 minutes'],
@@ -17,7 +26,7 @@ const expiryChoices = [
 
 export async function mount(el, ctx) {
   const root = el.querySelector('#collect-root');
-  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk8`)).then(() => window.SecretUdk.ready());
+  await loadScript('/assets/js/crypto/vulpes-crypto.js?v=crypto3').then(() => window.VulpesCrypto.ready()).then(() => loadScript(`${pub}/udk.js?v=udk9`, 'SecretUdk')).then(() => window.SecretUdk.ready());
   const { h, dropdown, copyToClipboard } = ctx.ui;
   const name = h('input', { class: 'input', maxlength: '256', placeholder: 'e.g. Give me credentials', autocomplete: 'off' });
   const mode = dropdown([['true', 'One-time'], ['false', 'Multi-view until expiry']], { value: 'true', ariaLabel: 'Collect mode' });
@@ -41,7 +50,7 @@ export async function mount(el, ctx) {
     maxWrap.hidden = !multi;
     if (!multi) max.value = '';
   });
-  max.addEventListener('input', () => { const whole = /^\d+/.exec(max.value); max.value = whole ? whole[0] : ''; });
+  max.addEventListener('input', () => { if (parseMaxAccess(max.value) === false) max.value = ''; });
   password.addEventListener('input', () => {
     confirmWrap.hidden = password.value.length === 0;
     if (!password.value) confirm.value = '';
@@ -65,10 +74,10 @@ export async function mount(el, ctx) {
       const udk = await ensureUdk(ctx);
       const oneTime = mode.value !== 'false';
       let maxAccessCount = null;
-      if (!oneTime && max.value.trim()) {
-        const n = parseInt(max.value.trim(), 10);
-        if (!Number.isFinite(n) || n < 1 || n > 100000) throw new Error('Maximum access count must be a whole number from 1 to 100000.');
-        maxAccessCount = n;
+      if (!oneTime) {
+        const parsed = parseMaxAccess(max.value);
+        if (parsed === false) throw new Error('Maximum access count must be a whole number from 1 to 100000.');
+        maxAccessCount = parsed;
       }
       const linkPassword = password.value;
       if (linkPassword && linkPassword !== confirm.value) throw new Error('Link password and confirmation do not match.');
@@ -160,11 +169,33 @@ function downloadText(filename, text) {
   URL.revokeObjectURL(url);
 }
 
-function loadScript(src) {
-  if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+function scriptLoadDecision(tagPresent, globalReady, error) {
+  if (error) return 'remove';
+  if (tagPresent && globalReady) return 'resolve';
+  return 'load';
+}
+
+function loadScript(src, globalName) {
+  const existing = document.querySelector(`script[src="${src}"]`);
+  const globalReady = !globalName || !!window[globalName];
+  if (scriptLoadDecision(!!existing, globalReady, false) === 'resolve') return Promise.resolve();
+  if (existing) existing.remove();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('Could not load encryption.'));
+    s.src = src;
+    s.onload = () => {
+      const ready = !globalName || !!window[globalName];
+      if (scriptLoadDecision(true, ready, false) !== 'resolve') {
+        s.remove();
+        reject(new Error('Could not load encryption.'));
+        return;
+      }
+      resolve();
+    };
+    s.onerror = () => {
+      if (scriptLoadDecision(true, false, true) === 'remove') s.remove();
+      reject(new Error('Could not load encryption.'));
+    };
     document.head.append(s);
   });
 }

@@ -9,6 +9,9 @@ namespace Vulpes.Plugins.Microsoft365Audit.Collectors;
 /// <summary>Interactive sign-ins (v1.0) plus, when enabled per tenant, non-interactive / service principal / managed identity sign-ins (beta).</summary>
 public sealed class SignInsCollector : ICollector
 {
+    /// <summary>Remembered so turning non-interactive users back on can drop a service-principal-only cursor.</summary>
+    private const string IncludeNonInteractiveKey = "includeNonInteractive";
+
     public string Source => Sources.SignIns;
     public string Title => "Entra ID sign-ins";
     public IReadOnlyList<string> RequiredPermissions => ["AuditLog.Read.All", "Directory.Read.All"];
@@ -25,6 +28,14 @@ public sealed class SignInsCollector : ICollector
         }
 
         // The non-interactive feed keeps its own watermark in the checkpoint state.
+        // A cursor saved while user sign-ins were off is only service principals. Drop it when they are turned back on
+        // so this run starts at the tenant lookback instead of that cursor.
+        var includeUsers = context.Settings.IncludeNonInteractive;
+        if (NonInteractiveUsersTurnedOn(context.State, includeUsers))
+        {
+            DropNonInteractiveCursor(context);
+        }
+
         var state = context.State;
         var nonInteractiveWatermark = state.TryGetValue("nonInteractiveWatermark", out var w) && w.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(w.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : (DateTimeOffset?)null;
         var shadow = new Data.Checkpoint { TenantId = context.Checkpoint.TenantId, Source = Source, Watermark = nonInteractiveWatermark, StateJson = context.Checkpoint.StateJson };
@@ -52,6 +63,7 @@ public sealed class SignInsCollector : ICollector
         }
 
         merged["nonInteractiveWatermark"] = shadow.Watermark?.ToString("O", CultureInfo.InvariantCulture);
+        merged[IncludeNonInteractiveKey] = includeUsers ? "true" : "false";
         context.SaveState(merged);
         var note = second.Note is not null && !second.Complete ? "non-interactive " + second.Note : second.Note ?? result.Note;
         return new CollectorResult(result.Published + second.Published, result.Duplicates + second.Duplicates, result.Failed + second.Failed, result.Alerts + second.Alerts, second.Complete, note);
@@ -95,6 +107,9 @@ public sealed class SignInsCollector : ICollector
         /// <summary>Shares the sign-in checkpoint with the interactive feed, so its cursor uses its own keys.</summary>
         protected override string StatePrefix => "nonInteractive";
 
+        /// <summary>Service-principal-only passes must not plant a cursor that later hides non-interactive user sign-ins.</summary>
+        protected override bool AdvanceEmptyWatermarkToNow(CollectorContext context) => context.Settings.IncludeNonInteractive;
+
         protected override string BuildPath(CollectorContext context, DateTimeOffset from)
         {
             var types = context.Settings.IncludeNonInteractive
@@ -122,6 +137,39 @@ public sealed class SignInsCollector : ICollector
             var e = Normalizers.SignIn(record, context.Tenant.TenantId, context.Tenant.DiscoveredName ?? context.Tenant.DisplayName, type);
             return e is null ? null : (e, e.Timestamp);
         }
+    }
+
+    private static bool NonInteractiveUsersTurnedOn(Dictionary<string, JsonElement> state, bool includeNonInteractive)
+    {
+        if (!includeNonInteractive
+            || !state.TryGetValue(IncludeNonInteractiveKey, out var previous)
+            || previous.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        return string.Equals(previous.GetString(), "false", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void DropNonInteractiveCursor(CollectorContext context)
+    {
+        var kept = new Dictionary<string, object?>();
+        foreach (var pair in context.State)
+        {
+            if (pair.Value.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            if (pair.Key is "nonInteractiveWatermark" or "nonInteractiveResumeUrl" or "nonInteractiveWindowNewest")
+            {
+                continue;
+            }
+
+            kept[pair.Key] = pair.Value.GetString();
+        }
+
+        context.SaveState(kept);
     }
 }
 
@@ -229,7 +277,31 @@ public sealed class RiskCollector : ICollector
         var r1 = await new Detections().CollectAsync(context, cancellationToken);
         var r2 = await CollectFeed(context, "riskyUsersWatermark", new Users(), cancellationToken);
         var r3 = await CollectFeed(context, "riskyServicePrincipalsWatermark", new ServicePrincipals(), cancellationToken);
-        return new CollectorResult(r1.Published + r2.Published + r3.Published, r1.Duplicates + r2.Duplicates + r3.Duplicates, r1.Failed + r2.Failed + r3.Failed, r1.Alerts + r2.Alerts + r3.Alerts, r1.Complete && r2.Complete && r3.Complete, r1.Note ?? r2.Note ?? r3.Note);
+        return new CollectorResult(r1.Published + r2.Published + r3.Published, r1.Duplicates + r2.Duplicates + r3.Duplicates, r1.Failed + r2.Failed + r3.Failed, r1.Alerts + r2.Alerts + r3.Alerts, r1.Complete && r2.Complete && r3.Complete, SelectNote(r1, r2, r3));
+    }
+
+    /// <summary>
+    /// The first feed that did not finish, or that failed to index, owns the note.
+    /// When every feed succeeded, the first note is kept.
+    /// </summary>
+    internal static string? SelectNote(CollectorResult first, CollectorResult second, CollectorResult third)
+    {
+        if (!first.Complete || first.Failed > 0)
+        {
+            return first.Note;
+        }
+
+        if (!second.Complete || second.Failed > 0)
+        {
+            return second.Note;
+        }
+
+        if (!third.Complete || third.Failed > 0)
+        {
+            return third.Note;
+        }
+
+        return first.Note ?? second.Note ?? third.Note;
     }
 
     private static async Task<CollectorResult> CollectFeed(CollectorContext context, string stateKey, WatermarkCollector collector, CancellationToken cancellationToken)

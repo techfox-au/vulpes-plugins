@@ -174,6 +174,34 @@ public abstract class WatermarkCollector : ICollector
     /// <summary>Empty for the checkpoint's own feed. A second feed on the same checkpoint adds its own continuation keys.</summary>
     protected virtual string StatePrefix => "";
 
+    /// <summary>
+    /// An empty finished window moves a missing watermark to now. A feed that is only part of its cursor can leave the watermark unset.
+    /// </summary>
+    protected virtual bool AdvanceEmptyWatermarkToNow(CollectorContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return true;
+    }
+
+    /// <summary>
+    /// Recorded time wins. A finished empty window moves a missing watermark to <paramref name="now"/> only when
+    /// <paramref name="advanceEmptyToNow"/> is set; otherwise a null watermark stays null.
+    /// </summary>
+    internal static DateTimeOffset? NextWatermark(DateTimeOffset? max, bool complete, DateTimeOffset? watermark, DateTimeOffset now, bool advanceEmptyToNow)
+    {
+        if (max is { } seen)
+        {
+            return seen;
+        }
+
+        if (!complete || !advanceEmptyToNow)
+        {
+            return watermark;
+        }
+
+        return watermark ?? now;
+    }
+
     private string ResumeKey => StatePrefix.Length == 0 ? ResumeUrlKey : StatePrefix + "ResumeUrl";
 
     private string NewestKey => StatePrefix.Length == 0 ? WindowNewestKey : StatePrefix + "WindowNewest";
@@ -269,8 +297,9 @@ public abstract class WatermarkCollector : ICollector
         }
 
         // Oldest-first: a finished run moves the watermark through the newest record read.
-        // An empty finished run moves the watermark to now. A partial run moves it only past the previous watermark.
-        DateTimeOffset? newWatermark = max ?? (complete ? context.Checkpoint.Watermark ?? context.Now : context.Checkpoint.Watermark);
+        // An empty finished run moves a missing watermark to now unless this feed opts out.
+        // A partial run moves it only past the previous watermark.
+        DateTimeOffset? newWatermark = NextWatermark(max, complete, context.Checkpoint.Watermark, context.Now, AdvanceEmptyWatermarkToNow(context));
         if (newWatermark is { } w)
         {
             if (w > context.Now)
@@ -374,7 +403,8 @@ public abstract class WatermarkCollector : ICollector
         // Drop this feed's cursor only. Another feed keeps its watermark and resume link in the same state.
         SaveContinuation(context, null, null);
 
-        DateTimeOffset? newWatermark = newest ?? context.Checkpoint.Watermark ?? context.Now;
+        // An empty finished window stays put when this feed must not invent a cursor at now.
+        DateTimeOffset? newWatermark = NextWatermark(newest, true, context.Checkpoint.Watermark, context.Now, AdvanceEmptyWatermarkToNow(context));
         if (newWatermark is { } w)
         {
             if (w > context.Now)
@@ -542,5 +572,19 @@ public static class J
     public static int? WholeNumber(this JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
 
-    public static string? Truncate(string? value, int max) => value is null ? null : value.Length <= max ? value : value[..max];
+    public static string? Truncate(string? value, int max)
+    {
+        if (value is null || value.Length <= max)
+        {
+            return value;
+        }
+
+        // A cut between a high and low surrogate would store a lone surrogate. Step back to the pair boundary.
+        if (max > 0 && char.IsHighSurrogate(value[max - 1]) && char.IsLowSurrogate(value[max]))
+        {
+            max--;
+        }
+
+        return value[..max];
+    }
 }

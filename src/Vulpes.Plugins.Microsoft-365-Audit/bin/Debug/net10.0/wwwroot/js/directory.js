@@ -1,5 +1,5 @@
 // Entra directory changes and provisioning (docs/audit-plugin.md).
-import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell390';
+import { createExplorer, outcomeBadge, severityBadge, get, drillFilter } from './common.js?v=shell391';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -28,7 +28,7 @@ export async function mount(el, ctx) {
       const user = drillFilter(q, 'user', 'user.name');
       if (user) filters.push(which === 'provisioning' ? user : { ...user, drill: true });
     } else {
-      filters = carried.filters.map((f) => ({ field: f.field, operator: f.operator, values: [...(f.values || [])], ...(f.drill ? { drill: true } : {}) }));
+      filters = carriedDirectoryFilters(which, carried.filters);
     }
     explorer = createExplorer(host, ctx, {
       initialFilters: filters,
@@ -62,6 +62,16 @@ export async function mount(el, ctx) {
 }
 
 export function unmount() { explorer?.destroy(); explorer = null; }
+
+export function carriedDirectoryFilters(which, filters) {
+  const drop = which === 'provisioning' ? new Set(['event.action', 'labels.category']) : null;
+  return (filters || []).filter((filter) => !drop?.has(filter.field)).map((filter) => ({
+    field: filter.field,
+    operator: filter.operator,
+    values: [...(filter.values || [])],
+    ...(filter.drill ? { drill: true } : {}),
+  }));
+}
 
 function actorCell(h, doc) {
   const name = get(doc, 'user.name');

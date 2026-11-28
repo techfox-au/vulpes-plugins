@@ -128,6 +128,7 @@ public sealed class CollectionScheduler(
 
         var secureScoreNow = !_secureScoreOnStartup;
         var now = timeProvider.GetUtcNow();
+        var consideredTenant = false;
         List<(Tenant Tenant, string Source)> due;
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
@@ -159,6 +160,7 @@ public sealed class CollectionScheduler(
                     }
                 }
 
+                consideredTenant = true;
                 var settings = TenantSettings.Parse(tenant.SettingsJson);
                 foreach (var source in _collectors.Keys)
                 {
@@ -178,13 +180,19 @@ public sealed class CollectionScheduler(
             }
         }
 
-        if (secureScoreNow && due.Any(job => job.Source == Sources.SecureScore))
+        var queuedSecureScore = due.Any(job => job.Source == Sources.SecureScore);
+        if (secureScoreNow && queuedSecureScore)
         {
             logger.LogInformation("Elasticsearch is ready; Secure Score will be collected once at startup");
         }
 
         // A throw while reading the directory must not consume the one startup collection.
-        _secureScoreOnStartup = true;
+        // Skipping every tenant because it is purging must not consume it either.
+        if (queuedSecureScore || (secureScoreNow && consideredTenant))
+        {
+            _secureScoreOnStartup = true;
+        }
+
         return due;
     }
 

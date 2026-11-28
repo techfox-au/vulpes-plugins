@@ -250,6 +250,40 @@ public sealed class SchedulerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_purging_tenant_does_not_spend_the_startup_secure_score_run()
+    {
+        using (var scope = _provider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            db.Checkpoints.Add(new Checkpoint
+            {
+                TenantId = TestContext.Tenant.Id,
+                Source = Sources.SecureScore,
+                NextRunAt = _time.GetUtcNow().AddDays(2),
+            });
+            db.SaveChanges();
+        }
+
+        var scheduler = new CollectionScheduler(
+            _provider.GetRequiredService<IServiceScopeFactory>(),
+            [new ScriptedCollector { Source = Sources.SecureScore }],
+            new GraphClientFactory(new NoHttp(), new GraphCredentialFactory(new FakeProtector()), NullLoggerFactory.Instance, _time),
+            _pipeline,
+            new ReadyStore(),
+            new AuditOptions(),
+            _time,
+            NullLogger<CollectionScheduler>.Instance);
+
+        Assert.True(scheduler.TryBeginPurge(TestContext.Tenant.Id));
+        Assert.Empty(await scheduler.DueJobsAsync(CancellationToken.None));
+        Assert.Empty(await scheduler.DueJobsAsync(CancellationToken.None));
+        scheduler.EndPurge(TestContext.Tenant.Id);
+
+        var due = await scheduler.DueJobsAsync(CancellationToken.None);
+        Assert.Contains(due, job => job.Source == Sources.SecureScore);
+    }
+
+    [Fact]
     public void The_run_budget_is_the_time_left_until_the_deadline()
     {
         var started = new DateTimeOffset(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);

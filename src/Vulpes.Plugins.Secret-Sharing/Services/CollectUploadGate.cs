@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -57,20 +58,21 @@ public sealed class CollectUploadGate : IStartupFilter
     /// The gate runs before forwarded headers, so RemoteIpAddress is still the proxy.
     /// Failure counts are stored under the address the middleware will keep. That walk
     /// stops after ForwardLimit hops (the default is 1) and does not skip every trusted proxy.
+    /// The host drops a link-local zone only after this gate, so the peer is unscoped first.
     /// </summary>
-    private static string BudgetClientKey(HttpContext http)
+    internal static string BudgetClientKey(HttpContext http)
     {
-        var remote = http.Connection.RemoteIpAddress;
+        var remote = UnscopePeer(http.Connection.RemoteIpAddress);
         var options = http.RequestServices.GetService<IOptions<ForwardedHeadersOptions>>()?.Value;
         if (remote is null || options is null || !IsTrustedProxy(remote, options))
         {
-            return ShareScanGuard.ClientKey(http);
+            return remote?.ToString() ?? ShareScanGuard.ClientKey(http);
         }
 
         var parts = http.Request.Headers.GetCommaSeparatedValues(options.ForwardedForHeaderName);
         if (parts.Length == 0)
         {
-            return ShareScanGuard.ClientKey(http);
+            return remote.ToString();
         }
 
         var entryCount = parts.Length;
@@ -103,6 +105,20 @@ public sealed class CollectUploadGate : IStartupFilter
         }
 
         return current.ToString();
+    }
+
+    /// <summary>
+    /// A zone index is not part of the address. fe80::1%12 and fe80::1 are the same peer.
+    /// An address that is already unscoped, including IPv4, stays the same instance.
+    /// </summary>
+    private static IPAddress? UnscopePeer(IPAddress? address)
+    {
+        if (address is null || address.AddressFamily != AddressFamily.InterNetworkV6 || address.ScopeId == 0)
+        {
+            return address;
+        }
+
+        return new IPAddress(address.GetAddressBytes());
     }
 
     /// <summary>

@@ -231,6 +231,51 @@ public sealed class CollectUploadGateTests : IDisposable
         Assert.Null(store.CollectMeta(id));
     }
 
+    [Fact]
+    public async Task A_scoped_link_local_peer_matches_an_unscoped_proxy_and_the_budget_key_has_no_zone()
+    {
+        var stored = IPAddress.Parse("fe80::1");
+        var peer = new IPAddress(stored.GetAddressBytes(), 12);
+        Assert.Equal(12L, peer.ScopeId);
+        Assert.False(stored.Equals(peer));
+        Assert.Contains("%", peer.ToString(), StringComparison.Ordinal);
+
+        var services = new ServiceCollection();
+        services.Configure<ForwardedHeadersOptions>(options => options.KnownProxies.Add(stored));
+        var provider = services.BuildServiceProvider();
+        var context = new DefaultHttpContext { RequestServices = provider };
+        context.Connection.RemoteIpAddress = peer;
+        var key = CollectUploadGate.BudgetClientKey(context);
+        Assert.Equal("fe80::1", key);
+        Assert.DoesNotContain("%", key, StringComparison.Ordinal);
+
+        context.Request.Headers["X-Forwarded-For"] = "203.0.113.50";
+        var forwarded = CollectUploadGate.BudgetClientKey(context);
+        Assert.Equal("203.0.113.50", forwarded);
+        Assert.DoesNotContain("%", forwarded, StringComparison.Ordinal);
+
+        var plain = IPAddress.Parse("192.0.2.10");
+        context.Connection.RemoteIpAddress = plain;
+        context.Request.Headers.Remove("X-Forwarded-For");
+        Assert.Equal(plain.ToString(), CollectUploadGate.BudgetClientKey(context));
+
+        var database = new ShareDatabase(Path.Combine(_dir, "scoped-proxy.db"));
+        var pow = new PowService(database, new GatePowPolicy());
+        var store = new ShareStore(database);
+        var scan = new ShareScanGuard(database, new GatePowPolicy());
+        var id = store.CreateCollect("owner", new CollectInput(Base64Url.Encode(new byte[32]), null, null, null, true, 60, null, false, false, null));
+        var browser = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var challenge = pow.Issue("collect", id, clientId: browser);
+        var (nonce, hash) = Solve(challenge);
+        var visitor = IPAddress.Parse("203.0.113.50");
+        for (var i = 0; i < ShareScanGuard.MaxFailuresInWindow; i++) scan.RecordFailure(visitor.ToString());
+
+        var locked = await RunAsync(database, pow, store, id, browser, challenge.ChallengeId, nonce, hash, remote: peer, scan: scan, forwardedFor: visitor.ToString(), knownProxy: stored);
+        Assert.False(locked.Consumed);
+        Assert.Equal(PowService.SmallBodyBytes, locked.MaxRequestBodySize);
+        Assert.Null(pow.TryConsume("collect", id, challenge.ChallengeId, nonce, hash, browser, PowClock.Stamp(DateTimeOffset.UtcNow)));
+    }
+
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
     private static async Task<GateResult> RunAsync(ShareDatabase database, PowService pow, ShareStore store, string id, string browser, string? challenge, string? nonce, string? hash, string? path = null, IPAddress? remote = null, ShareScanGuard? scan = null, string? forwardedFor = null, IPAddress? knownProxy = null, IReadOnlyList<IPAddress>? knownProxies = null, int? forwardLimit = null)

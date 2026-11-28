@@ -1,5 +1,5 @@
 // Entra ID Protection risk detections and the risk state of users and service principals (docs/audit-plugin.md).
-import { createExplorer, severityBadge, get, drillFilter } from './common.js?v=shell390';
+import { createExplorer, severityBadge, get, drillFilter } from './common.js?v=shell391';
 
 let explorer;
 export async function mount(el, ctx) {
@@ -24,15 +24,10 @@ export async function mount(el, ctx) {
       h('button', { class: 'tab' + (type === 'servicePrincipal' ? ' active' : ''), role: 'tab', onClick: () => show('servicePrincipal') }, 'Risky service principals'));
     explorer?.destroy();
     clear(host);
-    const filters = [];
+    const filters = carried ? carriedRiskFilters(type, carried.filters) : [];
     if (!carried) {
       const level = drillFilter(q, 'level', 'labels.riskLevel');
       if (level) filters.push(level);
-    } else {
-      for (const filter of carried.filters) {
-        if (filter.field === 'labels.riskType') continue;
-        filters.push({ field: filter.field, operator: filter.operator, values: [...(filter.values || [])] });
-      }
     }
     explorer = createExplorer(host, ctx, {
       source: 'risk',
@@ -59,3 +54,11 @@ export async function mount(el, ctx) {
 }
 
 export function unmount() { explorer?.destroy(); explorer = null; }
+
+export function carriedRiskFilters(type, filters) {
+  return (filters || []).filter((filter) => filter.field !== 'labels.riskType' && !(type === 'servicePrincipal' && filter.field === 'user.name')).map((filter) => ({
+    field: filter.field,
+    operator: filter.operator,
+    values: [...(filter.values || [])],
+  }));
+}

@@ -181,12 +181,17 @@
   async function restore(epoch) {
     const rec = readSession();
     if (epoch !== bootEpoch) throw new Error("Encryption failed.");
-    if (!rec || rec.v !== 3 || !rec.userId || rec.key) {
+    if (rec && (rec.v !== 3 || !rec.userId || rec.key)) {
       await clearUserDataKey();
       return;
     }
     const limit = await loadIdleMs();
     if (epoch !== bootEpoch) throw new Error("Encryption failed.");
+    // sessionStorage is per tab. The database is shared, so a tab with no record must not delete it while this account is still signed in.
+    if (!rec) {
+      if (limit === 0) await clearUserDataKey();
+      return;
+    }
     if (limit === 0 || (sessionUserId && sessionUserId !== String(rec.userId)) || Date.now() - Number(rec.touched || 0) > limit) {
       await clearUserDataKey();
       return;

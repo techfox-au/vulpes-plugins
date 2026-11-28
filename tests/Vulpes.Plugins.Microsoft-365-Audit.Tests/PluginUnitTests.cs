@@ -266,6 +266,20 @@ public sealed class NormalizerCoverageTests
         Assert.Equal("ab", J.Truncate("abc", 2));
         Assert.Null(J.Truncate(null, 2));
     }
+
+    [Fact]
+    public void Truncate_does_not_split_a_surrogate_pair()
+    {
+        const string emoji = "\U0001F600";
+        Assert.Equal(2, emoji.Length);
+        var cut = J.Truncate(emoji, 1);
+        Assert.True(cut is "" or emoji);
+        Assert.NotEqual(emoji[..1], cut);
+        Assert.Equal("ab", J.Truncate("abc", 2));
+        var mixed = J.Truncate("a" + emoji, 2);
+        Assert.True(mixed is "a" or "a" + emoji);
+        Assert.NotEqual("a" + emoji[..1], mixed);
+    }
 }
 
 public sealed class MoreCollectorTests

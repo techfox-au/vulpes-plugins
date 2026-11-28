@@ -666,12 +666,16 @@ public static class Normalizers
         }
 
         var value = ip.Trim();
-        // Purview sometimes reports "1.2.3.4:443" or "[2001:db8::1]:443".
+        // Purview sometimes reports "1.2.3.4:443", "[2001:db8::1]:443", or a bracketed address with no port.
         if (value.StartsWith('[') && value.Contains("]:", StringComparison.Ordinal))
         {
             value = value[1..value.IndexOf("]:", StringComparison.Ordinal)];
         }
-        else if (value.Count(c => c == ':') == 1)
+        else if (value.Length >= 2 && value[0] == '[' && value[^1] == ']')
+        {
+            value = value[1..^1];
+        }
+        else if (value.Count(static c => c == ':') == 1)
         {
             value = value[..value.IndexOf(':', StringComparison.Ordinal)];
         }
